@@ -121,6 +121,8 @@ jQuery(document).ready(function($) {
      * Load initial stats from database
      */
     function loadInitialStats() {
+        console.log('STATS-REFRESH-DEBUG: ===== loadInitialStats() CALLED =====');
+        
         $.ajax({
             url: imageSeoData.ajaxUrl,
             type: 'POST',
@@ -129,14 +131,20 @@ jQuery(document).ready(function($) {
                 nonce: imageSeoData.nonce
             },
             success: function(response) {
+                console.log('STATS-REFRESH-DEBUG: Stats AJAX response:', response);
+                
                 if (response.success && response.data.has_data) {
+                    console.log('STATS-REFRESH-DEBUG: Stats data received:', response.data.stats);
                     // Update stats if data exists
                     updateStats(response.data.stats);
+                } else {
+                    console.log('STATS-REFRESH-DEBUG: No stats data available');
                 }
                 // If no data, keep "--" placeholders
             },
-            error: function() {
-                console.log('Failed to load initial stats');
+            error: function(xhr, status, error) {
+                console.error('STATS-REFRESH-DEBUG: Failed to load stats');
+                console.error('STATS-REFRESH-DEBUG: Error:', error);
             }
         });
     }
@@ -985,6 +993,9 @@ jQuery(document).ready(function($) {
     function deleteImage(attachmentId, $row) {
         console.log('FEATURE-DELETE: Deleting image ID:', attachmentId);
         $row.find('.action-status').html('<span class="spinner is-active"></span> Deleting...');
+        console.log('FEATURE-DELETE: Deleting image ID:', attachmentId);
+        console.log('FEATURE-DELETE: AJAX URL:', imageSeoData.ajaxUrl);
+        console.log('FEATURE-DELETE: Nonce:', imageSeoData.nonce);
         
         $.ajax({
             url: imageSeoData.ajaxUrl,
@@ -994,22 +1005,45 @@ jQuery(document).ready(function($) {
                 nonce: imageSeoData.nonce,
                 attachment_id: attachmentId
             },
+            beforeSend: function(xhr, settings) {
+                console.log('FEATURE-DELETE: AJAX request starting...');
+                console.log('FEATURE-DELETE: Request data:', settings.data);
+            },
             success: function(response) {
+                console.log('FEATURE-DELETE: AJAX success response:', response);
+                console.log('FEATURE-DELETE: response.success:', response.success);
+                console.log('FEATURE-DELETE: response.data:', response.data);
+                
                 if (response.success) {
-                    console.log('FEATURE-DELETE: Image deleted successfully');
-                    showToast('Image deleted successfully', 'success');
+                    console.log('FEATURE-DELETE: Backend confirmed deletion');
+                    
+                    // Remove from scannedImages array
+                    scannedImages = scannedImages.filter(img => img.id !== attachmentId);
+                    console.log('FEATURE-DELETE: Removed from scannedImages array. New count:', scannedImages.length);
+                    
+                    // Remove row from UI
                     $row.fadeOut(300, function() {
                         $(this).remove();
                     });
+                    
+                    showToast('Image deleted successfully', 'success');
+                    
+                    // Refresh stats after deletion
+                    console.log('FEATURE-DELETE: Refreshing stats...');
+                    loadInitialStats();
                 } else {
-                    console.log('FEATURE-DELETE: Delete failed:', response.data.message);
-                    showToast('Failed to delete: ' + response.data.message, 'error');
-                    $row.find('.action-status').html('');
+                    console.error('FEATURE-DELETE: Backend returned error:', response.data);
+                    showToast('Failed to delete: ' + (response.data.message || 'Unknown error'), 'error');
                 }
+                $row.find('.action-status').html('');
             },
-            error: function() {
-                console.log('FEATURE-DELETE: AJAX error during delete');
-                showToast('Error deleting image', 'error');
+            error: function(xhr, status, error) {
+                console.error('FEATURE-DELETE: AJAX error occurred');
+                console.error('FEATURE-DELETE: XHR status:', status);
+                console.error('FEATURE-DELETE: Error:', error);
+                console.error('FEATURE-DELETE: XHR response:', xhr.responseText);
+                console.error('FEATURE-DELETE: XHR full object:', xhr);
+                showToast('Failed to delete image', 'error');
                 $row.find('.action-status').html('');
             }
         });

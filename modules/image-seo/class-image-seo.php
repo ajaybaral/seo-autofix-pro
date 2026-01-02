@@ -946,24 +946,63 @@ class SEOAutoFix_Image_SEO {
      * AJAX: Delete unused image
      */
     public function ajax_delete_image() {
+        error_log('DELETE-BACKEND: ===== ajax_delete_image() CALLED =====');
+        error_log('DELETE-BACKEND: POST data: ' . print_r($_POST, true));
+        
         check_ajax_referer('imageseo_nonce', 'nonce');
+        error_log('DELETE-BACKEND: Nonce verified');
         
         if (!current_user_can('manage_options')) {
+            error_log('DELETE-BACKEND: Permission denied');
             wp_send_json_error(array('message' => 'Insufficient permissions'));
         }
+        error_log('DELETE-BACKEND: Permissions OK');
         
         $attachment_id = isset($_POST['attachment_id']) ? absint($_POST['attachment_id']) : 0;
+        error_log('DELETE-BACKEND: Attachment ID to delete: ' . $attachment_id);
         
         if (!$attachment_id) {
-            wp_send_json_error(array('message' => 'Invalid attachment ID'));
+            error_log('DELETE-BACKEND: No attachment ID provided');
+            wp_send_json_error(array('message' => 'No attachment ID provided'));
         }
         
-        // Delete attachment
+        // Check if attachment exists
+        $attachment = get_post($attachment_id);
+        if (!$attachment) {
+            error_log('DELETE-BACKEND: Attachment not found');
+            wp_send_json_error(array('message' => 'Attachment not found'));
+        }
+        error_log('DELETE-BACKEND: Attachment found: ' . $attachment->post_title);
+        
+        // Delete the attachment
         $deleted = wp_delete_attachment($attachment_id, true);
+        error_log('DELETE-BACKEND: wp_delete_attachment returned: ' . print_r($deleted, true));
         
         if ($deleted) {
+            error_log('DELETE-BACKEND: SUCCESS - Image deleted from WordPress');
+            
+            // ALSO DELETE FROM HISTORY TABLE
+            error_log('DELETE-BACKEND: Removing from image_history table...');
+            global $wpdb;
+            $table_name = $wpdb->prefix . 'seoautofix_image_history';
+            
+            $history_deleted = $wpdb->delete(
+                $table_name,
+                array('attachment_id' => $attachment_id),
+                array('%d')
+            );
+            
+            error_log('DELETE-BACKEND: History table rows deleted: ' . $history_deleted);
+            
+            if ($history_deleted) {
+                error_log('DELETE-BACKEND: ✅ COMPLETE - Image deleted from both WordPress AND history table');
+            } else {
+                error_log('DELETE-BACKEND: ⚠️  WARNING - Image deleted from WordPress but history table update failed or no record existed');
+            }
+            
             wp_send_json_success(array('message' => 'Image deleted successfully'));
         } else {
+            error_log('DELETE-BACKEND: FAILED - wp_delete_attachment returned false');
             wp_send_json_error(array('message' => 'Failed to delete image'));
         }
     }

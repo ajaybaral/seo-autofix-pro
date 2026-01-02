@@ -164,6 +164,29 @@ class Image_History {
         error_log('IMAGESEO DEBUG: Table name: ' . $this->table_name);
         error_log('CLASSIFICATION-DEBUG: === STATISTICS BREAKDOWN ===');
         
+        // ORPHAN DETECTION - Find records where WordPress attachment no longer exists
+        $all_ids = $wpdb->get_col("SELECT DISTINCT attachment_id FROM {$this->table_name}");
+        error_log('ORPHAN-DEBUG: ===== CHECKING FOR ORPHAN RECORDS =====');
+        error_log('ORPHAN-DEBUG: Total attachment IDs in history table: ' . count($all_ids));
+        
+        $orphan_ids = array();
+        foreach ($all_ids as $att_id) {
+            if (!get_post($att_id)) {
+                $orphan_ids[] = $att_id;
+            }
+        }
+        
+        error_log('ORPHAN-DEBUG: Found ' . count($orphan_ids) . ' ORPHAN records (in history but deleted from WordPress)');
+        if (!empty($orphan_ids)) {
+            error_log('ORPHAN-DEBUG: Orphan IDs: ' . implode(', ', $orphan_ids));
+            error_log('ORPHAN-DEBUG: These ' . count($orphan_ids) . ' records are inflating your stats!');
+            error_log('ORPHAN-DEBUG: Auto-cleaning orphans...');
+            
+            // Auto-cleanup orphans
+            $cleaned = $this->cleanup_orphans();
+            error_log('ORPHAN-DEBUG: ✅ Auto-cleanup removed ' . $cleaned . ' orphan records');
+        }
+        
         // Get raw counts from database
         $total = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$this->table_name}");
         $optimal = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$this->table_name} WHERE status='optimal'");
@@ -243,5 +266,27 @@ class Image_History {
     public function clear_pending() {
         global $wpdb;
         $wpdb->query("DELETE FROM {$this->table_name} WHERE status='blank'");
+    }
+    
+    /**
+     * Clean up orphan records
+     */
+    public function cleanup_orphans() {
+        global $wpdb;
+        
+        error_log('ORPHAN-CLEANUP: Starting cleanup');
+        
+        $all_ids = $wpdb->get_col("SELECT DISTINCT attachment_id FROM {$this->table_name}");
+        $deleted_count = 0;
+        
+        foreach ($all_ids as $att_id) {
+            if (!get_post($att_id)) {
+                $wpdb->delete($this->table_name, array('attachment_id' => $att_id), array('%d'));
+                $deleted_count++;
+            }
+        }
+        
+        error_log('ORPHAN-CLEANUP: Removed ' . $deleted_count . ' orphan records');
+        return $deleted_count;
     }
 }
