@@ -95,6 +95,27 @@
     color: #fff !important;
 }
 
+/* UX-IMPROVEMENT: Active state for main clickable stat cards */
+.stat-card.clickable {
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stat-card.clickable:hover {
+    transform: translateY(-2px);
+}
+
+.stat-card.clickable.active {
+    background: #2271b1;
+    border-color: #135e96;
+    box-shadow: 0 4px 12px rgba(34, 113, 177, 0.3);
+}
+
+.stat-card.clickable.active .stat-number,
+.stat-card.clickable.active .stat-label {
+    color: #fff !important;
+}
+
 .stat-card.stat-success {
     border-color: #00a32a;
     background: linear-gradient(135deg, #f6fef9 0%, #ffffff 100%);
@@ -636,6 +657,70 @@
     box-shadow: 0 0 0 1px #2271b1;
 }
 
+
 .stat-card.filter-active .stat-number {
     color: #2271b1;
+}
+
+/* Post/Page Heading Rows */
+.post-page-heading {
+    background: #f0f6fc;
+    border-left: 4px solid #2271b1;
+    font-weight: 600;
+}
+
+.post-page-heading td {
+    padding: 12px 16px !important;
+}
+
+.post-page-heading h3 {
+    margin: 0;
+    font-size: 14px;
+    color: #2271b1;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.post-page-heading.page-type {
+    background: #f6fef9;
+    border-left-color: #00a32a;
+}
+
+.post-page-heading.page-type h3 {
+    color: #00a32a;
+}
+
+/* Images within grouped sections */
+.post-page-heading + .result-row {
+    border-top: none;
+}
+
+/* Optimized images visual distinction */
+.image-optimized {
+    background-color: #f0f9f4 !important;
+    border-left: 3px solid #00a32a !important;
+}
+
+.image-optimized:hover {
+    background-color: #e6f7ec !important;
+}
+
+.image-optimized .apply-btn {
+    background: #00a32a !important;
+    color: white !important;
+    cursor: default !important;
+}
+
+/* ===== UX REDESIGN: Stat cards are now display-only ===== */
+.stat-card.clickable,
+.stat-subcard.clickable {
+    cursor: default !important;
+    pointer-events: none !important; /* CRITICAL: Completely disable clicks */
+}
+
+.stat-card.clickable:hover,
+.stat-subcard.clickable:hover {
+    transform: none !important;
 }

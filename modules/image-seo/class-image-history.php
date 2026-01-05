@@ -231,14 +231,99 @@ class Image_History {
         }
         
         // Map to frontend-expected field names (NEW STRUCTURE)
+        // FIX: Do NOT count 'generate' status as optimized!
+        // 'generate' = user queued AI generation but hasn't applied it yet
+        // Only count 'optimal' (score >75) and 'optimized' (manually marked)
         $stats = array(
             'total' => $total,
             'low_score_empty' => $empty,  // Empty alt text
             'low_score_with_alt' => $low_score_blank,  // Has alt but low score
-            'optimized' => $optimal + $generate + $optimized_status  // All "good" images combined
+            'optimized' => $optimal + $optimized_status  // FIXED: Exclude $generate
         );
         
-        error_log('CLASSIFICATION-DEBUG: NEW STATS FORMAT - low_score_empty:' . $empty . ' low_score_with_alt:' . $low_score_blank . ' optimized:' . ($optimal + $generate + $optimized_status));
+        error_log('========================================');
+        error_log('MISSING-9-DEBUG: ===== FINDING THE 9 MISSING IMAGES =====');
+        error_log('MISSING-9-DEBUG: TOTAL in database: ' . $total);
+        error_log('MISSING-9-DEBUG: Status breakdown:');
+        error_log('MISSING-9-DEBUG:   - optimal: ' . $optimal);
+        error_log('MISSING-9-DEBUG:   - blank: ' . $blank);
+        error_log('MISSING-9-DEBUG:   - generate: ' . $generate);
+        error_log('MISSING-9-DEBUG:   - optimized: ' . $optimized_status);
+        error_log('MISSING-9-DEBUG:   - skipped: ' . $skipped);
+        
+        $accounted_for = $optimal + $blank + $generate + $optimized_status + $skipped;
+        error_log('MISSING-9-DEBUG: Sum of all statuses: ' . $accounted_for);
+        error_log('MISSING-9-DEBUG: Missing from status count: ' . ($total - $accounted_for));
+        
+        // What's shown to user:
+        $shown_in_stats = $empty + $low_score_blank + ($optimal + $optimized_status);
+        error_log('MISSING-9-DEBUG: ===== WHAT USER SEES =====');
+        error_log('MISSING-9-DEBUG: Empty Alt: ' . $empty);
+        error_log('MISSING-9-DEBUG: Has Alt (Low Score): ' . $low_score_blank);
+        error_log('MISSING-9-DEBUG: Optimized: ' . ($optimal + $optimized_status));
+        error_log('MISSING-9-DEBUG: Total shown in UI: ' . $shown_in_stats);
+        error_log('MISSING-9-DEBUG: ⚠️ MISSING FROM UI: ' . ($total - $shown_in_stats) . ' images!');
+        
+        // Find the missing images
+        $missing_ids = $wpdb->get_results(
+            "SELECT attachment_id, status, issue_type, alt_history 
+             FROM {$this->table_name} 
+             WHERE status NOT IN ('optimal', 'optimized', 'blank')
+             ORDER BY status, attachment_id",
+            ARRAY_A
+        );
+        
+        error_log('MISSING-9-DEBUG: ===== THE MISSING IMAGES =====');
+        error_log('MISSING-9-DEBUG: Found ' . count($missing_ids) . ' images with status NOT IN (optimal, optimized, blank)');
+        foreach ($missing_ids as $img) {
+            $alt_history = json_decode($img['alt_history'], true);
+            $current_alt = isset($alt_history[0]) ? $alt_history[0] : '';
+            error_log('MISSING-9-DEBUG:   ID=' . $img['attachment_id'] . 
+                     ' status="' . $img['status'] . '"' .
+                     ' issue_type="' . $img['issue_type'] . '"' .
+                     ' alt="' . substr($current_alt, 0, 50) . '"');
+        }
+        error_log('========================================');
+        
+        error_log('========================================');
+        error_log('DISCREPANCY-DEBUG: ===== FINDING THE 8 MISSING IMAGES =====');
+        error_log('DISCREPANCY-DEBUG: Stats says OPTIMIZED COUNT: ' . ($optimal + $optimized_status));
+        error_log('DISCREPANCY-DEBUG: Breaking down:');
+        error_log('DISCREPANCY-DEBUG:   - status=optimal: ' . $optimal);
+        error_log('DISCREPANCY-DEBUG:   - status=generate: ' . $generate . ' (EXCLUDED from optimized count - these are queued, not done!)');
+        error_log('DISCREPANCY-DEBUG:   - status=optimized: ' . $optimized_status);
+        
+        // Get ALL IDs that are counted as "optimized" in the stats
+        $optimized_ids = $wpdb->get_col(
+            "SELECT attachment_id FROM {$this->table_name} 
+             WHERE status IN ('optimal', 'optimized')
+             ORDER BY attachment_id"
+        );
+        
+        error_log('DISCREPANCY-DEBUG: IDs counted as optimized in stats (' . count($optimized_ids) . ' total):');
+        error_log('DISCREPANCY-DEBUG: ' . implode(', ', $optimized_ids));
+        
+        // Also get their alt text to check
+        $optimized_details = $wpdb->get_results(
+            "SELECT attachment_id, status, issue_type, alt_history 
+             FROM {$this->table_name} 
+             WHERE status IN ('optimal', 'optimized')
+             ORDER BY attachment_id",
+            ARRAY_A
+        );
+        
+        error_log('DISCREPANCY-DEBUG: Details of optimized images:');
+        foreach ($optimized_details as $img) {
+            $alt_history = json_decode($img['alt_history'], true);
+            $current_alt = isset($alt_history[0]) ? $alt_history[0] : '';
+            error_log('DISCREPANCY-DEBUG:   ID=' . $img['attachment_id'] . 
+                     ' status="' . $img['status'] . '"' .
+                     ' issue_type="' . $img['issue_type'] . '"' .
+                     ' alt="' . substr($current_alt, 0, 50) . '"');
+        }
+        error_log('========================================');
+        
+        error_log('CLASSIFICATION-DEBUG: NEW STATS FORMAT - low_score_empty:' . $empty . ' low_score_with_alt:' . $low_score_blank . ' optimized:' . ($optimal + $optimized_status));
         error_log('IMAGESEO DEBUG: Stats results (mapped for frontend): ' . print_r($stats, true));
         
         return $stats;

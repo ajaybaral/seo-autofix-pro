@@ -144,6 +144,7 @@ class SEOAutoFix_Image_SEO {
         add_action('wp_ajax_imageseo_get_unused_count', array($this, 'ajax_get_unused_count'));
         add_action('wp_ajax_imageseo_create_unused_zip', array($this, 'ajax_create_unused_zip'));
         add_action('wp_ajax_imageseo_bulk_delete_unused', array($this, 'ajax_bulk_delete_unused'));
+        add_action('wp_ajax_imageseo_validate_alt_text', array($this, 'ajax_validate_alt_text'));
     }
     
     /**
@@ -240,22 +241,31 @@ class SEOAutoFix_Image_SEO {
         <?php
     }
     
-    /**
-     * AJAX: Scan images
-     */
     public function ajax_scan_images() {
-        error_log('FEATURE-DEBUG-PHP: === ajax_scan_images() called ===');
+        error_log('========================================');
+        error_log('AJAX-DEBUG-PHP: ===== ajax_scan_images() CALLED =====');
+        error_log('AJAX-DEBUG-PHP: Full $_POST data: ' . print_r($_POST, true));
+        
         check_ajax_referer('imageseo_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
+            error_log('AJAX-DEBUG-PHP: ❌ Permission denied');
             wp_send_json_error(array('message' => 'Insufficient permissions'));
         }
         
         $batch_size = isset($_POST['batch_size']) ? absint($_POST['batch_size']) : 50;
         $offset = isset($_POST['offset']) ? absint($_POST['offset']) : 0;
+        $status_filter = isset($_POST['status_filter']) ? sanitize_text_field($_POST['status_filter']) : 'blank';
+        
+        error_log('AJAX-DEBUG-PHP: Parameters extracted:');
+        error_log('AJAX-DEBUG-PHP:   - batch_size: ' . $batch_size);
+        error_log('AJAX-DEBUG-PHP:   - offset: ' . $offset);
+        error_log('AJAX-DEBUG-PHP:   - status_filter: "' . $status_filter . '"');
+        error_log('AJAX-DEBUG-PHP: Calling analyzer->scan_all_images()...');
+        error_log('========================================');
         
         try {
-            $results = $this->analyzer->scan_all_images($batch_size, $offset, $this->usage_tracker);
+            $results = $this->analyzer->scan_all_images($batch_size, $offset, $this->usage_tracker, $status_filter);
             
             // CALCULATE SEO SCORES for "Before" column
             foreach ($results as &$image) {
@@ -278,6 +288,16 @@ class SEOAutoFix_Image_SEO {
                 error_log('FEATURE-DEBUG-PHP: Sample image data: ' . print_r($results[0], true));
                 error_log('FEATURE-DEBUG-PHP: Fields available: ' . implode(', ', array_keys($results[0])));
                 error_log('FEATURE-DEBUG-PHP: NOW INCLUDES: score_before=' . ($results[0]['score_before'] ?? 'MISSING'));
+                
+                // Debug first 5 images' usage data
+                error_log('USAGE-DEBUG: ===== CHECKING USAGE DATA FOR FIRST 5 IMAGES =====');
+                for ($i = 0; $i < min(5, count($results)); $i++) {
+                    $img = $results[$i];
+                    error_log('USAGE-DEBUG: Image ID ' . $img['id'] . ' (' . $img['filename'] . '):');
+                    error_log('USAGE-DEBUG:   used_in_posts = ' . $img['used_in_posts']);
+                    error_log('USAGE-DEBUG:   used_in_pages = ' . $img['used_in_pages']);
+                    error_log('USAGE-DEBUG:   Is used? ' . (($img['used_in_posts'] > 0 || $img['used_in_pages'] > 0) ? 'YES' : 'NO'));
+                }
             }
             
             // On first batch, populate history table with ALL images
@@ -454,12 +474,47 @@ class SEOAutoFix_Image_SEO {
         try {
             global $wpdb;
             $table_audit = $wpdb->prefix . 'seoautofix_imageseo_audit';
+            $table_history = $wpdb->prefix . 'seoautofix_imageseo_history';
+            
+            // CRITICAL DEBUG: Log the apply attempt
+            error_log('========================================');
+            error_log('APPLY-CHANGE-DEBUG: [Backend] ===== ajax_apply_change() CALLED =====');
+            error_log('APPLY-CHANGE-DEBUG: [Backend] Attachment ID: ' . $attachment_id);
+            error_log('APPLY-CHANGE-DEBUG: [Backend] New alt text: ' . $new_alt);
+            
+            // CRITICAL SAFETY CHECK: Get current status from history table
+            $current_history = $wpdb->get_row($wpdb->prepare(
+                "SELECT status, issue_type FROM $table_history WHERE attachment_id = %d LIMIT 1",
+                $attachment_id
+            ));
+            
+            error_log('APPLY-CHANGE-DEBUG: [Backend] Current status in DB: ' . ($current_history ? $current_history->status : 'NULL'));
+            error_log('APPLY-CHANGE-DEBUG: [Backend] Current issue_type in DB: ' . ($current_history ? $current_history->issue_type : 'NULL'));
+            
+            // BLOCK re-applying to already-optimized images
+            if ($current_history && ($current_history->status === 'optimal' || $current_history->status === 'optimized')) {
+                error_log('❌ APPLY-CHANGE-ERROR: [Backend] ===== BLOCKING RE-APPLY =====');
+                error_log('❌ APPLY-CHANGE-ERROR: [Backend] Image is ALREADY OPTIMIZED! Status: ' . $current_history->status);
+                error_log('❌ APPLY-CHANGE-ERROR: [Backend] This should NOT happen - frontend should block this!');
+                error_log('❌ APPLY-CHANGE-ERROR: [Backend] ===== ACTION BLOCKED =====');
+                error_log('========================================');
+                
+                wp_send_json_error(array(
+                    'message' => 'This image is already optimized and cannot be re-applied.'
+                ));
+                return;
+            }
+            
+            error_log('========================================');
             
             // Get old values
             $old_alt = get_post_meta($attachment_id, '_wp_attachment_image_alt', true);
-            $old_title = get_the_title($attachment_id);
+             $old_title = get_the_title($attachment_id);
             $image_url = wp_get_attachment_url($attachment_id);
             $media_link = admin_url('post.php?post=' . $attachment_id . '&action=edit');
+            
+            error_log('APPLY-CHANGE-DEBUG: [Backend] Old alt text: ' . $old_alt);
+            error_log('APPLY-CHANGE-DEBUG: [Backend] Old title: ' . $old_title);
             
             // Determine action type
             $action_type = empty($old_alt) ? 'Generated' : 'Optimized';
@@ -476,10 +531,16 @@ class SEOAutoFix_Image_SEO {
                 'post_title' => $new_alt
             ));
             
-            // Update audit table
+            // CRITICAL FIX: Update audit table with proper previous alt text
+            // Each edit should update: current → previous, new → current
+            error_log('PREV-ALT-FIX-DEBUG: [Backend] Updating audit table');
+            error_log('PREV-ALT-FIX-DEBUG: [Backend] Setting prev_alt to: ' . $old_alt);
+            error_log('PREV-ALT-FIX-DEBUG: [Backend] Setting new_alt to: ' . $new_alt);
+            
             $wpdb->query($wpdb->prepare(
                 "UPDATE $table_audit 
-                SET new_alt = %s, 
+                SET prev_alt = %s,
+                    new_alt = %s, 
                     prev_title = %s, 
                     new_title = %s, 
                     image_url = %s, 
@@ -491,22 +552,34 @@ class SEOAutoFix_Image_SEO {
                 AND status = 'pending' 
                 ORDER BY created_at DESC 
                 LIMIT 1",
+                $old_alt,   // ✅ CRITICAL FIX: Now setting prev_alt properly
                 $new_alt, $old_title, $new_alt, $image_url, $media_link, $action_type, current_time('mysql'), $attachment_id
             ));
             
+            error_log('PREV-ALT-FIX-DEBUG: [Backend] Audit table updated successfully');
+            
+            // CRITICAL FIX: Use 'optimal' instead of 'optimized' to match frontend checks
             // Update image history table
-            $status = empty($old_alt) ? 'generate' : 'optimized';
+            $status = empty($old_alt) ? 'generate' : 'optimal';
+            
+            error_log('APPLY-CHANGE-DEBUG: [Backend] Setting new status: ' . $status);
+            error_log('APPLY-CHANGE-DEBUG: [Backend] Status logic: ' . (empty($old_alt) ? 'Alt was empty -> generate' : 'Alt existed -> optimal'));
+            
             $this->image_history->update_image_history($attachment_id, array(
                 'new_alt' => $new_alt,
                 'new_title' => $new_alt,
                 'status' => $status
             ));
             
+            error_log('APPLY-CHANGE-DEBUG: [Backend] ✅ Image history updated successfully');
+            error_log('========================================');
+            
             // Log action
             $this->logger->log_action('apply_alt', $attachment_id, array(
                 'old' => $old_alt,
                 'new' => $new_alt
             ));
+            
             
             wp_send_json_success(array(
                 'message' => 'Alt text updated successfully'
@@ -1243,7 +1316,7 @@ class SEOAutoFix_Image_SEO {
      * Get all unused images
      */
     private function get_unused_images() {
-        error_log('BULK-DELETE-BACKEND: get_unused_images() called');
+        error_log('DELETE-UNUSED-DEBUG: [Backend] ===== get_unused_images() CALLED =====');
         
         global $wpdb;
         $table_name = $wpdb->prefix . 'seoautofix_image_history';
@@ -1251,27 +1324,98 @@ class SEOAutoFix_Image_SEO {
         // Get all images from history
         $all_images = $wpdb->get_col("SELECT DISTINCT attachment_id FROM $table_name");
         
-        error_log('BULK-DELETE-BACKEND: Found ' . count($all_images) . ' total images in history');
+        error_log('DELETE-UNUSED-DEBUG: [Backend] Found ' . count($all_images) . ' total images in history table');
         
         $unused_images = array();
         
         foreach ($all_images as $img_id) {
             // Check if attachment still exists
             if (!get_post($img_id)) {
+                error_log('DELETE-UNUSED-DEBUG: [Backend] Image ' . $img_id . ' - attachment no longer exists, skipping');
                 continue;
             }
             
             // Check usage via Image_Usage_Tracker
             $usage = $this->usage_tracker->get_image_usage($img_id);
+            error_log('DELETE-UNUSED-DEBUG: [Backend] Image ' . $img_id . ' - raw usage data: ' . print_r($usage, true));
             
-            if ($usage['used_in_posts'] == 0 && $usage['used_in_pages'] == 0) {
+            // Count posts vs pages from the 'pages' array (same logic as scan)
+            $post_count = 0;
+            $page_count = 0;
+            
+            if (isset($usage['pages']) && is_array($usage['pages'])) {
+                foreach ($usage['pages'] as $page_data) {
+                    if (isset($page_data['type'])) {
+                        if ($page_data['type'] === 'post') {
+                            $post_count++;
+                        } elseif ($page_data['type'] === 'page') {
+                            $page_count++;
+                        }
+                    }
+                }
+            }
+            
+            error_log('DELETE-UNUSED-DEBUG: [Backend] Image ' . $img_id . ' - Posts: ' . $post_count . ', Pages: ' . $page_count);
+            
+            // Image is unused if it's not in any post or page
+            if ($post_count == 0 && $page_count == 0) {
                 $unused_images[] = $img_id;
-                error_log('BULK-DELETE-BACKEND: Image ' . $img_id . ' is unused');
+                error_log('DELETE-UNUSED-DEBUG: [Backend] ✓ Image ' . $img_id . ' is UNUSED - will be included in bulk delete');
+            } else {
+                error_log('DELETE-UNUSED-DEBUG: [Backend] ✗ Image ' . $img_id . ' is USED - excluding from bulk delete');
             }
         }
         
-        error_log('BULK-DELETE-BACKEND: Total unused images: ' . count($unused_images));
+        error_log('DELETE-UNUSED-DEBUG: [Backend] ===== SUMMARY =====');
+        error_log('DELETE-UNUSED-DEBUG: [Backend] Total images checked: ' . count($all_images));
+        error_log('DELETE-UNUSED-DEBUG: [Backend] Truly unused images: ' . count($unused_images));
+        error_log('DELETE-UNUSED-DEBUG: [Backend] Used images excluded: ' . (count($all_images) - count($unused_images)));
         
         return $unused_images;
+    }
+    
+    /**
+     * AJAX: Validate user-written alt text with AI
+     */
+    public function ajax_validate_alt_text() {
+        error_log('AI-VALIDATION-DEBUG: [Backend AJAX] ===== ajax_validate_alt_text() CALLED =====');
+        check_ajax_referer('imageseo_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            error_log('AI-VALIDATION-DEBUG: [Backend AJAX] Permission denied');
+            wp_send_json_error(array('message' => 'Insufficient permissions'));
+        }
+        
+        // Check if API key is configured
+        if (!\SEOAutoFix_Settings::is_api_configured()) {
+            error_log('AI-VALIDATION-DEBUG: [Backend AJAX] No API key configured');
+            wp_send_json_error(array('message' => 'OpenAI API key not configured'));
+        }
+        
+        $attachment_id = isset($_POST['attachment_id']) ? absint($_POST['attachment_id']) : 0;
+        $user_alt_text = isset($_POST['alt_text']) ? sanitize_text_field($_POST['alt_text']) : '';
+        
+        error_log('AI-VALIDATION-DEBUG: [Backend AJAX] Attachment ID: ' . $attachment_id);
+        error_log('AI-VALIDATION-DEBUG: [Backend AJAX] User alt text: ' . $user_alt_text);
+        
+        if (!$attachment_id || empty($user_alt_text)) {
+            error_log('AI-VALIDATION-DEBUG: [Backend AJAX] Invalid data - ID or alt text empty');
+            wp_send_json_error(array('message' => 'Invalid data'));
+        }
+        
+        try {
+            error_log('AI-VALIDATION-DEBUG: [Backend AJAX] Calling alt_generator->validate_alt_text_with_image()');
+            
+            // Call validation method
+            $validation_result = $this->alt_generator->validate_alt_text_with_image($attachment_id, $user_alt_text);
+            
+            error_log('AI-VALIDATION-DEBUG: [Backend AJAX] Validation complete. Result: ' . print_r($validation_result, true));
+            
+            wp_send_json_success($validation_result);
+            
+        } catch (\Exception $e) {
+            error_log('AI-VALIDATION-DEBUG: [Backend AJAX] EXCEPTION: ' . $e->getMessage());
+            wp_send_json_error(array('message' => $e->getMessage()));
+        }
     }
 }

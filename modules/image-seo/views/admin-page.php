@@ -43,6 +43,10 @@ if (!defined('ABSPATH')) {
             <span class="dashicons dashicons-search"></span>
             <?php _e('Scan Images', 'seo-autofix-pro'); ?>
         </button>
+        <button id="view-optimized-btn" class="button button-secondary">
+            <span class="dashicons dashicons-yes-alt"></span>
+            <?php _e('View Optimized Images', 'seo-autofix-pro'); ?>
+        </button>
         <button id="export-csv-btn" class="button button-secondary">
             <span class="dashicons dashicons-media-spreadsheet"></span>
             <?php _e('Export CSV', 'seo-autofix-pro'); ?>
@@ -58,77 +62,88 @@ if (!defined('ABSPATH')) {
     </div>
 
     
-    <!-- Stats Cards -->
+    <!-- Stats Cards (UX-IMPROVEMENT: Clickable with data-filter attributes) -->
     <div class="imageseo-stats" >
-        <div class="stat-card">
+        <div class="stat-card clickable" data-filter="all">
             <div class="stat-number" id="stat-total">--</div>
             <div class="stat-label"><?php _e('Total Images', 'seo-autofix-pro'); ?></div>
         </div>
         <div class="stat-card stat-parent">
-            <div class="stat-label stat-parent-label"><?php _e('Low Score Images', 'seo-autofix-pro'); ?></div>
+            <div class="stat-label stat-parent-label"><?php _e('Issues Found', 'seo-autofix-pro'); ?></div>
             <div class="stat-subcategories">
                 <div class="stat-subcard clickable" data-filter="empty">
                     <div class="stat-number" id="stat-low-empty">--</div>
-                    <div class="stat-label"><?php _e('Empty Alt', 'seo-autofix-pro'); ?></div>
+                    <div class="stat-label"><?php _e('Missing Alt Text', 'seo-autofix-pro'); ?></div>
                 </div>
                 <div class="stat-subcard clickable" data-filter="low-with-alt">
                     <div class="stat-number" id="stat-low-with-alt">--</div>
-                    <div class="stat-label"><?php _e('Has Alt (Low Score)', 'seo-autofix-pro'); ?></div>
+                    <div class="stat-label"><?php _e('Poor Quality Alt Text', 'seo-autofix-pro'); ?></div>
                 </div>
             </div>
         </div>
-        <div class="stat-card stat-success">
+        <div class="stat-card stat-success clickable" data-filter="optimized">
             <div class="stat-number" id="stat-fixed">--</div>
             <div class="stat-label"><?php _e('Optimized', 'seo-autofix-pro'); ?></div>
         </div>
     </div>
     
     <!-- Progress Bar -->
-    <div id="scan-progress" >
+    <div id="scan-progress" style="display:none;">
         <div class="progress-bar">
             <div class="progress-fill"></div>
         </div>
         <p class="progress-text"><?php _e('Scanning images...', 'seo-autofix-pro'); ?></p>
     </div>
     
-    <!-- AI Generation Controls -->
+    
+    <!-- NEW: Filter & AI Generation Controls -->
     <?php if (\SEOAutoFix_Settings::is_api_configured()): ?>
-    <div class="imageseo-ai-controls" style="display:none;">
-        <div class="ai-controls-header">
-            <h3><?php _e('AI Generation Controls', 'seo-autofix-pro'); ?></h3>
-            <p><?php _e('Choose how to generate AI suggestions for alt text:', 'seo-autofix-pro'); ?></p>
+    <div class="imageseo-filter-controls" style="margin: 20px 0; padding: 20px; background: #fff; border: 1px solid #ddd; border-radius: 4px;">
+        <!-- Filter Section -->
+        <div style="margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h3 style="margin: 0;"><?php _e('Filter Images', 'seo-autofix-pro'); ?></h3>
+                <button id="reset-filter-btn" class="button" style="background: #f0f0f1; border-color: #ddd;">
+                    <span class="dashicons dashicons-image-rotate"></span>
+                    <?php _e('Reset', 'seo-autofix-pro'); ?>
+                </button>
+            </div>
+            <p style="margin: 8px 0 15px; color: #666; font-size: 13px;"><?php _e('Select which images to display:', 'seo-autofix-pro'); ?></p>
+            
+            <!-- 4 Radio Buttons in ONE LINE -->
+            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                <label style="flex: 1; display: flex; align-items: center; padding: 12px 16px; border: 2px solid #ddd; border-radius: 6px; cursor: pointer; transition: all 0.2s; min-width: 200px;">
+                    <input type="radio" name="image-filter" value="with-alt-postpage" style="margin-right: 10px;">
+                    <span style="font-size: 14px; font-weight: 500;"><?php _e('WITH Alt (Posts/Pages)', 'seo-autofix-pro'); ?></span>
+                </label>
+                <label style="flex: 1; display: flex; align-items: center; padding: 12px 16px; border: 2px solid #ddd; border-radius: 6px; cursor: pointer; transition: all 0.2s; min-width: 200px;">
+                    <input type="radio" name="image-filter" value="without-alt-postpage" style="margin-right: 10px;">
+                    <span style="font-size: 14px; font-weight: 500;"><?php _e('WITHOUT Alt (Posts/Pages)', 'seo-autofix-pro'); ?></span>
+                </label>
+                <label style="flex: 1; display: flex; align-items: center; padding: 12px 16px; border: 2px solid #ddd; border-radius: 6px; cursor: pointer; transition: all 0.2s; min-width: 200px;">
+                    <input type="radio" name="image-filter" value="with-alt-all" style="margin-right: 10px;">
+                    <span style="font-size: 14px; font-weight: 500;"><?php _e('WITH Alt (All Media)', 'seo-autofix-pro'); ?></span>
+                </label>
+                <label style="flex: 1; display: flex; align-items: center; padding: 12px 16px; border: 2px solid #ddd; border-radius: 6px; cursor: pointer; transition: all 0.2s; min-width: 200px;">
+                    <input type="radio" name="image-filter" value="without-alt-all" style="margin-right: 10px;">
+                    <span style="font-size: 14px; font-weight: 500;"><?php _e('WITHOUT Alt (All Media)', 'seo-autofix-pro'); ?></span>
+                </label>
+            </div>
         </div>
-        <div class="ai-controls-buttons">
-            <button id="generate-all-btn" class="button button-secondary">
-                <span class="dashicons dashicons-admin-generic"></span>
-                <?php _e('Generate AI for All Images', 'seo-autofix-pro'); ?>
+        
+        <!-- Action Buttons in Opposite Corners -->
+        <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+            <button id="generate-visible-btn" class="button button-primary" style="padding: 8px 20px;">
+                <span class="dashicons dashicons-superhero"></span>
+                <?php _e('Generate AI for Visible', 'seo-autofix-pro'); ?>
             </button>
-            <button id="generate-postpage-btn" class="button button-secondary">
-                <span class="dashicons dashicons-admin-page"></span>
-                <?php _e('Generate AI for Post/Page Images', 'seo-autofix-pro'); ?>
+            <button id="bulk-apply-btn" class="button button-primary" style="padding: 8px 20px;">
+                <span class="dashicons dashicons-yes"></span>
+                <?php _e('Bulk Apply Visible', 'seo-autofix-pro'); ?>
             </button>
         </div>
     </div>
     <?php endif; ?>
-    
-    <!-- Filters & Bulk Actions -->
-    <div class="imageseo-filters">
-        <div class="filter-left">
-            <label style="margin-right: 15px;">
-                <input type="radio" name="image-filter" id="filter-all-images" value="all" checked>
-                <?php _e('Show All Images', 'seo-autofix-pro'); ?>
-            </label>
-            <label>
-                <input type="radio" name="image-filter" id="filter-post-page-images" value="post_page">
-                <?php _e('Show Post/Page Images Only', 'seo-autofix-pro'); ?>
-            </label>
-        </div>
-        <div class="filter-right" style="margin-left: auto;">
-            <button id="bulk-apply-btn" class="button button-primary">
-                <?php _e('Bulk Apply All', 'seo-autofix-pro'); ?>
-            </button>
-        </div>
-    </div>
     
     <!--Results Table -->
     <div class="imageseo-results" >
@@ -174,7 +189,7 @@ if (!defined('ABSPATH')) {
         </td>
         <td class="row-suggested-alt">
             <div class="alt-text-editable" contenteditable="true"></div>
-            <div class="char-counter"><span class="char-count">0</span> / 60</div>
+            <!-- Character limit removed as per user request -->
             <div class="loading-indicator" >
                 <span class="spinner is-active"></span>
                 <?php _e('Generating...', 'seo-autofix-pro'); ?>
@@ -187,6 +202,10 @@ if (!defined('ABSPATH')) {
             <div class="score-badge"></div>
         </td>
         <td class="row-actions-col">
+            <button class="button button-secondary generate-btn" title="Generate AI suggestion for this image">
+                <span class="dashicons dashicons-admin-generic"></span>
+                <?php _e('Generate', 'seo-autofix-pro'); ?>
+            </button>
             <button class="button button-primary apply-btn">
                 <?php _e('Apply', 'seo-autofix-pro'); ?>
             </button>

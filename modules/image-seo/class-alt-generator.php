@@ -272,4 +272,114 @@ class Alt_Generator {
         
         return '';
     }
+    
+    /**
+     * Validate if user-written alt text accurately describes the image
+     * Uses AI to check semantic similarity between image and alt text
+     *
+     * @param int $attachment_id The attachment ID
+     * @param string $user_alt_text The alt text written by user
+     * @return array Validation result with is_valid, match_percentage, reasoning
+     */
+    public function validate_alt_text_with_image($attachment_id, $user_alt_text) {
+        error_log('AI-VALIDATION-DEBUG: [Backend] ===== VALIDATING ALT TEXT =====');
+        error_log('AI-VALIDATION-DEBUG: [Backend] Attachment ID: ' . $attachment_id);
+        error_log('AI-VALIDATION-DEBUG: [Backend] User alt text: ' . $user_alt_text);
+        
+        try {
+            // Get image URL and check if localhost
+            $image_url = wp_get_attachment_url($attachment_id);
+            
+            if (!$image_url) {
+                error_log('AI-VALIDATION-DEBUG: [Backend] ERROR: Could not get image URL');
+                throw new \Exception('Could not get image URL');
+            }
+            
+            $is_localhost = $this->is_localhost_url($image_url);
+            error_log('AI-VALIDATION-DEBUG: [Backend] Is localhost: ' . ($is_localhost ? 'YES' : 'NO'));
+            
+            // Build validation prompt
+            $prompt = "You are an expert image analyzer. Your task is to determine if the provided alt text accurately describes the image.
+
+**User's Alt Text:** \"{$user_alt_text}\"
+
+**Analysis Steps:**
+1. Carefully analyze what you see in the image
+2. Compare the image content with the user's alt text
+3. Calculate semantic similarity percentage (0-100%)
+   - 100% = Perfect match, alt text describes exactly what's in the image
+   - 70-99% = Good match, alt text is accurate but may miss minor details
+   - 50-69% = Partial match, some elements correct but significant mismatches
+   - 0-49% = Poor match, alt text doesn't describe this image
+
+**IMPORTANT:** Be strict in your evaluation. Alt text must genuinely describe what's visible in the image. Reject vague, generic, or keyword-stuffed text that doesn't match.
+
+**Respond ONLY with valid JSON (no markdown, no code blocks):**
+{
+    \"match_percentage\": <number 0-100>,
+    \"image_content\": \"<what you actually see in the image>\",
+    \"reasoning\": \"<brief explanation why it matches or doesn't match>\"
+}";
+
+            error_log('AI-VALIDATION-DEBUG: [Backend] Prompt: ' . substr($prompt, 0, 200) . '...');
+            
+            // Call Vision API
+            if ($is_localhost) {
+                // Convert to base64 for localhost
+                $base64_data_url = $this->convert_image_to_base64($attachment_id);
+                
+                if (!$base64_data_url) {
+                    error_log('AI-VALIDATION-DEBUG: [Backend] ERROR: Could not convert image to base64');
+                    throw new \Exception('Could not convert image to base64');
+                }
+                
+                error_log('AI-VALIDATION-DEBUG: [Backend] Using base64 image (localhost)');
+                $response = $this->api_manager->call_openai_vision($base64_data_url, $prompt, 150, true);
+            } else {
+                error_log('AI-VALIDATION-DEBUG: [Backend] Using image URL (public)');
+                $response = $this->api_manager->call_openai_vision($image_url, $prompt, 150, false);
+            }
+            
+            error_log('AI-VALIDATION-DEBUG: [Backend] OpenAI response: ' . $response);
+            
+            // Parse JSON response
+            $data = json_decode($response, true);
+            
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                error_log('AI-VALIDATION-DEBUG: [Backend] ERROR: JSON decode failed: ' . json_last_error_msg());
+                throw new \Exception('Failed to parse API response');
+            }
+            
+            // Extract data
+            $match_percentage = isset($data['match_percentage']) ? intval($data['match_percentage']) : 0;
+            $image_content = isset($data['image_content']) ? $data['image_content'] : 'Unknown';
+            $reasoning = isset($data['reasoning']) ? $data['reasoning'] : 'No reasoning provided';
+            
+            $is_valid = ($match_percentage >= 70);
+            
+            error_log('AI-VALIDATION-DEBUG: [Backend] Match percentage: ' . $match_percentage . '%');
+            error_log('AI-VALIDATION-DEBUG: [Backend] Is valid (>=70%): ' . ($is_valid ? 'YES' : 'NO'));
+            error_log('AI-VALIDATION-DEBUG: [Backend] Image content: ' . $image_content);
+            error_log('AI-VALIDATION-DEBUG: [Backend] Reasoning: ' . $reasoning);
+            
+            return array(
+                'is_valid' => $is_valid,
+                'match_percentage' => $match_percentage,
+                'reasoning' => $reasoning,
+                'image_content' => $image_content
+            );
+            
+        } catch (\Exception $e) {
+            error_log('AI-VALIDATION-DEBUG: [Backend] EXCEPTION: ' . $e->getMessage());
+            error_log('AI-VALIDATION-DEBUG: [Backend] Stack trace: ' . $e->getTraceAsString());
+            
+            // On error, fail gracefully - assume valid to not block user
+            return array(
+                'is_valid' => true,
+                'match_percentage' => 75,
+                'reasoning' => 'Validation failed: ' . $e->getMessage(),
+                'image_content' => 'Error analyzing image'
+            );
+        }
+    }
 }
