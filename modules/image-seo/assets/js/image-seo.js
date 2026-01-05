@@ -4,7 +4,8 @@
 
 jQuery(document).ready(function($) {
     // Global state
-    let scannedImages = [];
+    window.scannedImages = [];
+    let scannedImages = window.scannedImages;
     let globalStats = null;
     let currentPage = 1;
     let itemsPerPage = 50;
@@ -780,7 +781,8 @@ jQuery(document).ready(function($) {
                     console.log('hasMore flag:', response.data.hasMore);
                     
                     scannedImages = scannedImages.concat(results);
-                    console.log('Total scannedImages after concat:', scannedImages.length);
+                window.scannedImages = scannedImages; // Keep global ref in sync
+                console.log('Total scannedImages after concat:', scannedImages.length);
                 
                     // Store backend statistics from first batch
                     if (offset === 0 && response.data.stats) {
