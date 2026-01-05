@@ -209,18 +209,18 @@ class Image_Analyzer {
         $alt_text = get_post_meta($attachment_id, '_wp_attachment_image_alt', true);
         $issues = array();
         
-        error_log('SCORE-THRESHOLD-DEBUG: [Backend] Checking image ID: ' . $attachment_id);
-        error_log('SCORE-THRESHOLD-DEBUG: [Backend] Alt text: "' . $alt_text . '"');
+        // error_log('SCORE-THRESHOLD-DEBUG: [Backend] Checking image ID: ' . $attachment_id);
+        // error_log('SCORE-THRESHOLD-DEBUG: [Backend] Alt text: "' . $alt_text . '"');
         
         // Check for empty alt text
         if (empty($alt_text)) {
             $issues[] = 'empty';
-            error_log('SCORE-THRESHOLD-DEBUG: [Backend] → Issue: EMPTY alt text');
+            // error_log('SCORE-THRESHOLD-DEBUG: [Backend] → Issue: EMPTY alt text');
         }
         // Check for generic alt text
         elseif ($this->is_generic_alt($alt_text)) {
             $issues[] = 'generic';
-            error_log('SCORE-THRESHOLD-DEBUG: [Backend] → Issue: GENERIC alt text');
+            // error_log('SCORE-THRESHOLD-DEBUG: [Backend] → Issue: GENERIC alt text');
         }
         // Check length
         else {
@@ -228,10 +228,10 @@ class Image_Analyzer {
             
             if ($length < 10) {
                 $issues[] = 'too_short';
-                error_log('SCORE-THRESHOLD-DEBUG: [Backend] → Issue: TOO SHORT (length: ' . $length . ')');
+                // error_log('SCORE-THRESHOLD-DEBUG: [Backend] → Issue: TOO SHORT (length: ' . $length . ')');
             } elseif ($length > 60) {
                 $issues[] = 'too_long';
-                error_log('SCORE-THRESHOLD-DEBUG: [Backend] → Issue: TOO LONG (length: ' . $length . ')');
+                // error_log('SCORE-THRESHOLD-DEBUG: [Backend] → Issue: TOO LONG (length: ' . $length . ')');
             }
         }
         
@@ -249,19 +249,19 @@ class Image_Analyzer {
             $score_data = $seo_scorer->score_alt_text($alt_text, $context);
             $score = $score_data['score'];
             
-            error_log('SCORE-THRESHOLD-DEBUG: [Backend] SEO Score: ' . $score);
+            // error_log('SCORE-THRESHOLD-DEBUG: [Backend] SEO Score: ' . $score);
             
             // SCORE MUST BE > 75 (not >= 75, but strictly greater than 75)
             if ($score <= 75) {
                 $issues[] = 'low_score';
-                error_log('SCORE-THRESHOLD-DEBUG: [Backend] → Issue: LOW SCORE (<= 75) - NOT optimized');
+                // error_log('SCORE-THRESHOLD-DEBUG: [Backend] → Issue: LOW SCORE (<= 75) - NOT optimized');
             } else {
-                error_log('SCORE-THRESHOLD-DEBUG: [Backend] → Score GOOD (> 75) - qualifies as optimized');
+                // error_log('SCORE-THRESHOLD-DEBUG: [Backend] → Score GOOD (> 75) - qualifies as optimized');
             }
         }
         
-        error_log('SCORE-THRESHOLD-DEBUG: [Backend] Total issues found: ' . count($issues));
-        error_log('SCORE-THRESHOLD-DEBUG: [Backend] Issues: ' . json_encode($issues));
+        // error_log('SCORE-THRESHOLD-DEBUG: [Backend] Total issues found: ' . count($issues));
+        // error_log('SCORE-THRESHOLD-DEBUG: [Backend] Issues: ' . json_encode($issues));
         
         return $issues;
     }

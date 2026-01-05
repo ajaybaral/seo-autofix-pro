@@ -2,6 +2,11 @@
  * Image SEO Module - Admin Styles
  */
 
+/* Hide WordPress admin footer on plugin page */
+#wpfooter {
+    display: none !important;
+}
+
 .imageseo-admin {
     max-width: 1400px;
 }

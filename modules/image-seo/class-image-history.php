@@ -160,7 +160,7 @@ class Image_History {
     public function get_statistics() {
         global $wpdb;
         
-        error_log('IMAGESEO DEBUG: get_statistics called');
+        error_log('🔥🔥🔥 get_statistics() CALLED 🔥🔥🔥');
         error_log('IMAGESEO DEBUG: Table name: ' . $this->table_name);
         error_log('CLASSIFICATION-DEBUG: === STATISTICS BREAKDOWN ===');
         
@@ -211,6 +211,37 @@ class Image_History {
         $low_score_blank = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$this->table_name} WHERE status='blank' AND issue_type NOT IN ('empty', 'generic')");
         error_log('CLASSIFICATION-DEBUG: status=blank but NOT empty/generic: ' . $low_score_blank);
         error_log('CLASSIFICATION-DEBUG: ^ These should be LOW SCORE images!');
+        
+        // LOW-SCORE-COUNT-DEBUG: Detailed breakdown to find the 4 missing images
+        error_log('====== LOW SCORE COUNT DEBUG (Finding 28 vs 24 discrepancy) ======');
+        $all_blank_rows = $wpdb->get_results("SELECT attachment_id, status, issue_type FROM {$this->table_name} WHERE status='blank'", ARRAY_A);
+        error_log('LOW-SCORE-COUNT: Total rows with status=blank: ' . count($all_blank_rows));
+        
+        $empty_count = 0;
+        $generic_count = 0;
+        $should_be_low_score = 0;
+        $null_issue_type = 0;
+        
+        foreach ($all_blank_rows as $row) {
+            if ($row['issue_type'] === 'empty') {
+                $empty_count++;
+            } elseif ($row['issue_type'] === 'generic') {
+                $generic_count++;
+            } elseif ($row['issue_type'] === null || $row['issue_type'] === '') {
+                $null_issue_type++;
+                error_log('LOW-SCORE-COUNT: ID=' . $row['attachment_id'] . ' has NULL issue_type (will be EXCLUDED from low_score count!)');
+            } else {
+                $should_be_low_score++;
+            }
+        }
+        
+        error_log('LOW-SCORE-COUNT: Breakdown of status=blank images:');
+        error_log('  - issue_type=empty: ' . $empty_count);
+        error_log('  - issue_type=generic: ' . $generic_count);
+        error_log('  - issue_type=NULL/empty: ' . $null_issue_type . ' ← THESE ARE EXCLUDED!');
+        error_log('  - Other issue_types (counted as low_score): ' . $should_be_low_score);
+        error_log('LOW-SCORE-COUNT: SQL excludes NULL: ' . ($null_issue_type > 0 ? 'YES - that\'s your missing ' . $null_issue_type . ' images!' : 'NO'));
+        error_log('=====================================');
         
         // STATS-REDESIGN-DEBUG: Get detailed breakdown
         error_log('STATS-REDESIGN-DEBUG: === DETAILED BREAKDOWN FOR NEW UI ===');

@@ -37,6 +37,21 @@ if (!defined('ABSPATH')) {
     </div>
     <?php endif; ?>
     
+    <!-- Tab Navigation -->
+    <h2 class="nav-tab-wrapper" style="margin: 20px 0;">
+        <a href="#" class="nav-tab nav-tab-active" data-tab="alt-images">
+            <span class="dashicons dashicons-images-alt2" style="margin-top: 4px;"></span>
+            <?php _e('Alt & Images', 'seo-autofix-pro'); ?>
+        </a>
+        <a href="#" class="nav-tab" data-tab="cleanup-delete">
+            <span class="dashicons dashicons-trash" style="margin-top: 4px;"></span>
+            <?php _e('Cleanup & Delete', 'seo-autofix-pro'); ?>
+        </a>
+    </h2>
+    
+    <!-- Tab Content: Alt & Images -->
+    <div id="tab-alt-images" class="tab-content" style="display: block;">
+    
     <!-- Header Buttons -->
     <div class="imageseo-header">
         <button id="scan-btn" class="button button-primary">
@@ -54,10 +69,6 @@ if (!defined('ABSPATH')) {
         <button id="email-csv-btn" class="button button-secondary">
             <span class="dashicons dashicons-email"></span>
             <?php _e('Email CSV to Admin', 'seo-autofix-pro'); ?>
-        </button>
-        <button id="bulk-delete-unused-btn" class="button button-danger" style="margin-left: auto;">
-            <span class="dashicons dashicons-trash"></span>
-            <?php _e('Bulk Delete Unused Images', 'seo-autofix-pro'); ?>
         </button>
     </div>
 
@@ -103,12 +114,12 @@ if (!defined('ABSPATH')) {
         <div style="margin-bottom: 20px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                 <h3 style="margin: 0;"><?php _e('Filter Images', 'seo-autofix-pro'); ?></h3>
-                <button id="reset-filter-btn" class="button" style="background: #f0f0f1; border-color: #ddd;">
-                    <span class="dashicons dashicons-image-rotate"></span>
+                <button id="reset-filter-btn" class="button" style="background: #f0f0f1; border-color: #ddd; display: flex; align-items: center; gap: 6px;">
+                    <span class="dashicons dashicons-image-rotate" style="margin: 0; font-size: 16px;"></span>
                     <?php _e('Reset', 'seo-autofix-pro'); ?>
                 </button>
             </div>
-            <p style="margin: 8px 0 15px; color: #666; font-size: 13px;"><?php _e('Select which images to display:', 'seo-autofix-pro'); ?></p>
+            <p style="margin: 8px 0 15px; color: #666; font-size: 13px;"><?php _e('Choose a filter to narrow down the images shown below:', 'seo-autofix-pro'); ?></p>
             
             <!-- 4 Radio Buttons in ONE LINE -->
             <div style="display: flex; gap: 12px; flex-wrap: wrap;">
@@ -135,11 +146,11 @@ if (!defined('ABSPATH')) {
         <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 20px; border-top: 1px solid #e0e0e0;">
             <button id="generate-visible-btn" class="button button-primary" style="padding: 8px 20px;">
                 <span class="dashicons dashicons-superhero"></span>
-                <?php _e('Generate AI for Visible', 'seo-autofix-pro'); ?>
+                <?php _e('Generate AI Suggested Alt Text for Below', 'seo-autofix-pro'); ?>
             </button>
             <button id="bulk-apply-btn" class="button button-primary" style="padding: 8px 20px;">
                 <span class="dashicons dashicons-yes"></span>
-                <?php _e('Bulk Apply Visible', 'seo-autofix-pro'); ?>
+                <?php _e('Bulk Apply Images Below', 'seo-autofix-pro'); ?>
             </button>
         </div>
     </div>
@@ -253,5 +264,62 @@ if (!defined('ABSPATH')) {
         </div>
     </div>
 </div>
+
+</div><!-- End tab-alt-images -->
+
+<!-- Tab Content: Cleanup & Delete -->
+<div id="tab-cleanup-delete" class="tab-content" style="display: none;">
+    
+    <div class="notice notice-warning" style="margin: 20px 0;">
+        <p>
+            <strong><?php _e('⚠️ Warning: Destructive Operations', 'seo-autofix-pro'); ?></strong><br>
+            <?php _e('All actions on this tab perform permanent changes. Use with caution and ensure you have backups.', 'seo-autofix-pro'); ?>
+        </p>
+    </div>
+    
+    <!-- Feature 1: Remove All Alt Texts -->
+    <div class="cleanup-section" style="margin: 30px 0; padding: 20px; background: #fff; border: 1px solid #ddd; border-radius: 4px;">
+        <h2><?php _e('Remove All Image Alt Texts', 'seo-autofix-pro'); ?></h2>
+        <p style="color: #666;">
+            <?php _e('Remove alt text from ALL images in the media library.', 'seo-autofix-pro'); ?>
+        </p>
+        <div style="background: #fff9e6; border-left: 4px solid #ffb900; padding: 12px; margin: 15px 0;">
+            <strong><?php _e('Warning:', 'seo-autofix-pro'); ?></strong>
+            <?php _e('This will permanently remove all alt texts. Confirmation required.', 'seo-autofix-pro'); ?>
+        </div>
+        <button id="remove-all-alt-btn" class="button" style="background: #dc3232; color: #fff; border-color: #dc3232;">
+            <span class="dashicons dashicons-warning"></span>
+            <?php _e('Remove All Alt Texts', 'seo-autofix-pro'); ?>
+        </button>
+    </div>
+    
+    <!-- Feature 2: Delete by URL -->
+    <div class="cleanup-section" style="margin: 30px 0; padding: 20px; background: #fff; border: 1px solid #ddd; border-radius: 4px;">
+        <h2><?php _e('Delete Images by URL', 'seo-autofix-pro'); ?></h2>
+        <p style="color: #666;">
+            <?php _e('Delete specific images by pasting URLs. One per line, max 50.', 'seo-autofix-pro'); ?>
+        </p>
+        <textarea id="delete-urls-input" rows="8" style="width: 100%; max-width: 800px; font-family: monospace;" placeholder="<?php _e('Paste URLs here, one per line', 'seo-autofix-pro'); ?>"></textarea>
+        <div style="margin: 15px 0;">
+            <button id="delete-by-url-btn" class="button" style="background: #dc3232; color: #fff; border-color: #dc3232;">
+                <span class="dashicons dashicons-trash"></span>
+                <?php _e('Delete Images by URL', 'seo-autofix-pro'); ?>
+            </button>
+        </div>
+    </div>
+    
+    <!-- Feature 3: Delete Unused Images -->
+    <div class="cleanup-section" style="margin: 30px 0; padding: 20px; background: #fff; border: 1px solid #ddd; border-radius: 4px;">
+        <h2><?php _e('Delete Unused Images', 'seo-autofix-pro'); ?></h2>
+        <p style="color: #666;">
+            <?php _e('Delete images not used in any posts or pages.', 'seo-autofix-pro'); ?>
+        </p>
+        <button id="bulk-delete-unused-btn" class="button" style="background: #dc3232; color: #fff; border-color: #dc3232;">
+            <span class="dashicons dashicons-trash"></span>
+            <?php _e('Bulk Delete Unused Images', 'seo-autofix-pro'); ?>
+        </button>
+    </div>
+    
+</div><!-- End tab-cleanup-delete -->
 
 </div><!-- .imageseo-admin -->

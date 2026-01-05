@@ -52,6 +52,22 @@ jQuery(document).ready(function($) {
         setTimeout(() => $toast.remove(), 3300);
     }
     
+    // ========== TAB NAVIGATION ==========
+    $('.nav-tab').on('click', function(e) {
+        e.preventDefault();
+        const tabId = $(this).data('tab');
+        
+        // Update tab buttons
+        $('.nav-tab').removeClass('nav-tab-active');
+        $(this).addClass('nav-tab-active');
+        
+        // Show/hide tab content
+        $('.tab-content').hide();
+        $('#tab-' + tabId).show();
+        
+        console.log('TAB-DEBUG: Switched to tab:', tabId);
+    });
+    
     /**
      * Initialize page state on load
      */
@@ -75,57 +91,79 @@ jQuery(document).ready(function($) {
     // UX-IMPROVEMENT: Removed "View Optimized Images" button
     // Now using stat card filtering instead
     
-    // Bulk Apply - ONLY VISIBLE ROWS!
+    // Bulk Apply - Click individual Apply buttons for visible rows with ENABLED apply buttons
     $bulkApplyBtn.on('click', function() {
+        console.log('====== BULK APPLY DEBUG START ======');
+        console.log('BULK-APPLY-DEBUG: Button clicked');
+        
         // Get only VISIBLE rows
         const $visibleRows = $resultsTbody.find('tr.result-row:visible');
+        console.log('BULK-APPLY-DEBUG: Found visible rows:', $visibleRows.length);
         
         if ($visibleRows.length === 0) {
+            console.log('BULK-APPLY-DEBUG: ERROR - No visible rows found!');
             showToast('No visible images to apply', 'error');
             return;
         }
         
-        if (!confirm(`Apply alt text changes for ${$visibleRows.length} visible images?`)) {
-            return;
-        }
+        // Find rows that have ENABLED apply buttons
+        const $applicableRows = [];
         
-        const imageIds = [];
         $visibleRows.each(function() {
             const $row = $(this);
-            const altText = $row.find('.alt-text-editable').text().trim();
-            if (altText) {
-                imageIds.push(parseInt($row.data('attachment-id')));
+            const imageId = $row.data('attachment-id');
+            const $applyBtn = $row.find('.apply-btn');
+            
+            // Check if Apply button exists, is visible, and NOT disabled
+            if ($applyBtn.length > 0 && $applyBtn.is(':visible') && !$applyBtn.prop('disabled')) {
+                $applicableRows.push($row);
+                console.log(`BULK-APPLY-DEBUG: ✓ Row ${imageId} is APPLICABLE (has enabled Apply button)`);
+            } else {
+                if ($applyBtn.length === 0) {
+                    console.log(`BULK-APPLY-DEBUG: ✗ Row ${imageId} SKIPPED (no Apply button)`);
+                } else if (!$applyBtn.is(':visible')) {
+                    console.log(`BULK-APPLY-DEBUG: ✗ Row ${imageId} SKIPPED (Apply button hidden)`);
+                } else if ($applyBtn.prop('disabled')) {
+                    console.log(`BULK-APPLY-DEBUG: ✗ Row ${imageId} SKIPPED (Apply button disabled)`);
+                }
             }
         });
         
-        if (imageIds.length === 0) {
-            showToast('No images with alt text to apply', 'error');
+        console.log('BULK-APPLY-DEBUG: Applicable rows with enabled Apply buttons:', $applicableRows.length);
+        
+        if ($applicableRows.length === 0) {
+            console.log('BULK-APPLY-DEBUG: ERROR - No rows with enabled Apply buttons!');
+            showToast('No images ready to apply. Generate or edit alt text first, then click Apply on individual rows.', 'warning');
             return;
         }
         
-        // Call backend for bulk apply
-        $.ajax({
-            url: imageSeoData.ajaxUrl,
-            type: 'POST',
-            data: {
-                action: 'imageseo_bulk_apply',
-                nonce: imageSeoData.nonce,
-                image_ids: imageIds,
-                visible_only: true
-            },
-            success: function(response) {
-                if (response.success) {
-                    showToast(`Successfully applied ${imageIds.length} changes`, 'success');
-                    // Refresh the table
-                    scanImages();
-                } else {
-                    showToast('Bulk apply failed', 'error');
-                }
-            },
-            error: function() {
-                showToast('Error during bulk apply', 'error');
-            }
+        // Confirm
+        if (!confirm(`Apply alt text changes for ${$applicableRows.length} visible images?`)) {
+            console.log('BULK-APPLY-DEBUG: User cancelled');
+           return;
+        }
+        
+        console.log('BULK-APPLY-DEBUG: User confirmed - triggering Apply buttons');
+        
+        // Click Apply button on each row
+        let clickedCount = 0;
+        $applicableRows.forEach(($row, index) => {
+            const imageId = $row.data('attachment-id');
+            const $applyBtn = $row.find('.apply-btn');
+            
+            console.log(`BULK-APPLY-DEBUG: [${index + 1}/${$applicableRows.length}] Clicking Apply for image ${imageId}`);
+            
+            // Delay between clicks to avoid overwhelming server
+            setTimeout(() => {
+                $applyBtn.click();
+            }, index * 200);
+            
+            clickedCount++;
         });
+        
+        console.log(`BULK-APPLY-DEBUG: Triggered ${clickedCount} Apply buttons`);
+        showToast(`Applying changes to ${clickedCount} images...`, 'info');
+        console.log('====== BULK APPLY DEBUG END ======');
     });
     
     // ===== UX REDESIGN: REMOVED OLD 4 BULK GENERATION BUTTONS =====
@@ -679,8 +717,14 @@ jQuery(document).ready(function($) {
         
         // Show progress, hide results
         $scanProgress.show();
-        $emptyState.hide();
         $resultsTable.hide();
+        $emptyState.hide();
+        
+        // HIDE filter controls and pagination during scan for cleaner UX
+        $('.imageseo-filter-controls').hide();
+        $('.imageseo-pagination').hide();
+        console.log('SCAN-DEBUG: Hidden filter controls and pagination during scan');
+        
         $statsSection.hide();
         $filtersSection.hide();
         
@@ -755,11 +799,86 @@ jQuery(document).ready(function($) {
                         console.log('No more batches, finishing scan...');
                         console.log('Calling renderResults with', scannedImages.length, 'images');
                         console.log('Global stats:', globalStats);
+                        
+                        
+                        // 🔥 FILTER DEBUG: Comprehensive analysis
+                        console.log('🔥🔥🔥 FILTER & STATS DEBUG START 🔥🔥🔥');
+                        console.log('📊 Backend Stats:', globalStats);
+                        console.log('📦 Total scanned images:', scannedImages.length);
+                        
+                        // Categorize each image by status
+                        let categories = {
+                            optimal: [],
+                            low_score_with_alt: [],
+                            low_score_empty: [],
+                            generate: [],
+                            other: []
+                        };
+                        
+                        scannedImages.forEach(img => {
+                            // Use ONLY the backend status - don't recalculate!
+                            const hasAlt = img.current_alt && img.current_alt.trim() !== '';
+                            const score = img.seo_score || 0;
+                            const status = img.status || 'unknown';
+                            const issue_type = img.issue_type || 'none';
+                            
+                            // CRITICAL: Trust the backend's status classification
+                            // Backend already calculated score and set correct status
+                            if (status === 'optimal' || status === 'optimized') {
+                                categories.optimal.push({id: img.id, score, alt: img.current_alt?.substring(0,30), status, issue_type});
+                            } else if (status === 'blank' && hasAlt && issue_type !== 'empty' && issue_type !== 'generic') {
+                                // Low score WITH alt text (backend verified this)
+                                categories.low_score_with_alt.push({id: img.id, score, alt: img.current_alt?.substring(0,30), status, issue_type});
+                            } else if (status === 'blank' && !hasAlt) {
+                                categories.low_score_empty.push({id: img.id, score, status, issue_type});
+                            } else if (status === 'generate') {
+               categories.generate.push({id: img.id, score, status, issue_type});
+                            } else {
+                                categories.other.push({id: img.id, score, alt: img.current_alt?.substring(0,30), status, issue_type});
+                            }
+                        });
+                        
+                        console.log('📈 Categorized Images:');
+                        console.log('  ✅ Optimal (score ≥75):', categories.optimal.length);
+                        console.log('     ALL OPTIMAL IMAGES:', categories.optimal);
+                        console.log('  ⚠️ Low Score WITH Alt:', categories.low_score_with_alt.length);
+                        console.log('     ALL LOW-SCORE IMAGES:', categories.low_score_with_alt);
+                        console.log('  ❌ Low Score NO Alt:', categories.low_score_empty.length);
+                        console.log('  🔄 Generate Status:', categories.generate.length, categories.generate);
+                        console.log('  ❓ Other:', categories.other.length, categories.other);
+                        
+                        // Find the problematic images
+                        const problematic = scannedImages.filter(img => {
+                            const hasAlt = img.current_alt && img.current_alt.trim() !== '';
+                            const score = img.seo_score || 0;
+                            const status = img.status || 'unknown';
+                            // Images with score=100 but status='blank'
+                            return status === 'blank' && score >= 75;
+                        });
+                        
+                        if (problematic.length > 0) {
+                            console.error('🐛 FOUND PROBLEMATIC IMAGES: score≥75 but status=blank');
+                            problematic.forEach(img => {
+                                console.error(`  ⚠️ ID=${img.id} score=${img.seo_score} status="${img.status}" alt="${img.current_alt?.substring(0,40)}"`);
+                            });
+                        }
+                        
+                        console.log('📊 Stats Comparison:');
+                        console.log('  Backend low_score_with_alt:', globalStats.low_score_with_alt);
+                        console.log('  Frontend low_score_with_alt:', categories.low_score_with_alt.length);
+                        console.log('  Difference:', Math.abs(globalStats.low_score_with_alt - categories.low_score_with_alt.length));
+                        console.log('🔥🔥🔥 FILTER & STATS DEBUG END 🔥🔥🔥');
+                        
                         renderResults(scannedImages);
                         updateStats(globalStats);
                         
                         // RE-ENABLE RADIO BUTTONS after scan completes
                         $('input[name="image-filter"]').prop('disabled', false);
+                        
+                        // SHOW filter controls and pagination after scan completes
+                        $('.imageseo-filter-controls').show();
+                        $('.imageseo-pagination').show();
+                        console.log('SCAN-DEBUG: Showing filter controls and pagination after scan');
                     }
                 } else {
                     showError('Scan failed: ' + (response.data.message || 'Unknown error'));
@@ -2258,5 +2377,119 @@ jQuery(document).ready(function($) {
             setTimeout(() => {}, index * 100);
         });
     }
+    
+    // ========== CLEANUP & DELETE TAB HANDLERS ==========
+    
+    // Remove All Alt Texts
+    $('#remove-all-alt-btn').on('click', function() {
+        if (!confirm('⚠️ WARNING: Remove ALL alt text from ALL images?\n\nThis cannot be undone!')) return;
+        if (!confirm('FINAL CONFIRMATION: Click OK to proceed.')) return;
+        
+        const $btn = $(this);
+        $btn.prop('disabled', true).text('Removing...');
+        
+        $.post(imageSeoData.ajaxUrl, {
+            action: 'imageseo_remove_all_alt',
+            nonce: imageSeoData.nonce
+        }, function(response) {
+            if (response.success) {
+                showToast(`Removed alt text from ${response.data.removed_count} images`, 'success');
+            } else {
+                showToast('Failed: ' + response.data.message, 'error');
+            }
+        }).fail(function() {
+            showToast('Error removing alt texts', 'error');
+        }).always(function() {
+            $btn.prop('disabled', false).html('<span class="dashicons dashicons-warning"></span> Remove All Alt Texts');
+        });
+    });
+    
+    // Delete by URL
+    $('#delete-by-url-btn').on('click', function() {
+        console.log('====== DELETE BY URL DEBUG START ======');
+        
+        const urls = $('#delete-urls-input').val().trim();
+        console.log('DELETE-URL-DEBUG: Raw textarea value:', urls);
+        console.log('DELETE-URL-DEBUG: Textarea value length:', urls.length);
+        
+        if (!urls) {
+            console.log('DELETE-URL-DEBUG: ERROR - No URLs provided');
+            showToast('Please enter at least one URL', 'warning');
+            return;
+        }
+        
+        const urlArray = urls.split('\n').filter(u => u.trim());
+        console.log('DELETE-URL-DEBUG: URL array after split:', urlArray);
+        console.log('DELETE-URL-DEBUG: URL count:', urlArray.length);
+        
+        urlArray.forEach((url, index) => {
+            console.log(`DELETE-URL-DEBUG: URL[${index}]:`, url);
+        });
+        
+        if (urlArray.length > 50) {
+            console.log('DELETE-URL-DEBUG: ERROR - Too many URLs:', urlArray.length);
+            showToast('Maximum 50 URLs allowed', 'error');
+            return;
+        }
+        
+        if (!confirm(`⚠️ Delete ${urlArray.length} images?\n\nThis cannot be undone!`)) {
+            console.log('DELETE-URL-DEBUG: User cancelled');
+            return;
+        }
+        
+        console.log('DELETE-URL-DEBUG: User confirmed - sending AJAX request');
+        console.log('DELETE-URL-DEBUG: AJAX URL:', imageSeoData.ajaxUrl);
+        console.log('DELETE-URL-DEBUG: Nonce:', imageSeoData.nonce);
+        console.log('DELETE-URL-DEBUG: URLs being sent:', urls);
+        
+        const $btn = $(this);
+        $btn.prop('disabled', true).text('Deleting...');
+        
+        $.post(imageSeoData.ajaxUrl, {
+            action: 'imageseo_delete_by_url',
+            nonce: imageSeoData.nonce,
+            urls: urls
+        }, function(response) {
+            console.log('DELETE-URL-DEBUG: AJAX response received:', response);
+            console.log('DELETE-URL-DEBUG: Response success:', response.success);
+            
+            if (response.success) {
+                console.log('DELETE-URL-DEBUG: Deleted count:', response.data.deleted);
+                console.log('DELETE-URL-DEBUG: Skipped count:', response.data.skipped);
+                console.log('DELETE-URL-DEBUG: Errors:', response.data.errors);
+                
+                let msg = `Deleted ${response.data.deleted}, skipped ${response.data.skipped}`;
+                let toastType = 'success';
+                
+                // If items were skipped, show error details
+                if (response.data.skipped > 0 && response.data.errors && response.data.errors.length > 0) {
+                    toastType = 'warning';
+                    // Show first error as example
+                    msg = `Deleted ${response.data.deleted}, skipped ${response.data.skipped}: ${response.data.errors[0]}`;
+                    
+                    // Log all errors to console
+                    console.log('DELETE-URL-DEBUG: Skip reasons:');
+                    response.data.errors.forEach((err, idx) => {
+                        console.log(`  [${idx}]:`, err);
+                    });
+                }
+                
+                showToast(msg, toastType);
+                $('#delete-urls-input').val('');
+            } else {
+                console.log('DELETE-URL-DEBUG: Request failed:', response.data.message);
+                showToast('Failed: ' + response.data.message, 'error');
+            }
+        }).fail(function(xhr, status, error) {
+            console.log('DELETE-URL-DEBUG: AJAX error');
+            console.log('DELETE-URL-DEBUG: XHR:', xhr);
+            console.log('DELETE-URL-DEBUG: Status:', status);
+            console.log('DELETE-URL-DEBUG: Error:', error);
+            showToast('Error deleting images', 'error');
+        }).always(function() {
+            $btn.prop('disabled', false).html('<span class="dashicons dashicons-trash"></span> Delete Images by URL');
+            console.log('====== DELETE BY URL DEBUG END ======');
+        });
+    });
     
 })

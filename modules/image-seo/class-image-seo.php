@@ -145,6 +145,10 @@ class SEOAutoFix_Image_SEO {
         add_action('wp_ajax_imageseo_create_unused_zip', array($this, 'ajax_create_unused_zip'));
         add_action('wp_ajax_imageseo_bulk_delete_unused', array($this, 'ajax_bulk_delete_unused'));
         add_action('wp_ajax_imageseo_validate_alt_text', array($this, 'ajax_validate_alt_text'));
+        
+        // NEW: Cleanup & Delete Tab Handlers
+        add_action('wp_ajax_imageseo_remove_all_alt', array($this, 'ajax_remove_all_alt'));
+        add_action('wp_ajax_imageseo_delete_by_url', array($this, 'ajax_delete_by_url'));
     }
     
     /**
@@ -458,14 +462,24 @@ class SEOAutoFix_Image_SEO {
      * AJAX: Apply changes
      */
     public function ajax_apply_change() {
+        error_log('====== APPLY-CHANGE BACKEND DEBUG START ======');
+        error_log('APPLY-BACKEND-DEBUG: ajax_apply_change() called');
+        error_log('APPLY-BACKEND-DEBUG: Request data: ' . json_encode($_POST));
+        
         check_ajax_referer('imageseo_nonce', 'nonce');
+        error_log('APPLY-BACKEND-DEBUG: ✓ Nonce verified');
         
         if (!current_user_can('manage_options')) {
+            error_log('APPLY-BACKEND-DEBUG: ✗ ERROR - User lacks permissions');
             wp_send_json_error(array('message' => 'Insufficient permissions'));
         }
+        error_log('APPLY-BACKEND-DEBUG: ✓ User has permissions');
         
         $attachment_id = isset($_POST['attachment_id']) ? absint($_POST['attachment_id']) : 0;
         $new_alt = isset($_POST['alt_text']) ? sanitize_text_field($_POST['alt_text']) : '';
+        
+        error_log('APPLY-BACKEND-DEBUG: Attachment ID: ' . $attachment_id);
+        error_log('APPLY-BACKEND-DEBUG: New alt text: "' . $new_alt . '"');
         
         if (!$attachment_id || empty($new_alt)) {
             wp_send_json_error(array('message' => 'Invalid data'));
@@ -558,12 +572,28 @@ class SEOAutoFix_Image_SEO {
             
             error_log('PREV-ALT-FIX-DEBUG: [Backend] Audit table updated successfully');
             
-            // CRITICAL FIX: Use 'optimal' instead of 'optimized' to match frontend checks
-            // Update image history table
-            $status = empty($old_alt) ? 'generate' : 'optimal';
+            // CRITICAL BUG FIX: Determine proper status based on score
+            // When user clicks Apply, the image should be marked as optimized!
+            // Calculate score for the new alt text
+            $usage_context = array('pages' => array(), 'posts' => array());
+            $score_data = $this->seo_scorer->score_alt_text($new_alt, $usage_context);
+            $new_score = $score_data['score'];
+            
+            // Determine status based on score
+            if ($new_score >= 75) {
+                $status = 'optimal';  // High score = optimal
+                error_log('APPLY-STATUS-FIX: Score ' . $new_score . ' >= 75 → status=optimal');
+            } else {
+                $status = 'optimized';  // Low score but user applied it manually = optimized
+                error_log('APPLY-STATUS-FIX: Score ' . $new_score . ' < 75 → status=optimized (manual apply)');
+            }
+            
+            // OLD BROKEN LOGIC (REMOVED):
+            // $status = empty($old_alt) ? 'generate' : 'optimal';
+            // This was WRONG because 'generate' means "queued for AI" not "applied"!
             
             error_log('APPLY-CHANGE-DEBUG: [Backend] Setting new status: ' . $status);
-            error_log('APPLY-CHANGE-DEBUG: [Backend] Status logic: ' . (empty($old_alt) ? 'Alt was empty -> generate' : 'Alt existed -> optimal'));
+            error_log('APPLY-CHANGE-DEBUG: [Backend] New alt score: ' . $new_score);
             
             $this->image_history->update_image_history($attachment_id, array(
                 'new_alt' => $new_alt,
@@ -1415,6 +1445,131 @@ class SEOAutoFix_Image_SEO {
             
         } catch (\Exception $e) {
             error_log('AI-VALIDATION-DEBUG: [Backend AJAX] EXCEPTION: ' . $e->getMessage());
+            wp_send_json_error(array('message' => $e->getMessage()));
+        }
+    }
+    
+    /**
+     * AJAX: Remove All Alt Texts (Cleanup & Delete Tab)
+     */
+    public function ajax_remove_all_alt() {
+        error_log('====== REMOVE-ALL-ALT BACKEND DEBUG START ======');
+        
+        check_ajax_referer('imageseo_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions'));
+        }
+        
+        try {
+            global $wpdb;
+            $table_audit = $wpdb->prefix . 'seoautofix_imageseo_audit';
+            
+            $attachments = get_posts(array(
+                'post_type' => 'attachment',
+                'post_mime_type' => 'image',
+                'posts_per_page' => -1,
+                'fields' => 'ids'
+            ));
+            
+            $removed_count = 0;
+            
+            foreach ($attachments as $attachment_id) {
+                $old_alt = get_post_meta($attachment_id, '_wp_attachment_image_alt', true);
+                
+                if (!empty($old_alt)) {
+                    delete_post_meta($attachment_id, '_wp_attachment_image_alt');
+                    
+                    // Log in audit
+                    $wpdb->insert($table_audit, array(
+                        'attachment_id' => $attachment_id,
+                        'prev_alt' => $old_alt,
+                        'new_alt' => '',
+                        'action_type' => 'Alt Text Removed (Bulk)',
+                        'status' => 'removed',
+                        'created_at' => current_time('mysql')
+                    ));
+                    
+                    $removed_count++;
+                }
+            }
+            
+            error_log('REMOVE-ALL-DEBUG: Removed ' . $removed_count . ' alt texts');
+            
+            wp_send_json_success(array(
+                'removed_count' => $removed_count
+            ));
+            
+        } catch (Exception $e) {
+            error_log('REMOVE-ALL-DEBUG: ERROR - ' . $e->getMessage());
+            wp_send_json_error(array('message' => $e->getMessage()));
+        }
+    }
+    
+    /**
+     * AJAX: Delete Images by URL
+     */
+    public function ajax_delete_by_url() {
+        error_log('====== DELETE-BY-URL BACKEND DEBUG START ======');
+        
+        check_ajax_referer('imageseo_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions'));
+        }
+        
+        $urls = isset($_POST['urls']) ? $_POST['urls'] : '';
+        $urls_array = array_filter(array_map('trim', explode("\n", $urls)));
+        
+        if (empty($urls_array) || count($urls_array) > 50) {
+            wp_send_json_error(array('message' => 'Invalid URL count'));
+        }
+        
+        try {
+            global $wpdb;
+            $table_audit = $wpdb->prefix . 'seoautofix_imageseo_audit';
+            $site_url = get_site_url();
+            
+            $deleted = 0;
+            $skipped = 0;
+            $errors = array();
+            
+            foreach ($urls_array as $url) {
+                // Validate URL
+                if (strpos($url, $site_url) !== 0) {
+                    $errors[] = "External: $url";
+                    $skipped++;
+                    continue;
+                }
+                
+                $attachment_id = attachment_url_to_postid($url);
+                
+                if (!$attachment_id) {
+                    $errors[] = "Not found: $url";
+                    $skipped++;
+                    continue;
+                }
+                
+                // Log deletion
+                $wpdb->insert($table_audit, array(
+                    'attachment_id' => $attachment_id,
+                    'image_url' => $url,
+                    'action_type' => 'Deleted by URL',
+                    'status' => 'deleted',
+                    'created_at' => current_time('mysql')
+                ));
+                
+                wp_delete_attachment($attachment_id, true);
+                $deleted++;
+            }
+            
+            wp_send_json_success(array(
+                'deleted' => $deleted,
+                'skipped' => $skipped,
+                'errors' => $errors
+            ));
+            
+        } catch (Exception $e) {
             wp_send_json_error(array('message' => $e->getMessage()));
         }
     }
