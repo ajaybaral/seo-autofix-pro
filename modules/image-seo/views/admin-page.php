@@ -70,7 +70,7 @@ if (!defined('ABSPATH')) {
 
     
     <!-- Stats Cards - Simplified (3 cards only) -->
-    <div class="imageseo-stats">
+    <div class="imageseo-stats" style="display: none;">
         <div class="stat-card">
             <div class="stat-number" id="stat-total">--</div>
             <div class="stat-label"><?php _e('Total Images', 'seo-autofix-pro'); ?></div>
@@ -112,19 +112,19 @@ if (!defined('ABSPATH')) {
             <div style="display: flex; gap: 12px; flex-wrap: wrap;">
                 <label style="flex: 1; display: flex; align-items: center; padding: 12px 16px; border: 2px solid #ddd; border-radius: 6px; cursor: pointer; transition: all 0.2s; min-width: 200px;">
                     <input type="radio" name="image-filter" value="with-alt-postpage" style="margin-right: 10px;">
-                    <span style="font-size: 14px; font-weight: 500;"><?php _e('WITH Alt (Posts/Pages)', 'seo-autofix-pro'); ?></span>
+                    <span style="font-size: 14px; font-weight: 500;"><?php _e('Images WITH Alt Text Used in Posts/Pages', 'seo-autofix-pro'); ?></span>
                 </label>
                 <label style="flex: 1; display: flex; align-items: center; padding: 12px 16px; border: 2px solid #ddd; border-radius: 6px; cursor: pointer; transition: all 0.2s; min-width: 200px;">
                     <input type="radio" name="image-filter" value="without-alt-postpage" style="margin-right: 10px;">
-                    <span style="font-size: 14px; font-weight: 500;"><?php _e('WITHOUT Alt (Posts/Pages)', 'seo-autofix-pro'); ?></span>
+                    <span style="font-size: 14px; font-weight: 500;"><?php _e('Images WITHOUT Alt Text Used in Posts/Pages', 'seo-autofix-pro'); ?></span>
                 </label>
                 <label style="flex: 1; display: flex; align-items: center; padding: 12px 16px; border: 2px solid #ddd; border-radius: 6px; cursor: pointer; transition: all 0.2s; min-width: 200px;">
                     <input type="radio" name="image-filter" value="with-alt-all" style="margin-right: 10px;">
-                    <span style="font-size: 14px; font-weight: 500;"><?php _e('WITH Alt (All Media)', 'seo-autofix-pro'); ?></span>
+                    <span style="font-size: 14px; font-weight: 500;"><?php _e('Images WITH Alt Text IN ALL Media', 'seo-autofix-pro'); ?></span>
                 </label>
                 <label style="flex: 1; display: flex; align-items: center; padding: 12px 16px; border: 2px solid #ddd; border-radius: 6px; cursor: pointer; transition: all 0.2s; min-width: 200px;">
                     <input type="radio" name="image-filter" value="without-alt-all" style="margin-right: 10px;">
-                    <span style="font-size: 14px; font-weight: 500;"><?php _e('WITHOUT Alt (All Media)', 'seo-autofix-pro'); ?></span>
+                    <span style="font-size: 14px; font-weight: 500;"><?php _e('Images WITHOUT Alt Text IN ALL Media', 'seo-autofix-pro'); ?></span>
                 </label>
             </div>
         </div>
@@ -167,7 +167,7 @@ if (!defined('ABSPATH')) {
     </div>
     
     <!--Results Table -->
-    <div class="imageseo-results" >
+    <div class="imageseo-results" style="display: none;">
         <table class="wp-list-table widefat fixed striped">
             <thead>
                 <tr>
@@ -272,7 +272,7 @@ if (!defined('ABSPATH')) {
 <!-- Tab Content: Cleanup & Delete -->
 <div id="tab-cleanup-delete" class="tab-content" style="display: none;">
     
-    <div class="notice notice-warning" style="margin: 20px 0;">
+    <div id="cleanup-tab-warning" class="notice notice-warning" style="margin: 20px 0; display: none;">
         <p>
             <strong><?php _e('⚠️ Warning: Destructive Operations', 'seo-autofix-pro'); ?></strong><br>
             <?php _e('All actions on this tab perform permanent changes. Use with caution and ensure you have backups.', 'seo-autofix-pro'); ?>

@@ -357,32 +357,47 @@ class SEOAutoFix_Image_SEO {
             wp_send_json_error(array('message' => 'Invalid attachment ID'));
         }
         
+        $force_refresh = isset($_POST['force']) && $_POST['force'] === 'true';
+        
         try {
             global $wpdb;
             $table_audit = $wpdb->prefix . 'seoautofix_imageseo_audit';
             
-            error_log('DEBUG-FLOW-PHP: Checking for cached suggestion');
-            // Check for cached suggestion (within last 30 days)
-            $cached = $wpdb->get_row($wpdb->prepare(
-                "SELECT suggested_alt FROM $table_audit 
-                WHERE attachment_id = %d 
-                AND suggested_alt IS NOT NULL 
-                AND suggested_alt != '' 
-                AND created_at > DATE_SUB(NOW(), INTERVAL 30 DAY)
-                ORDER BY created_at DESC LIMIT 1",
-                $attachment_id
-            ));
+            // Get current alt text to compare with cache
+            $current_alt = get_post_meta($attachment_id, '_wp_attachment_image_alt', true);
             
-            if ($cached && !empty($cached->suggested_alt)) {
-                error_log('DEBUG-FLOW-PHP: Found cached suggestion: ' . $cached->suggested_alt);
+            $cached = null;
+            if (!$force_refresh) {
+                error_log('DEBUG-FLOW-PHP: Checking for cached suggestion');
+                // Check for cached suggestion (within last 30 days)
+                $cached = $wpdb->get_row($wpdb->prepare(
+                    "SELECT suggested_alt FROM $table_audit 
+                    WHERE attachment_id = %d 
+                    AND suggested_alt IS NOT NULL 
+                    AND suggested_alt != '' 
+                    AND created_at > DATE_SUB(NOW(), INTERVAL 30 DAY)
+                    ORDER BY created_at DESC LIMIT 1",
+                    $attachment_id
+                ));
+            } else {
+                error_log('DEBUG-FLOW-PHP: Force refresh requested - skipping cache');
+            }
+            
+            // If cache exists AND it's different from current alt, use it
+            // If cache == current alt, it's useless, so generate new
+            if ($cached && !empty($cached->suggested_alt) && $cached->suggested_alt !== $current_alt) {
+                error_log('DEBUG-FLOW-PHP: Found valid cached suggestion: ' . $cached->suggested_alt);
                 wp_send_json_success(array(
                     'alt_text' => $cached->suggested_alt,
                     'attachment_id' => $attachment_id,
                     'cached' => true
                 ));
+                return; // Stop here
+            } elseif ($cached && $cached->suggested_alt === $current_alt) {
+                error_log('DEBUG-FLOW-PHP: Cached suggestion SAME as current alt - ignoring cache to generate new');
             }
             
-            error_log('DEBUG-FLOW-PHP: No cache found, generating NEW AI suggestion');
+            error_log('DEBUG-FLOW-PHP: No valid cache found (or forced), generating NEW AI suggestion');
             error_log('DEBUG-FLOW-PHP: *** CALLING OpenAI API via alt_generator ***');
             
             // Generate new suggestion via AI
@@ -548,12 +563,13 @@ class SEOAutoFix_Image_SEO {
             // CRITICAL FIX: Update audit table with proper previous alt text
             // Each edit should update: current → previous, new → current
             error_log('PREV-ALT-FIX-DEBUG: [Backend] Updating audit table');
-            error_log('PREV-ALT-FIX-DEBUG: [Backend] Setting prev_alt to: ' . $old_alt);
+            error_log('PREV-ALT-FIX-DEBUG: [Backend] Setting original_alt to: ' . $old_alt);
             error_log('PREV-ALT-FIX-DEBUG: [Backend] Setting new_alt to: ' . $new_alt);
             
-            $wpdb->query($wpdb->prepare(
+            // Try to update existing PENDING record (from AI Generation)
+            $update_result = $wpdb->query($wpdb->prepare(
                 "UPDATE $table_audit 
-                SET prev_alt = %s,
+                SET original_alt = %s,
                     new_alt = %s, 
                     prev_title = %s, 
                     new_title = %s, 
@@ -566,9 +582,33 @@ class SEOAutoFix_Image_SEO {
                 AND status = 'pending' 
                 ORDER BY created_at DESC 
                 LIMIT 1",
-                $old_alt,   // ✅ CRITICAL FIX: Now setting prev_alt properly
+                $old_alt,   // Use original_alt column
                 $new_alt, $old_title, $new_alt, $image_url, $media_link, $action_type, current_time('mysql'), $attachment_id
             ));
+            
+            // If NO pending record found (Manual Edit), INSERT new record
+            if ($update_result === 0) {
+                error_log('AUDIT-DEBUG: No pending record found - Creating MANUAL audit entry');
+                $wpdb->insert(
+                    $table_audit,
+                    array(
+                        'attachment_id' => $attachment_id,
+                        'issue_type' => 'manual', // unknown issue type context
+                        'original_alt' => $old_alt,
+                        'suggested_alt' => '', // Manual, no suggestion
+                        'new_alt' => $new_alt,
+                        'prev_title' => $old_title,
+                        'new_title' => $new_alt,
+                        'image_url' => $image_url,
+                        'media_link' => $media_link,
+                        'action_type' => 'Manual',
+                        'status' => 'applied',
+                        'created_at' => current_time('mysql'),
+                        'updated_at' => current_time('mysql')
+                    ),
+                    array('%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s')
+                );
+            }
             
             error_log('PREV-ALT-FIX-DEBUG: [Backend] Audit table updated successfully');
             
@@ -587,10 +627,6 @@ class SEOAutoFix_Image_SEO {
                 $status = 'optimized';  // Low score but user applied it manually = optimized
                 error_log('APPLY-STATUS-FIX: Score ' . $new_score . ' < 75 → status=optimized (manual apply)');
             }
-            
-            // OLD BROKEN LOGIC (REMOVED):
-            // $status = empty($old_alt) ? 'generate' : 'optimal';
-            // This was WRONG because 'generate' means "queued for AI" not "applied"!
             
             error_log('APPLY-CHANGE-DEBUG: [Backend] Setting new status: ' . $status);
             error_log('APPLY-CHANGE-DEBUG: [Backend] New alt score: ' . $new_score);
@@ -832,86 +868,73 @@ class SEOAutoFix_Image_SEO {
      * AJAX: Export audit history to CSV
      */
     public function ajax_export_audit_csv() {
-        error_log('FEATURE-DEBUG-PHP: === ajax_export_audit_csv() called ===');
-        error_log('FEATURE-DEBUG-PHP: This is where EMAIL logic will be added');
-        error_log('FEATURE-DEBUG-PHP: Will need WordPress admin email: ' . get_option('admin_email'));
-        error_log('IMAGESEO CSV EXPORT: Function called');
+        error_log('IMAGESEO CSV EXPORT: === New Audit Table Export ===');
         check_ajax_referer('imageseo_nonce', 'nonce');
-        error_log('IMAGESEO CSV EXPORT: Nonce verified');
         
         if (!current_user_can('manage_options')) {
-            error_log('IMAGESEO CSV EXPORT: Permission denied');
             wp_send_json_error(array('message' => 'Insufficient permissions'));
         }
         
-        error_log('IMAGESEO CSV EXPORT: Getting all records for export');
-        // Get all history records for export
-        $results = $this->image_history->get_all_for_export();
+        global $wpdb;
+        $table_audit = $wpdb->prefix . 'seoautofix_imageseo_audit';
         
-        error_log('IMAGESEO CSV EXPORT: Found ' . count($results) . ' records');
+        // QUERY: Get only COMPLETED actions (applied, optimized, skipped)
+        // Order by most recent update first
+        $results = $wpdb->get_results("
+            SELECT * FROM $table_audit 
+            WHERE status IN ('applied', 'optimized', 'skipped')
+            ORDER BY updated_at DESC
+        ");
+        
+        error_log('IMAGESEO CSV EXPORT: Found ' . count($results) . ' audit records');
         
         if (empty($results)) {
-            error_log('IMAGESEO CSV EXPORT: No records found, returning error');
-            wp_send_json_error(array('message' => 'No change history found'));
+            wp_send_json_error(array('message' => 'No changes found in audit log'));
         }
         
-        // Generate CSV content
+        // GENREATE CSV
         $csv_output = '';
         
-        // CSV Headers
+        // Headers
         $headers = array(
-            'Media Link',
+            'Date',
+            'Image',
+            'Action',
             'Previous Alt Text',
             'New Alt Text',
-            'Image URL',
             'Previous Title',
             'New Title',
-            'Type'
+            'Media Link'
         );
         $csv_output .= '"' . implode('","', $headers) . '"' . "\n";
         
-        // CSV Rows
+        // Rows
         foreach ($results as $row) {
-            // Decode JSON arrays
-            $alt_history = json_decode($row->alt_history, true) ?: array();
-            $title_history = json_decode($row->title_history, true) ?: array();
-            
-            // Get previous and current values
-            $prev_alt = isset($alt_history[0]) ? $alt_history[0] : '';
-            $new_alt = count($alt_history) > 1 ? end($alt_history) : $prev_alt;
-            $prev_title = isset($title_history[0]) ? $title_history[0] : '';
-            $new_title = count($title_history) > 1 ? end($title_history) : $prev_title;
-            
-            // Map status to action type for CSV
-            $action_mapping = array(
-                'generate' => 'Generated',
-                'optimized' => 'Optimized',
-                'skipped' => 'Skip',
-                'blank' => 'Pending',
-                'optimal' => 'Already Optimized'
-            );
-            $action_type = isset($action_mapping[$row->status]) ? $action_mapping[$row->status] : ucfirst($row->status);
-            
+            // Format updated_at to site's timezone (using wp_date)
+            // strtotime converts DB UTC string to timestamp, wp_date formats it using timezone settings
+            // If updated_at is missing, fallback to current time
+            $date_str = $row->updated_at ? wp_date(get_option('date_format') . ' ' . get_option('time_format'), strtotime($row->updated_at)) : '';
+
             $csv_row = array(
-                $row->media_link ?: '',
-                $prev_alt,
-                $new_alt,
-                $row->image_url ?: '',
-                $prev_title,
-                $new_title,
-                $action_type
+                $date_str,
+                $row->image_url,
+                ucfirst($row->action_type), // e.g. "Generated", "Manual", "Skip"
+                $row->original_alt,        // PREVIOUS value (before this action)
+                $row->new_alt,             // NEW value (after this action)
+                $row->prev_title,
+                $row->new_title,
+                $row->media_link
             );
             
-            // Escape and format each field
+            // Escape CSV fields
             $csv_output .= '"' . implode('","', array_map(function($field) {
-                return str_replace('"', '""', $field);
+                return str_replace('"', '""', $field ?: ''); // Handle nulls
             }, $csv_row)) . '"' . "\n";
         }
         
-        // Send CSV response
         wp_send_json_success(array(
             'csv' => $csv_output,
-            'filename' => 'image-seo-audit-' . date('Y-m-d') . '.csv',
+            'filename' => 'seo-audit-log-' . date('Y-m-d-His') . '.csv',
             'count' => count($results)
         ));
     }

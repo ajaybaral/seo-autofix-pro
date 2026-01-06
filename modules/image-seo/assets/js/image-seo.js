@@ -97,6 +97,13 @@ jQuery(document).ready(function($) {
         $('#tab-' + tabId).show();
         
         console.log('TAB-DEBUG: Switched to tab:', tabId);
+        
+        // VISIBILITY FIX: Only show the Destructive Warning on Cleanup tab
+        if (tabId === 'cleanup-delete') {
+            $('#cleanup-tab-warning').show();
+        } else {
+            $('#cleanup-tab-warning').hide();
+        }
     });
     
     /**
@@ -826,7 +833,13 @@ jQuery(document).ready(function($) {
                         // SHOW filter controls and pagination after scan completes
                         $('.imageseo-filter-controls').show();
                         $('.imageseo-pagination').show();
-                        console.log('SCAN-DEBUG: Showing filter controls and pagination after scan');
+                        
+                        // SHOW Stats and Results Table (which were hidden initially)
+                        $('.imageseo-stats').show();
+                        $('.imageseo-results').show();
+                        $resultsTable.show();
+                        
+                        console.log('SCAN-DEBUG: Showing filter controls, stats, and results after scan');
                     }
                 } else {
                     showError('Scan failed: ' + (response.data.message || 'Unknown error'));
@@ -1215,8 +1228,6 @@ jQuery(document).ready(function($) {
         
         // Generate button - NEW INDIVIDUAL GENERATE FEATURE
         $row.find('.generate-btn').on('click', function() {
-            console.log('GENERATE-BTN-DEBUG: Generate button clicked for image ID:', attachmentId);
-            
             // Check if API key is configured
             if (!imageSeoData.hasApiKey) {
                 showToast('OpenAI API key not configured', 'error');
@@ -1225,11 +1236,8 @@ jQuery(document).ready(function($) {
             
             // Check if already generating
             if ($row.find('.loading-indicator').is(':visible')) {
-                console.log('GENERATE-BTN-DEBUG: Already generating, ignoring click');
                 return;
             }
-            
-            console.log('GENERATE-BTN-DEBUG: Starting AI generation...');
             
             const $editable = $row.find('.alt-text-editable');
             const $generateBtn = $(this);
@@ -1239,8 +1247,8 @@ jQuery(document).ready(function($) {
             $editable.html('');
             $row.find('.loading-indicator').show();
             
-            // Generate AI suggestion
-            generateSuggestion(attachmentId, $row);
+            // Generate AI suggestion (FORCE REFRESH = true)
+            generateSuggestion(attachmentId, $row, true);
         });
         
         // Skip button
@@ -1249,26 +1257,16 @@ jQuery(document).ready(function($) {
         });
         
         // UX-IMPROVEMENT: Removed click-on-row feature to generate AI
-        // Users must now use the dedicated Generate button only
-        // This prevents accidental AI generation when clicking anywhere on the row
-        
-        console.log('DEBUG-ATTACH: Click handler attached for row ID:', attachmentId);
         
         // Delete button click handler
         $row.find('.delete-btn').on('click', function() {
-            console.log('FEATURE-DELETE: Delete clicked for image ID:', attachmentId);
-            
             const imageUrl = $row.find('.attachment-thumbnail').attr('src');
             const imageTitle = $row.find('.attachment-title').text();
             
-            // Show confirmation modal with download option
             const message = `Are you sure you want to delete "${imageTitle}"?\n\nDownload image first (recommended):\n${imageUrl}\n\nThis action cannot be undone.`;
             
             if (confirm(message)) {
-                console.log('FEATURE-DELETE: User confirmed deletion');
                 deleteImage(attachmentId, $row);
-            } else {
-                console.log('FEATURE-DELETE: User cancelled deletion');
             }
         });
         
@@ -1318,13 +1316,8 @@ jQuery(document).ready(function($) {
      * Generate AI suggestions for all images
      */
     function generateAllSuggestions() {
-        console.log('DEBUG-FLOW: === generateAllSuggestions() called ===');
-        console.log('DEBUG-FLOW: Total scannedImages:', scannedImages.length);
-        console.log('DEBUG-FLOW: This function will call generateSuggestion() for each image');
-        
         scannedImages.forEach((image, index) => {
             const $row = $resultsTbody.find(`tr[data-attachment-id="${image.id}"]`);
-            console.log(`DEBUG-FLOW: Calling generateSuggestion for image ${index + 1}/${scannedImages.length} (ID: ${image.id})`);
             
             // Clear placeholder and show loading
             $row.find('.alt-text-editable').html('').show();
@@ -1338,17 +1331,10 @@ jQuery(document).ready(function($) {
      * Generate AI suggestions for images used in posts/pages only
      */
     function generatePostPageSuggestions() {
-        console.log('DEBUG-FLOW: === generatePostPageSuggestions() called ===');
-        console.log('DEBUG-FLOW: Total scannedImages:', scannedImages.length);
-        
         // Filter images that are used in posts or pages
         const postPageImages = scannedImages.filter(image => {
-            // Check if image has usage information indicating it's in a post or page
-            // This would be populated from the backend scan
             return image.used_in_posts > 0 || image.used_in_pages > 0;
         });
-        
-        console.log('DEBUG-FLOW: Found', postPageImages.length, 'images used in posts/pages');
         
         if (postPageImages.length === 0) {
             showToast('No images found that are used in posts or pages', 'error');
@@ -1361,7 +1347,6 @@ jQuery(document).ready(function($) {
         
         postPageImages.forEach((image, index) => {
             const $row = $resultsTbody.find(`tr[data-attachment-id="${image.id}"]`);
-            console.log(`DEBUG-FLOW: Calling generateSuggestion for post/page image ${index + 1}/${postPageImages.length} (ID: ${image.id})`);
             
             // Clear placeholder and show loading
             $row.find('.alt-text-editable').html('').show();
@@ -1376,23 +1361,20 @@ jQuery(document).ready(function($) {
     /**
      * Generate AI suggestion for an image
      */
-    function generateSuggestion(attachmentId, $row) {
-        console.log('DEBUG-FLOW: === generateSuggestion() called ===');
-        console.log('DEBUG-FLOW: Attachment ID:', attachmentId);
-        console.log('DEBUG-FLOW: *** THIS MAKES THE AJAX CALL TO SERVER FOR AI GENERATION ***');
+    function generateSuggestion(attachmentId, $row, force = false) {
+        console.log(`DEBUG-FLOW: === generateSuggestion(force=${force}) ===`);
         
         // Skip if no API key
         if (!imageSeoData.hasApiKey) {
-            console.log('DEBUG-FLOW: Skipping - no API key');
             $row.find('.loading-indicator').hide();
             $row.find('.alt-text-editable')
                 .html('<em style="color: #999;">Manual entry required (no API key)</em>')
                 .show();
             $row.find('.apply-btn').prop('disabled', false);
+            // Re-enable generate button
+            $row.find('.generate-btn').prop('disabled', false);
             return;
         }
-        
-        console.log('DEBUG-FLOW: Making AJAX call to action: imageseo_generate');
         
         $.ajax({
             url: imageSeoData.ajaxUrl,
@@ -1400,13 +1382,12 @@ jQuery(document).ready(function($) {
             data: {
                 action: 'imageseo_generate',
                 nonce: imageSeoData.nonce,
-                attachment_id: attachmentId
+                attachment_id: attachmentId,
+                force: force // Send force parameter
             },
             success: function(response) {
-                console.log('DEBUG-FLOW: AJAX response received for ID', attachmentId, ':', response);
                 if (response.success) {
                     const altText = response.data.alt_text;
-                    console.log('DEBUG-FLOW: AI suggestion generated:', altText);
                     $row.find('.loading-indicator').hide();
                     $row.find('.alt-text-editable').text(altText).show();
                     $row.find('.char-count').text(altText.length);
@@ -1414,22 +1395,24 @@ jQuery(document).ready(function($) {
                     // Enable Apply button now that suggestion is ready
                     $row.find('.apply-btn').prop('disabled', false);
                     
-                    // Update Bulk Apply button state (might now be enabled)
+                    // Update Bulk Apply button state
                     updateBulkApplyButtonState();
                     
                     // Score both original and suggested
                     scoreOriginal(attachmentId, $row);
                     scoreSuggested(attachmentId, altText, $row);
                 } else {
-                    console.log('DEBUG-FLOW: Error in response:', response);
                     $row.find('.loading-indicator').hide();
                     $row.find('.alt-text-editable').text('Error generating suggestion').show();
                 }
+                // Re-enable generate button
+                $row.find('.generate-btn').prop('disabled', false);
             },
             error: function() {
-                console.log('DEBUG-FLOW: AJAX error for ID', attachmentId);
                 $row.find('.loading-indicator').hide();
                 $row.find('.alt-text-editable').text('Error generating suggestion').show();
+                // Re-enable generate button
+                $row.find('.generate-btn').prop('disabled', false);
             }
         });
     }
@@ -1855,7 +1838,7 @@ jQuery(document).ready(function($) {
                     console.log('LOW-SCORE-APPLY: [Frontend] Applied successfully');
                     
                     // Show toast
-                    showToast(`Alt text applied (Score: ${score} - Low quality)`, 'success');
+                    showToast(`Alt text applied `, 'success');
                     
                     // Re-enable button
                     $btn.prop('disabled', false).text('Apply');
@@ -1868,12 +1851,12 @@ jQuery(document).ready(function($) {
                     console.log('LOW-SCORE-APPLY: [Frontend] Image will reappear on next scan');
                     
                 } else {
-                    showToast('✕ Failed to apply: ' + (response.data.message || 'Unknown error'), 'error');
+                    showToast(' Failed to apply: ' + (response.data.message || 'Unknown error'), 'error');
                     $btn.prop('disabled', false).text('Apply');
                 }
             },
             error: function() {
-                showToast('✕ Network error occurred', 'error');
+                showToast('Network error occurred', 'error');
                 $btn.prop('disabled', false).text('Apply');
             }
         });
@@ -1981,7 +1964,7 @@ jQuery(document).ready(function($) {
                     console.log('DIRECT-APPLY: [Frontend] Applied successfully');
                     
                     // Show success toast
-                    showToast('✓ Alt text applied and marked as optimized!', 'success');
+                    showToast('✓ Alt text applied!', 'success');
                     
                     // Update stats dynamically
                     if (globalStats) {
@@ -1998,31 +1981,58 @@ jQuery(document).ready(function($) {
                         updateStats(globalStats);
                     }
                     
-                    // Remove row with fade animation
-                    $row.fadeOut(400, function() {
-                        $(this).remove();
+                    
+                    
+                    // SMART REMOVAL LOGIC
+                    // 1. If we are in "Without Alt" filter, the image no longer matches the filter criteria → REMOVE
+                    // 2. If we are in "With Alt" filter, the image still matches → KEEP & UPDATE
+                    
+                    const currentFilter = $('input[name="image-filter"]:checked').val();
+                    const isWithoutAltFilter = currentFilter && currentFilter.includes('without-alt');
+                    
+                    if (isWithoutAltFilter) {
+                         console.log('DIRECT-APPLY: [Frontend] Current filter is "Without Alt" - Removing row as it now has text');
+                         $row.fadeOut(400, function() {
+                            $(this).remove();
+                            updateBulkApplyButtonState();
+                            
+                             // Check empty state
+                            if ($resultsTbody.find('tr').length === 0) {
+                                $resultsTable.hide(); // Allow re-scan but hide empty table
+                                // Don't hide filters, let user switch
+                            }
+                         });
+                    } else {
+                        console.log('DIRECT-APPLY: [Frontend] Keeping row visible (matches current filter)');
                         
-                        console.log('DIRECT-APPLY: [Frontend] Row removed from table');
+                        // Update the "Current Alt Text" column to show the new value
+                        $row.find('.row-current-alt .alt-text').text(altText);
+                        $row.find('.row-current-alt .alt-text').css('color', ''); // Reset color if it was blue
                         
-                        // Update Bulk Apply button state (might now be disabled if no rows left)
-                        updateBulkApplyButtonState();
+                        // Update data attribute
+                        $row.data('original-alt', altText);
                         
-                        // Check if no rows left
-                        if ($resultsTbody.find('tr').length === 0) {
-                            $resultsTable.hide();
-                            $filtersSection.hide();
-                            $emptyState.find('h2').text('All Done!');
-                            $emptyState.find('p').text('All images have been processed.');
-                            $emptyState.show();
-                        }
-                    });
+                        // Change Apply button state to indicate success
+                        $btn.text('Applied').prop('disabled', true);
+                    }
+                    
+                    // Update internal data store regardless of UI state
+                    // Find image in array
+                    const imgIndex = scannedImages.findIndex(img => parseInt(img.id) === parseInt(attachmentId));
+                    if (imgIndex !== -1) {
+                        scannedImages[imgIndex].current_alt = altText;
+                        scannedImages[imgIndex].status = 'optimized'; // Mark as optimized
+                    }
+                    
+                    // Update Bulk Apply button state
+                    updateBulkApplyButtonState();
                 } else {
-                    showToast('✕ Failed to apply: ' + (response.data.message || 'Unknown error'), 'error');
+                    showToast(' Failed to apply: ' + (response.data.message || 'Unknown error'), 'error');
                     $btn.prop('disabled', false).text('Apply');
                 }
             },
             error: function() {
-                showToast('✕ Network error occurred', 'error');
+                showToast(' Network error occurred', 'error');
                 $btn.prop('disabled', false).text('Apply');
             }
         });
@@ -2153,13 +2163,13 @@ jQuery(document).ready(function($) {
                     
                     // Stats remain static - no need to update
                 } else {
-                    showToast('✕ Bulk apply failed', 'error');
+                    showToast(' Bulk apply failed', 'error');
                 }
                 
                 $bulkApplyBtn.prop('disabled', false).text('Apply All High Confidence');
             },
             error: function() {
-                showToast('✕ Network error occurred', 'error');
+                showToast(' Network error occurred', 'error');
                 $bulkApplyBtn.prop('disabled', false).text('Apply All High Confidence');
             }
         });
@@ -2311,15 +2321,15 @@ jQuery(document).ready(function($) {
                     window.URL.revokeObjectURL(url);
                     
                     console.log('CSV download initiated');
-                    showToast(`✓ Exported ${response.data.count} records`, 'success');
+                    showToast(` Exported ${response.data.count} records`, 'success');
                 } else {
                     console.error('CSV export failed:', response.data);
-                    showToast('✕ ' + (response.data.message || 'No change history found'), 'error');
+                    showToast( + (response.data.message || 'No change history found'), 'error');
                 }
             },
             error: function(xhr, status, error) {
                 console.error('CSV export Ajax error:', {xhr, status, error});
-                showToast('✕ Export failed', 'error');
+                showToast(' CSV Export failed', 'error');
             }
         });
     }
