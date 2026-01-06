@@ -9,8 +9,12 @@ jQuery(document).ready(function($) {
     let globalStats = null;
     let currentPage = 1;
     let itemsPerPage = 50;
-    let currentFilter = 'all'; // For stat card filtering ('all', 'missing', 'poor', 'optimized')
-    let currentRadioFilter = 'all'; // For radio button filtering ('all', 'postpage')
+    
+    // Bulk Generation Progress Tracking
+    let isGenerating = false;
+    let generationCancelled = false;
+    let totalToGenerate = 0;
+    let generatedCount = 0;
     
     // Elements
     console.log('SCAN-BUTTON-DEBUG: Setting up scan button selector #scan-btn');
@@ -53,6 +57,32 @@ jQuery(document).ready(function($) {
         setTimeout(() => $toast.remove(), 3300);
     }
     
+    /**
+     * Update Bulk Apply button state based on available Apply buttons
+     * Button should only be enabled when at least one visible row has an enabled Apply button
+     */
+    function updateBulkApplyButtonState() {
+        const $visibleRows = $resultsTbody.find('tr.result-row:visible');
+        
+        // Count rows with ENABLED Apply buttons
+        let readyCount = 0;
+        $visibleRows.each(function() {
+            const $applyBtn = $(this).find('.apply-btn');
+            if ($applyBtn.length > 0 && $applyBtn.is(':visible') && !$applyBtn.prop('disabled')) {
+                readyCount++;
+            }
+        });
+        
+        // Enable/disable Bulk Apply based on ready count
+        if (readyCount > 0) {
+            $bulkApplyBtn.prop('disabled', false).removeClass('disabled');
+            console.log('BULK-APPLY-STATE: Enabled - ' + readyCount + ' rows ready');
+        } else {
+            $bulkApplyBtn.prop('disabled', true).addClass('disabled');
+            console.log('BULK-APPLY-STATE: Disabled - no rows ready');
+        }
+    }
+    
     // ========== TAB NAVIGATION ==========
     $('.nav-tab').on('click', function(e) {
         e.preventDefault();
@@ -81,6 +111,10 @@ jQuery(document).ready(function($) {
     // Empty state should be hidden initially (table will show if there's cached data)
     $emptyState.hide();
     console.log('PAGE-INIT-DEBUG: [Frontend] Empty state hidden');
+    
+    // Filter controls should be hidden until first scan completes
+    $('.imageseo-filter-controls').hide();
+    console.log('PAGE-INIT-DEBUG: [Frontend] Filter controls hidden (will show after scan)');
     
     console.log('PAGE-INIT-DEBUG: [Frontend] Page initialized successfully');
     
@@ -217,9 +251,10 @@ jQuery(document).ready(function($) {
     // ===== UX REDESIGN: STAT CARDS ARE NOW NON-CLICKABLE =====
     // Removed click handlers - stat cards are display-only now
     
-    // ===== UX REDESIGN: NEW 4 RADIO BUTTON FILTERS =====
+    // ===== UX REDESIGN: NEW 4 RADIO BUTTON FILTERS with Unsaved Warning =====
     $('input[name="image-filter"]').on('change', function() {
         const filterValue = $(this).val();
+        const $this = $(this);
         
         console.log('NEW-RADIO-DEBUG: Filter changed to:', filterValue);
         
@@ -228,37 +263,56 @@ jQuery(document).ready(function($) {
             return;
         }
         
+        // CHECK: Are there unsaved AI suggestions?
+        const hasUnsavedSuggestions = checkForUnsavedSuggestions();
+        
+        if (hasUnsavedSuggestions) {
+            // Show warning
+            const confirmSwitch = confirm(
+                '⚠️ You have unsaved AI suggestions!\n\n' +
+                'Switching filters will clear all generated AI alt text.\n\n' +
+                'Click OK to continue and lose suggestions, or Cancel to stay.'
+            );
+            
+            if (!confirmSwitch) {
+                // User cancelled - revert to previous filter (uncheck this one)
+                $this.prop('checked', false);
+                console.log('FILTER-WARNING: User cancelled filter switch');
+                return;
+            }
+            
+            // User confirmed - clear all suggestions
+            console.log('FILTER-WARNING: User confirmed - clearing suggestions');
+            clearAllAISuggestions();
+        }
+        
         let filtered = scannedImages;
         let shouldGroup = false;
         
-        // Apply filter based on radio selection
+        // Apply filter based on radio selection (SIMPLIFIED: Shows ALL images, no optimization filtering)
         if (filterValue === 'with-alt-postpage') {
             filtered = scannedImages.filter(img => {
                 const hasAlt = img.current_alt && img.current_alt.trim().length > 0;
                 const inPostsPages = img.used_in_posts > 0 || img.used_in_pages > 0;
-                const notOptimized = img.status !== 'optimal' && img.status !== 'optimized';
-                return hasAlt && inPostsPages && notOptimized;
+                return hasAlt && inPostsPages; // Show ALL images with alt in posts/pages
             });
             shouldGroup = true;
         } else if (filterValue === 'without-alt-postpage') {
             filtered = scannedImages.filter(img => {
                 const noAlt = !img.current_alt || img.current_alt.trim().length === 0;
                 const inPostsPages = img.used_in_posts > 0 || img.used_in_pages > 0;
-                const notOptimized = img.status !== 'optimal' && img.status !== 'optimized';
-                return noAlt && inPostsPages && notOptimized;
+                return noAlt && inPostsPages; // Show ALL images without alt in posts/pages
             });
             shouldGroup = true;
         } else if (filterValue === 'with-alt-all') {
             filtered = scannedImages.filter(img => {
                 const hasAlt = img.current_alt && img.current_alt.trim().length > 0;
-                const notOptimized = img.status !== 'optimal' && img.status !== 'optimized';
-                return hasAlt && notOptimized;
+                return hasAlt; // Show ALL images with alt
             });
         } else if (filterValue === 'without-alt-all') {
             filtered = scannedImages.filter(img => {
                 const noAlt = !img.current_alt || img.current_alt.trim().length === 0;
-                const notOptimized = img.status !== 'optimal' && img.status !== 'optimized';
-                return noAlt && notOptimized;
+                return noAlt; // Show ALL images without alt
             });
         }
         
@@ -267,108 +321,98 @@ jQuery(document).ready(function($) {
         console.log('NEW-RADIO-DEBUG: Showing', filtered.length, 'images, grouped:', shouldGroup);
     });
     
-    // ===== NEW: GENERATE VISIBLE IMAGES BUTTON =====
+    // ===== NEW: GENERATE VISIBLE IMAGES BUTTON with Progress Tracking =====
     $('#generate-visible-btn').on('click', function() {
         console.log('====== GENERATE VISIBLE DEBUG START ======');
         console.log('GEN-VISIBLE-DEBUG: Button clicked');
-        console.log('GEN-VISIBLE-DEBUG: Has API key?', imageSeoData.hasApiKey);
         
         if (!imageSeoData.hasApiKey) {
             showToast('API key not configured', 'error');
             return;
         }
         
-        // DEBUG: Check if tbody exists
-        console.log('GEN-VISIBLE-DEBUG: $resultsTbody exists?', $resultsTbody.length > 0);
-        console.log('GEN-VISIBLE-DEBUG: $resultsTbody selector:', '#results-tbody');
+        // Prevent starting if already generating
+        if (isGenerating) {
+            showToast('Generation already in progress', 'warning');
+            return;
+        }
         
         // Get currently visible image IDs
         const $visibleRows = $resultsTbody.find('tr.result-row:visible');
         console.log('GEN-VISIBLE-DEBUG: Found visible rows:', $visibleRows.length);
         
-        // DEBUG: Check ALL rows (visible or not)
-        const $allRows = $resultsTbody.find('tr.result-row');
-        console.log('GEN-VISIBLE-DEBUG: Total .result-row elements:', $allRows.length);
-        
-        // DEBUG: Check ANY tr elements
-        const $anyTr = $resultsTbody.find('tr');
-        console.log('GEN-VISIBLE-DEBUG: Total tr elements:', $anyTr.length);
-        
-        // DEBUG: Log first row classes if exists
-        if ($anyTr.length > 0) {
-            console.log('GEN-VISIBLE-DEBUG: First row HTML:', $anyTr.first()[0].outerHTML.substring(0, 200));
-            console.log('GEN-VISIBLE-DEBUG: First row classes:', $anyTr.first().attr('class'));
-        }
-        
-        const visibleImageIds = [];
-        
-        $visibleRows.each(function() {
-            const id = parseInt($(this).data('attachment-id'));
-            console.log('GEN-VISIBLE-DEBUG: Found image ID:', id);
-            visibleImageIds.push(id);
-        });
-        
-        console.log('GEN-VISIBLE-DEBUG: Visible image IDs:', visibleImageIds);
-        console.log('GEN-VISIBLE-DEBUG: scannedImages.length:', scannedImages.length);
-        console.log('GEN-VISIBLE-DEBUG: Sample scannedImages[0]:', scannedImages[0]);
-        console.log('GEN-VISIBLE-DEBUG: scannedImages[0] keys:', scannedImages[0] ? Object.keys(scannedImages[0]) : 'none');
-        
-        if (visibleImageIds.length === 0) {
-            console.log('GEN-VISIBLE-DEBUG: ERROR - No visible images found!');
+        if ($visibleRows.length === 0) {
             showToast('No images visible to generate', 'error');
             return;
         }
         
+        const visibleImageIds = [];
+        $visibleRows.each(function() {
+            const id = parseInt($(this).data('attachment-id'));
+            visibleImageIds.push(id);
+        });
+        
         // Get full image objects from scannedImages
-        // FIX: scannedImages has STRING IDs, visibleImageIds has NUMBER IDs - convert for comparison!
         const imagesToGenerate = scannedImages.filter(img => visibleImageIds.includes(parseInt(img.id)));
         console.log('GEN-VISIBLE-DEBUG: Images to generate:', imagesToGenerate.length);
-        console.log('GEN-VISIBLE-DEBUG: FIX APPLIED - Converting string IDs to numbers for comparison');
         
         if (!confirm(`Generate AI alt text for ${imagesToGenerate.length} visible images?`)) {
             return;
         }
         
-        console.log('GEN-VISIBLE-DEBUG: Calling generateFilteredSuggestions...');
-        generateFilteredSuggestions(imagesToGenerate, 'Visible Images');
+        // START GENERATION with progress tracking
+        startBulkGeneration(imagesToGenerate);
+        
         console.log('====== GENERATE VISIBLE DEBUG END ======');
     });
     
-    // ===== NEW: VIEW OPTIMIZED IMAGES BUTTON =====
-    $('#view-optimized-btn').on('click', function() {
-        if (scannedImages.length === 0) {
-            showToast('Please scan images first', 'error');
+    // ===== CANCEL GENERATION BUTTON =====
+    $(document).on('click', '#cancel-generation-btn', function() {
+        console.log('CANCEL-GENERATION: Cancel button clicked');
+        
+        if (!isGenerating) {
             return;
         }
         
-        const optimized = scannedImages.filter(img => 
-            img.status === 'optimal' || img.status === 'optimized'
-        );
+        if (confirm('Cancel AI generation? Any generated alt text will be lost.')) {
+            generationCancelled = true;
+            console.log('CANCEL-GENERATION: User confirmed cancellation');
+            
+            // Hide progress, re-enable filters
+            endBulkGeneration(true);
+            
+            showToast('Generation cancelled', 'info');
+        }
+    });
+    
+    // ===== CLEAR ALL AI SUGGESTIONS BUTTON =====
+    $(document).on('click', '#clear-suggestions-btn', function() {
+        console.log('CLEAR-SUGGESTIONS: Clear All button clicked');
         
-        if (optimized.length === 0) {
-            showToast('No optimized images found', 'info');
+        const hasUnsaved = checkForUnsavedSuggestions();
+        
+        if (!hasUnsaved) {
+            showToast('No AI suggestions to clear', 'info');
             return;
         }
         
-        renderResults(optimized, false);
-        showToast(`Showing ${optimized.length} optimized images`, 'success');
+        if (confirm('Clear all AI-generated alt text suggestions?\n\nThis cannot be undone.')) {
+            clearAllAISuggestions();
+            showToast('All AI suggestions cleared', 'success');
+        }
     });
     
     // ===== RESET FILTER BUTTON =====
     $('#reset-filter-btn').on('click', function() {
-        console.log('RESET-FILTER: Clearing all filters to show all issues');
+        console.log('RESET-FILTER: Clearing all filters to show ALL images');
         
         // Uncheck all radio buttons
         $('input[name="image-filter"]').prop('checked', false);
         
-        // Show all NON-OPTIMIZED images (all issues)
-        const allIssues = scannedImages.filter(img => 
-            img.status !== 'optimal' && img.status !== 'optimized'
-        );
-        
+        // Show ALL images (no filtering)
         currentPage = 1;
-        renderResults(allIssues, false);
-        showToast(`Showing all ${allIssues.length} images with issues`, 'info');
+        renderResults(scannedImages, false);
+        showToast(`Showing all ${scannedImages.length} images`, 'success');
     });
     
     /**
@@ -417,104 +461,6 @@ jQuery(document).ready(function($) {
         console.log('FEATURE-EMAIL: Email CSV button clicked');
         emailCSV();
     });
-    
-    // UX-IMPROVEMENT: Clickable stat cards for filtering
-    console.log('UX-IMPROVEMENT-DEBUG: Setting up stat card click handlers');
-    console.log('UX-IMPROVEMENT-DEBUG: Stat cards will filter: Total (all), Missing Alt (empty), Poor Quality (low-with-alt), Optimized');
-    
-    let activeFilter = null; // Track current active filter
-    
-    // Click handler for ALL stat cards (including Total and Optimized)
-    $(document).on('click', '.stat-card, .stat-subcard.clickable', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        console.log('========================================');
-        console.log('STAT-FILTER-DEBUG: ===== STAT CARD CLICKED =====');
-        
-        // Get filter type from data attribute
-        let filter = $(this).data('filter');
-        console.log('STAT-FILTER-DEBUG: Filter from data-filter:', filter);
-        
-        // If no data-filter, try to determine from ID
-        if (!filter) {
-            const cardId = $(this).find('.stat-number').attr('id');
-            console.log('STAT-FILTER-DEBUG: No data-filter, checking ID:', cardId);
-            
-            if (cardId === 'stat-total') filter = 'all';
-            else if (cardId === 'stat-fixed') filter = 'optimized';
-        }
-        
-        console.log('STAT-FILTER-DEBUG: Determined filter type:', filter);
-        console.log('STAT-FILTER-DEBUG: Current active filter:', activeFilter);
-        console.log('STAT-FILTER-DEBUG: Total scanned images:', scannedImages.length);
-        
-        // Check if images have been scanned
-        if (scannedImages.length === 0) {
-            console.log('STAT-FILTER-DEBUG: ⚠️ No images scanned yet!');
-            showToast('Please click "Scan Images" first', 'error');
-            return;
-        }
-        
-        // Toggle logic: clicking same filter again shows all
-        if (activeFilter === filter) {
-            console.log('STAT-FILTER-DEBUG: Same filter clicked - toggling OFF (show all)');
-            activeFilter = null;
-            filter = 'all';
-        } else {
-            console.log('STAT-FILTER-DEBUG: New filter selected:', filter);
-            activeFilter = filter;
-        }
-        
-        // Update visual active state
-        $('.stat-card, .stat-subcard').removeClass('active');
-        if (activeFilter) {
-            $(this).addClass('active');
-        }
-        
-        // Filter images
-        let filteredImages = [];
-        
-        if (filter === 'all') {
-            console.log('STAT-FILTER-DEBUG: Showing ALL images');
-            filteredImages = scannedImages;
-        }
-        else if (filter === 'empty') {
-            console.log('STAT-FILTER-DEBUG: Filtering for MISSING ALT TEXT (empty)');
-            filteredImages = scannedImages.filter(img => {
-                const isEmpty = img.issue_type === 'empty' || !img.current_alt || img.current_alt.trim() === '';
-                return isEmpty;
-            });
-            console.log('STAT-FILTER-DEBUG: Found', filteredImages.length, 'images with missing alt');
-        }
-        else if (filter === 'low-with-alt') {
-            console.log('STAT-FILTER-DEBUG: Filtering for POOR QUALITY (has alt but low score)');
-            filteredImages = scannedImages.filter(img => {
-                const hasAlt = img.current_alt && img.current_alt.trim() !== '';
-                const isNotOptimal = img.status !== 'optimal' && img.status !== 'optimized';
-                const hasAltLowScore = hasAlt && isNotOptimal;
-                return hasAltLowScore;
-            });
-            console.log('STAT-FILTER-DEBUG: Found', filteredImages.length, 'images with poor quality alt');
-        }
-        else if (filter === 'optimized') {
-            console.log('STAT-FILTER-DEBUG: Filtering for OPTIMIZED images');
-            filteredImages = scannedImages.filter(img => {
-                const isOptimized = img.status === 'optimal' || img.status === 'optimized';
-                return isOptimized;
-            });
-            console.log('STAT-FILTER-DEBUG: Found', filteredImages.length, 'optimized images');
-        }
-        
-        console.log('STAT-FILTER-DEBUG: Filtered result count:', filteredImages.length);
-        console.log('STAT-FILTER-DEBUG: Calling renderResults()');
-        console.log('========================================');
-        
-        // Render filtered results
-        renderResults(filteredImages);
-    });
-    
-    console.log('UX-IMPROVEMENT-DEBUG: Stat card click handlers setup complete');
     
     // Bulk Delete Unused Images
     $('#bulk-delete-unused-btn').on('click', function() {
@@ -1007,43 +953,24 @@ jQuery(document).ready(function($) {
         renderPagination(images);
 
         console.log('DEBUG-FLOW: AI generation is now MANUAL only');
-        console.log('DEBUG-FLOW: Showing manual input placeholder for all rows');
+        console.log('DEBUG-FLOW: Editable inputs start EMPTY (no placeholder)');
         
-        // NO AUTOMATIC AI GENERATION - Show manual input placeholder for all rows
+        // NO PLACEHOLDER TEXT - inputs start empty
         $resultsTbody.find('tr').each(function() {
             const $row = $(this);
             $row.find('.loading-indicator').hide();
             
-            // Set placeholder text based on API key availability
-            const placeholderText = imageSeoData.hasApiKey 
-                ? '<em style="color: #999;">Type manually or use Generate button for AI suggestions</em>'
-                : '<em style="color: #999;">Manual entry required (no API key)</em>';
-            
+            // Start with empty input (already set in addResultRow, just make sure it's editable)
             $row.find('.alt-text-editable')
-                .html(placeholderText)
                 .attr('contenteditable', 'true')
-                .on('input', function() {
-                    // Enable/disable Apply button based on content
-                    const text = $(this).text().trim();
-                    $row.find('.apply-btn').prop('disabled', text.length === 0);
-                    
-                    // Remove clickable-for-ai class once user starts typing
-                    $row.removeClass('clickable-for-ai');
-                })
-                .on('focus', function() {
-                    // Clear placeholder when user focuses to type
-                    if ($(this).html().includes('Type manually')) {
-                        $(this).html('');
-                    }
-                })
                 .show();
             
-            // Disable Apply button initially (no text yet)
-            $row.find('.apply-btn').prop('disabled', true);
-            
-            // Add clickable-for-ai class to the entire row
-            $row.addClass('clickable-for-ai');
+            // Apply button already managed by updateBulkApplyButtonState
+            // clickable-for-ai class already added in addResultRow
         });
+        
+        // Update Bulk Apply button state based on ready rows
+        updateBulkApplyButtonState();
     }
     
     /**
@@ -1127,7 +1054,7 @@ jQuery(document).ready(function($) {
         
         const $headingRow = $(`
             <tr class="post-page-heading ${cssClass}">
-                <td colspan="7">
+                <td colspan="5">
                     <h3> ${typeLabel}: ${title}</h3>
                 </td>
             </tr>
@@ -1241,6 +1168,9 @@ jQuery(document).ready(function($) {
         $row.find('.image-filename').text(image.filename);
         $row.find('.row-current-alt .alt-text').text(image.current_alt || 'Empty');
         
+        // Store original alt text in row data for live updates
+        $row.data('original-alt', image.current_alt || 'Empty');
+        
         // CRITICAL: Restore AI suggestion from array if it exists (persists across filter changes)
         if (image.ai_suggestion) {
             console.log('RESTORE-DEBUG: Found ai_suggestion for image', image.id, ':', image.ai_suggestion);
@@ -1250,71 +1180,16 @@ jQuery(document).ready(function($) {
             $row.find('.loading-indicator').hide();
             $row.data('ai-suggestion', image.ai_suggestion); // Store for validation skip
         } else {
-            // No suggestion yet - disable Apply button and show loading
+            // No suggestion yet - START WITH EMPTY INPUT (no placeholder)
+            $row.find('.alt-text-editable').text(''); // Empty, not placeholder
             $row.find('.apply-btn').prop('disabled', true);
             $row.find('.loading-indicator').show();
         }
         
-        // POPULATE "BEFORE" SEO SCORE WITH DEBUG
-        
-        
-        const beforeScore = image.score_before !== undefined ? image.score_before : (image.seo_score || 0);
-        $row.find('.row-score-before .score-badge')
-            .text(beforeScore)
-            .removeClass('score-good score-bad')
-            .addClass(beforeScore >= 50 ? 'score-good' : 'score-bad');
-        
-        
-        
-        // Append to table
+        // Append to table (score columns removed)
         $resultsTbody.append($row);
         
-        // CHECK IF IMAGE IS ALREADY OPTIMIZED
-        console.log('========================================');
-        console.log('OPTIMIZED-CHECK-DEBUG: [Frontend] Checking if image ID ' + image.id + ' is optimized');
-        console.log('OPTIMIZED-CHECK-DEBUG: [Frontend] image.status:', image.status);
-        console.log('OPTIMIZED-CHECK-DEBUG: [Frontend] Is optimal?', image.status === 'optimal');
-        console.log('OPTIMIZED-CHECK-DEBUG: [Frontend] Is optimized?', image.status === 'optimized');
-        console.log('========================================');
-        
-        // CRITICAL FIX: Check for BOTH 'optimal' AND 'optimized' statuses
-        if (image.status === 'optimal' || image.status === 'optimized') {
-            console.log('========================================');
-            console.log('OPTIMIZED-VISUAL-DEBUG: [Frontend] ✅ Image ID ' + image.id + ' IS OPTIMIZED');
-            console.log('OPTIMIZED-VISUAL-DEBUG: [Frontend] Status: "' + image.status + '"');
-            console.log('OPTIMIZED-VISUAL-DEBUG: [Frontend] Applying green styling and disabling buttons');
-            console.log('========================================');
-            
-            // Add visual class for optimized images
-            $row.addClass('image-optimized');
-            
-            // Disable all action buttons (can't apply/skip optimized images)
-            $row.find('.apply-btn').prop('disabled', true).text('Optimized ✓');
-            $row.find('.skip-btn').prop('disabled', true).hide();
-            $row.find('.delete-btn').prop('disabled', true).hide();
-            
-            // CRITICAL: Store status in row data for safety checks
-            $row.data('status', image.status);
-            $row.data('is-optimized', true);
-            
-            // Hide loading indicator
-            $row.find('.loading-indicator').hide();
-            
-            // Show current alt as suggested (it's already good)
-            $row.find('.alt-text-editable').text(image.current_alt).prop('contenteditable', false);
-            
-            // Mark row as not clickable for AI
-            $row.removeClass('clickable-for-ai');
-            
-            console.log('OPTIMIZED-VISUAL-DEBUG: [Frontend] ✅ Row styled - green BG, buttons disabled, not editable');
-        } else {
-            console.log('OPTIMIZED-VISUAL-DEBUG: [Frontend] ❌ Image ID ' + image.id + ' is NOT optimized');
-            console.log('OPTIMIZED-VISUAL-DEBUG: [Frontend] Status: "' + image.status + '" - buttons will be enabled');
-            $row.data('status', image.status);
-            $row.data('is-optimized', false);
-        }
-        
-        // Attach event handlers
+        // Attach event handlers (all images treated equally now)
         attachRowHandlers($row, image);
     }
     
@@ -1405,8 +1280,23 @@ jQuery(document).ready(function($) {
             const charCount = text.length;
             $row.find('.char-count').text(charCount);
             
+            // LIVE UPDATE: Show typed text in "Current Alt Text" column
+            const $currentAltDisplay = $row.find('.row-current-alt .alt-text');
+            if (text.trim().length > 0) {
+                $currentAltDisplay.text(text);
+                $currentAltDisplay.css('color', '#2271b1'); // Blue to indicate it's being edited
+            } else {
+                // If empty, show original alt text
+                const originalAlt = $row.data('original-alt') || 'Empty';
+                $currentAltDisplay.text(originalAlt);
+                $currentAltDisplay.css('color', ''); // Reset to default color
+            }
+            
             // Enable/disable Apply button based on content
             $row.find('.apply-btn').prop('disabled', charCount === 0);
+            
+            // Update Bulk Apply button state
+            updateBulkApplyButtonState();
             
             // Limit to 60 chars
             if (charCount > 60) {
@@ -1524,6 +1414,9 @@ jQuery(document).ready(function($) {
                     // Enable Apply button now that suggestion is ready
                     $row.find('.apply-btn').prop('disabled', false);
                     
+                    // Update Bulk Apply button state (might now be enabled)
+                    updateBulkApplyButtonState();
+                    
                     // Score both original and suggested
                     scoreOriginal(attachmentId, $row);
                     scoreSuggested(attachmentId, altText, $row);
@@ -1539,6 +1432,237 @@ jQuery(document).ready(function($) {
                 $row.find('.alt-text-editable').text('Error generating suggestion').show();
             }
         });
+    }
+    
+    /**
+     * Start bulk generation with progress tracking
+     */
+    function startBulkGeneration(imagesToGenerate) {
+        console.log('BULK-GEN: Starting PARALLEL generation for', imagesToGenerate.length, 'images');
+        
+        // Reset state
+        isGenerating = true;
+        generationCancelled = false;
+        totalToGenerate = imagesToGenerate.length;
+        generatedCount = 0;
+        
+        // Disable filter radio buttons
+        $('input[name="image-filter"]').prop('disabled', true);
+        console.log('BULK-GEN: Disabled filter radio buttons');
+        
+        // Show progress bar
+        $('#bulk-generation-progress').show();
+        updateProgress();
+        
+        // Generate ALL images in PARALLEL
+        generateAllImagesParallel(imagesToGenerate);
+    }
+    
+    /**
+     * Generate ALL images in parallel for faster processing
+     */
+    function generateAllImagesParallel(images) {
+        console.log('BULK-GEN-PARALLEL: Sending', images.length, 'API requests simultaneously');
+        
+        let completedCount = 0;
+        
+        images.forEach((image, index) => {
+            // Check if already cancelled before starting
+            if (generationCancelled) {
+                return;
+            }
+            
+            const $row = $resultsTbody.find(`tr[data-attachment-id="${image.id}"]`);
+            
+            // Show loading state
+            $row.find('.alt-text-editable').text('');
+            $row.find('.loading-indicator').show();
+            
+            // Send API request (all run in parallel)
+            $.ajax({
+                url: imageSeoData.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'imageseo_generate',
+                    nonce: imageSeoData.nonce,
+                    attachment_id: image.id
+                },
+                success: function(response) {
+                    completedCount++;
+                    
+                    if (response.success && !generationCancelled) {
+                        const altText = response.data.alt_text;
+                        
+                        // Update row
+                        $row.find('.loading-indicator').hide();
+                        $row.find('.alt-text-editable').text(altText);
+                        $row.find('.apply-btn').prop('disabled', false);
+                        $row.data('ai-suggestion', altText);
+                        
+                        // Update image in scannedImages array
+                        const imgIndex = scannedImages.findIndex(img => parseInt(img.id) === parseInt(image.id));
+                        if (imgIndex !== -1) {
+                            scannedImages[imgIndex].ai_suggestion = altText;
+                        }
+                        
+                        generatedCount++;
+                        updateProgress();
+                        updateBulkApplyButtonState();
+                        
+                        console.log(`BULK-GEN-PARALLEL: Completed ${completedCount}/${images.length} (${generatedCount} successful)`);
+                    }
+                    
+                    // Check if all are complete
+                    if (completedCount >= images.length) {
+                        console.log('BULK-GEN-PARALLEL: All requests completed!');
+                        endBulkGeneration(false);
+                        showToast(`Generated alt text for ${completedCount} images`, 'success');
+                    }
+                },
+                error: function() {
+                    completedCount++;
+                    console.error('BULK-GEN-PARALLEL: Error generating for image', image.id);
+                    $row.find('.loading-indicator').hide();
+                    $row.find('.alt-text-editable').text('Error');
+                    
+                    // Check if all are complete (even with errors)
+                    if (completedCount >= images.length) {
+                        console.log('BULK-GEN-PARALLEL: All requests completed (with some errors)!');
+                        endBulkGeneration(false);
+                        showToast(`Generated alt text for ${generatedCount} images`, 'success');
+                    }
+                }
+            });
+        });
+    }
+    
+    /**
+     * Update progress bar and counter
+     */
+    function updateProgress() {
+        const percentage = totalToGenerate > 0 ? (generatedCount / totalToGenerate) * 100 : 0;
+        
+        $('#progress-text').text(`Generating: ${generatedCount} of ${totalToGenerate} images`);
+        $('#progress-bar-fill').css('width', percentage + '%');
+        
+        console.log('BULK-GEN: Progress:', generatedCount, '/', totalToGenerate, '(' + percentage.toFixed(1) + '%)');
+    }
+    
+    /**
+     * End bulk generation and clean up
+     */
+    function endBulkGeneration(wasCancelled) {
+        console.log('BULK-GEN: Ending generation, cancelled:', wasCancelled);
+        
+        // Reset state
+        isGenerating = false;
+        generationCancelled = false;
+        totalToGenerate = 0;
+        generatedCount = 0;
+        
+        // Hide progress bar
+        $('#bulk-generation-progress').hide();
+        $('#progress-bar-fill').css('width', '0%');
+        
+        // Re-enable filter radio buttons
+        $('input[name="image-filter"]').prop('disabled', false);
+        console.log('BULK-GEN: Re-enabled filter radio buttons');
+        
+        // Show Clear All button container if generation completed successfully (not cancelled)
+        if (!wasCancelled && checkForUnsavedSuggestions()) {
+            $('#clear-suggestions-container').show();
+            console.log('BULK-GEN: Showing Clear All button');
+        }
+        
+        // Update Bulk Apply button state
+        updateBulkApplyButtonState();
+    }
+    
+    /**
+     * Clear all generated suggestions (on cancel)
+     */
+    function clearGeneratedSuggestions() {
+        console.log('BULK-GEN: Clearing all generated suggestions');
+        
+        $resultsTbody.find('tr.result-row').each(function() {
+            const $row = $(this);
+            
+            // Only clear if it was generated (not original)
+            if ($row.data('ai-suggestion')) {
+                $row.find('.alt-text-editable').text('');
+                $row.find('.apply-btn').prop('disabled', true);
+                $row.data('ai-suggestion', '');
+                $row.find('.loading-indicator').hide();
+                
+                // Clear from scannedImages array
+                const imgId = $row.attr('data-attachment-id');
+                const imgIndex = scannedImages.findIndex(img => parseInt(img.id) === parseInt(imgId));
+                if (imgIndex !== -1) {
+                    delete scannedImages[imgIndex].ai_suggestion;
+                }
+            }
+        });
+        
+        // Update Bulk Apply button state after clearing
+        updateBulkApplyButtonState();
+    }
+    
+    /**
+     * Check if there are any unsaved AI suggestions
+     */
+    function checkForUnsavedSuggestions() {
+        let hasUnsaved = false;
+        
+        $resultsTbody.find('tr.result-row:visible').each(function() {
+            const $row = $(this);
+            const aiSuggestion = $row.data('ai-suggestion');
+            
+            // If row has AI suggestion that hasn't been applied
+            if (aiSuggestion && aiSuggestion.length > 0) {
+                hasUnsaved = true;
+                return false; // Break loop
+            }
+        });
+        
+        return hasUnsaved;
+    }
+    
+    /**
+     * Clear ALL AI suggestions and hide Clear button
+     */
+    function clearAllAISuggestions() {
+        console.log('CLEAR-ALL: Clearing all AI suggestions from table and memory');
+        
+        let clearedCount = 0;
+        
+        // Clear from ALL rows (visible or not)
+        $resultsTbody.find('tr.result-row').each(function() {
+            const $row = $(this);
+            
+            if ($row.data('ai-suggestion')) {
+                $row.find('.alt-text-editable').text('');
+                $row.find('.apply-btn').prop('disabled', true);
+                $row.data('ai-suggestion', '');
+                $row.find('.loading-indicator').hide();
+                
+                clearedCount++;
+            }
+        });
+        
+        // Clear from scannedImages array
+        scannedImages.forEach(img => {
+            if (img.ai_suggestion) {
+                delete img.ai_suggestion;
+            }
+        });
+        
+        console.log('CLEAR-ALL: Cleared', clearedCount, 'suggestions');
+        
+        // Hide Clear All button container
+        $('#clear-suggestions-container').hide();
+        
+        // Update Bulk Apply button state
+        updateBulkApplyButtonState();
     }
     
     /**
@@ -1703,63 +1827,9 @@ jQuery(document).ready(function($) {
         console.log('APPLY-DEBUG: [Frontend] Button disabled?', $btn.prop('disabled'));
         console.log('========================================');
         
-        // CRITICAL SAFETY CHECK: Don't allow applying to already-optimized images
-        if ($row.data('is-optimized') === true) {
-            console.log('\u274c APPLY-ERROR-DEBUG: [Frontend] ===== BLOCKING RE-APPLY =====');
-            console.log('\u274c APPLY-ERROR-DEBUG: [Frontend] Attempting to apply to ALREADY OPTIMIZED image!');
-            console.log('\u274c APPLY-ERROR-DEBUG: [Frontend] Image ID:', attachmentId, 'Status:', $row.data('status'));
-            console.log('\u274c APPLY-ERROR-DEBUG: [Frontend] This should NOT happen - button should be disabled!');
-            console.log('\u274c APPLY-ERROR-DEBUG: [Frontend] ===== ACTION BLOCKED =====');
-            showToast('This image is already optimized!', 'error');
-            return;
-        }
-        
-        // Get the current "After" score from the row
-        const $scoreAfter = $row.find('.row-score-after .score-badge');
-        const scoreText = $scoreAfter.text().trim();
-        const currentScore = parseInt(scoreText) || 0;
-        
-        console.log('APPLY-DEBUG: [Frontend] Current inline SEO score:', currentScore);
-        
-        // UX-IMPROVEMENT: Check if this is UNMODIFIED AI-generated text
-        const originalAiSuggestion = $row.data('ai-suggestion');
-        const isUnmodifiedAi = (originalAiSuggestion && altText === originalAiSuggestion);
-        
-        console.log('========================================');
-        console.log('AI-VALIDATION-SKIP-DEBUG: [Frontend] Checking if AI text is unmodified');
-        console.log('AI-VALIDATION-SKIP-DEBUG: [Frontend] Original AI suggestion:', originalAiSuggestion);
-        console.log('AI-VALIDATION-SKIP-DEBUG: [Frontend] Current alt text:', altText);
-        console.log('AI-VALIDATION-SKIP-DEBUG: [Frontend] Is unmodified AI?', isUnmodifiedAi);
-        console.log('========================================');
-        
-        // LOGIC SPLIT: Low score vs High score
-        if (currentScore < 75) {
-            console.log('APPLY-DEBUG: [Frontend] Score < 75 - Applying WITHOUT removal');
-            console.log('APPLY-DEBUG: [Frontend] Image will stay in table (still has issues)');
-            
-            // LOW SCORE: Apply but don't mark as optimized, keep in table
-            applyAltTextLowScore(attachmentId,altText, $row, $btn, currentScore);
-            
-        } else {
-            // HIGH SCORE: Check if validation is needed
-            if (isUnmodifiedAi) {
-                console.log('========================================');
-                console.log('✅ AI-VALIDATION-SKIP-DEBUG: [Frontend] SKIPPING VALIDATION');
-                console.log('✅ AI-VALIDATION-SKIP-DEBUG: [Frontend] Reason: User applied unmodified AI');
-                console.log('✅ AI-VALIDATION-SKIP-DEBUG: [Frontend] Trusting AI, no 70% check needed');
-                console.log('========================================');
-                
-                // SKIP VALIDATION: Call validation function but it will short-circuit
-                applyAltTextWithValidation(attachmentId, altText, $row, $btn, currentScore, true);
-            } else {
-                console.log('APPLY-DEBUG: [Frontend] Score >= 75 - Triggering AI validation');
-                console.log('APPLY-DEBUG: [Frontend] Reason: User edited or typed manually');
-                console.log('APPLY-DEBUG: [Frontend] Need to verify alt text matches image');
-                
-                // USER EDITED: Validate with AI before accepting
-                applyAltTextWithValidation(attachmentId, altText, $row, $btn, currentScore, false);
-            }
-        }
+        // SIMPLIFIED: Always apply directly without validation
+        console.log('APPLY-DEBUG: [Frontend] Applying alt text directly (no validation)');
+        applyAltTextDirect(attachmentId, altText, $row, $btn, 0);
     }
     
     /**
@@ -1934,6 +2004,9 @@ jQuery(document).ready(function($) {
                         
                         console.log('DIRECT-APPLY: [Frontend] Row removed from table');
                         
+                        // Update Bulk Apply button state (might now be disabled if no rows left)
+                        updateBulkApplyButtonState();
+                        
                         // Check if no rows left
                         if ($resultsTbody.find('tr').length === 0) {
                             $resultsTable.hide();
@@ -2004,6 +2077,9 @@ jQuery(document).ready(function($) {
             
             console.log('SKIP-DEBUG: [Frontend] Row removed from table');
             console.log('SKIP-DEBUG: [Frontend] Image will reappear on next scan if still has issues');
+            
+            // Update Bulk Apply button state (might now be disabled if no rows left)
+            updateBulkApplyButtonState();
             
             // Check if no rows left
             if ($resultsTbody.find('tr').length === 0) {
@@ -2105,23 +2181,25 @@ jQuery(document).ready(function($) {
     function updateStats(stats) {
         console.log('STATS-DEBUG: [Frontend] ===== UPDATE STATS =====');
         console.log('STATS-DEBUG: [Frontend] Stats received:', stats);
-        console.log('STATS-DEBUG: [Frontend] stats.total:', stats.total);
-        console.log('STATS-DEBUG: [Frontend] stats.low_score_empty:', stats.low_score_empty);
-        console.log('STATS-DEBUG: [Frontend] stats.low_score_with_alt:', stats.low_score_with_alt);
-        console.log('STATS-DEBUG: [Frontend] stats.optimized:', stats.optimized);
         
-        $('#stat-total').text(stats.total);
-        $('#stat-low-empty').text(stats.low_score_empty);
-        $('#stat-low-with-alt').text(stats.low_score_with_alt);
+        // Calculate the 3 simple stats
+        const total = stats.total || 0;
+        const missingAlt = stats.low_score_empty || 0;
+        const hasAlt = total - missingAlt;
         
-        // FIX: Use correct ID - HTML has "stat-fixed" not "stat-optimized"
-        $('#stat-fixed').text(stats.optimized || 0);
-        console.log('STATS-DEBUG: [Frontend] Updated #stat-fixed with optimized count:', stats.optimized || 0);
+        console.log('STATS-DEBUG: [Frontend] Total:', total);
+        console.log('STATS-DEBUG: [Frontend] Missing Alt:', missingAlt);
+        console.log('STATS-DEBUG: [Frontend] Has Alt:', hasAlt);
+        
+        // Update the 3 stat cards
+        $('#stat-total').text(total);
+        $('#stat-missing-alt').text(missingAlt);
+        $('#stat-has-alt').text(hasAlt);
         
         console.log('STATS-DEBUG: [Frontend] Stats updated successfully!');
         
-        // Disable action buttons when no images exist
-        if (stats.total === 0) {
+        // Enable/disable action buttons based on total
+        if (total === 0) {
             console.log('STATS-UPDATE: 0 images - disabling action buttons');
             $('#export-csv').prop('disabled', true).addClass('disabled');
             $('#email-csv').prop('disabled', true).addClass('disabled');

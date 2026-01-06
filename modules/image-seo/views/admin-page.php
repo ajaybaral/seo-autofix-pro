@@ -58,10 +58,6 @@ if (!defined('ABSPATH')) {
             <span class="dashicons dashicons-search"></span>
             <?php _e('Scan Images', 'seo-autofix-pro'); ?>
         </button>
-        <button id="view-optimized-btn" class="button button-secondary">
-            <span class="dashicons dashicons-yes-alt"></span>
-            <?php _e('View Optimized Images', 'seo-autofix-pro'); ?>
-        </button>
         <button id="export-csv-btn" class="button button-secondary">
             <span class="dashicons dashicons-media-spreadsheet"></span>
             <?php _e('Export CSV', 'seo-autofix-pro'); ?>
@@ -73,28 +69,19 @@ if (!defined('ABSPATH')) {
     </div>
 
     
-    <!-- Stats Cards (UX-IMPROVEMENT: Clickable with data-filter attributes) -->
-    <div class="imageseo-stats" >
-        <div class="stat-card clickable" data-filter="all">
+    <!-- Stats Cards - Simplified (3 cards only) -->
+    <div class="imageseo-stats">
+        <div class="stat-card">
             <div class="stat-number" id="stat-total">--</div>
             <div class="stat-label"><?php _e('Total Images', 'seo-autofix-pro'); ?></div>
         </div>
-        <div class="stat-card stat-parent">
-            <div class="stat-label stat-parent-label"><?php _e('Issues Found', 'seo-autofix-pro'); ?></div>
-            <div class="stat-subcategories">
-                <div class="stat-subcard clickable" data-filter="empty">
-                    <div class="stat-number" id="stat-low-empty">--</div>
-                    <div class="stat-label"><?php _e('Missing Alt Text', 'seo-autofix-pro'); ?></div>
-                </div>
-                <div class="stat-subcard clickable" data-filter="low-with-alt">
-                    <div class="stat-number" id="stat-low-with-alt">--</div>
-                    <div class="stat-label"><?php _e('Poor Quality Alt Text', 'seo-autofix-pro'); ?></div>
-                </div>
-            </div>
+        <div class="stat-card">
+            <div class="stat-number" id="stat-missing-alt">--</div>
+            <div class="stat-label"><?php _e('Images with Missing Alt Text', 'seo-autofix-pro'); ?></div>
         </div>
-        <div class="stat-card stat-success clickable" data-filter="optimized">
-            <div class="stat-number" id="stat-fixed">--</div>
-            <div class="stat-label"><?php _e('Optimized', 'seo-autofix-pro'); ?></div>
+        <div class="stat-card">
+            <div class="stat-number" id="stat-has-alt">--</div>
+            <div class="stat-label"><?php _e('Images with Alt Text', 'seo-autofix-pro'); ?></div>
         </div>
     </div>
     
@@ -107,9 +94,9 @@ if (!defined('ABSPATH')) {
     </div>
     
     
-    <!-- NEW: Filter & AI Generation Controls -->
+    <!-- NEW: Filter & AI Generation Controls (hidden until first scan) -->
     <?php if (\SEOAutoFix_Settings::is_api_configured()): ?>
-    <div class="imageseo-filter-controls" style="margin: 20px 0; padding: 20px; background: #fff; border: 1px solid #ddd; border-radius: 4px;">
+    <div class="imageseo-filter-controls" style="margin: 20px 0; padding: 20px; background: #fff; border: 1px solid #ddd; border-radius: 4px; display: none;">
         <!-- Filter Section -->
         <div style="margin-bottom: 20px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
@@ -148,13 +135,36 @@ if (!defined('ABSPATH')) {
                 <span class="dashicons dashicons-superhero"></span>
                 <?php _e('Generate AI Suggested Alt Text for Below', 'seo-autofix-pro'); ?>
             </button>
+            
             <button id="bulk-apply-btn" class="button button-primary" style="padding: 8px 20px;">
                 <span class="dashicons dashicons-yes"></span>
                 <?php _e('Bulk Apply Images Below', 'seo-autofix-pro'); ?>
             </button>
         </div>
+        
+        <!-- Bulk Generation Progress Indicator (hidden by default) -->
+        <div id="bulk-generation-progress" style="display: none; margin-top: 20px; padding: 15px; background: #f0f6fc; border: 1px solid #0073aa; border-radius: 4px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <span id="progress-text" style="font-weight: 500; color: #0073aa;">Generating: 0 of 0 images</span>
+                <button id="cancel-generation-btn" class="button" style="padding: 4px 12px; background: #dc3232; color: white; border-color: #dc3232;">
+                    <span class="dashicons dashicons-no" style="margin-top: 3px;"></span>
+                    Cancel
+                </button>
+            </div>
+            <div style="width: 100%; height: 20px; background: #ddd; border-radius: 10px; overflow: hidden;">
+                <div id="progress-bar-fill" style="height: 100%; width: 0%; background: linear-gradient(90deg, #0073aa, #00a0d2); transition: width 0.3s ease;"></div>
+            </div>
+        </div>
     </div>
     <?php endif; ?>
+    
+    <!-- Clear All AI Suggestions Button (appears after generation) -->
+    <div id="clear-suggestions-container" style="display: none; margin: 20px 0; text-align: right;">
+        <button id="clear-suggestions-btn" class="button" style="padding: 10px 24px; background: #dc3232; color: white; border-color: #dc3232; font-size: 14px;">
+            <span class="dashicons dashicons-trash" style="margin-top: 3px;"></span>
+            <?php _e('Clear All AI Suggestions', 'seo-autofix-pro'); ?>
+        </button>
+    </div>
     
     <!--Results Table -->
     <div class="imageseo-results" >
@@ -165,8 +175,6 @@ if (!defined('ABSPATH')) {
                     <th style="width: 100px;"><?php _e('Image', 'seo-autofix-pro'); ?></th>
                     <th><?php _e('Current Alt Text', 'seo-autofix-pro'); ?></th>
                     <th><?php _e('AI Suggested Alt Text', 'seo-autofix-pro'); ?></th>
-                    <th style="width: 80px;"><?php _e('Before', 'seo-autofix-pro'); ?></th>
-                    <th style="width: 80px;"><?php _e('After', 'seo-autofix-pro'); ?></th>
                     <th style="width: 180px;"><?php _e('Actions', 'seo-autofix-pro'); ?></th>
                 </tr>
             </thead>
@@ -205,12 +213,6 @@ if (!defined('ABSPATH')) {
                 <span class="spinner is-active"></span>
                 <?php _e('Generating...', 'seo-autofix-pro'); ?>
             </div>
-        </td>
-        <td class="row-score-before">
-            <div class="score-badge"></div>
-        </td>
-        <td class="row-score-after">
-            <div class="score-badge"></div>
         </td>
         <td class="row-actions-col">
             <button class="button button-secondary generate-btn" title="Generate AI suggestion for this image">
