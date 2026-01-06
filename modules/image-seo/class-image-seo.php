@@ -898,8 +898,8 @@ class SEOAutoFix_Image_SEO {
         // Headers
         $headers = array(
             'Date',
-            'Image',
-            'Action',
+            'Image Link',
+            'Action Type',
             'Previous Alt Text',
             'New Alt Text',
             'Previous Title',
@@ -913,7 +913,7 @@ class SEOAutoFix_Image_SEO {
             // Format updated_at to site's timezone (using wp_date)
             // strtotime converts DB UTC string to timestamp, wp_date formats it using timezone settings
             // If updated_at is missing, fallback to current time
-            $date_str = $row->updated_at ? wp_date(get_option('date_format') . ' ' . get_option('time_format'), strtotime($row->updated_at)) : '';
+            $date_str = $row->updated_at ? wp_date('Y-m-d H:i:s', strtotime($row->updated_at)) : '';
 
             $csv_row = array(
                 $date_str,
