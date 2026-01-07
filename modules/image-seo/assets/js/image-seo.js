@@ -1993,26 +1993,8 @@ jQuery(document).ready(function($) {
             success: function(response) {
                 if (response.success) {
                     console.log('DIRECT-APPLY: [Frontend] Applied successfully');
-                    
                     // Show success toast
                     showToast('✓ Alt text applied!', 'success');
-                    
-                    // Update stats dynamically
-                    if (globalStats) {
-                        // Decrease the appropriate issue count
-                        const issueType = $row.attr('data-issue-type');
-                        if (issueType === 'empty' && globalStats.empty > 0) {
-                            globalStats.empty--;
-                        } else if (issueType === 'generic' && globalStats.generic > 0) {
-                            globalStats.generic--;
-                        }
-                        // Increase optimized count
-                        globalStats.optimized++;
-                        // Update the display
-                        updateStats(globalStats);
-                    }
-                    
-                    
                     
                     // SMART REMOVAL LOGIC
                     // 1. If we are in "Without Alt" filter, the image no longer matches the filter criteria → REMOVE
