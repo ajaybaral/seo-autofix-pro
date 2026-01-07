@@ -952,16 +952,15 @@ jQuery(document).ready(function($) {
                 
                 // Check if a filter is active
                 const activeFilter = $('input[name="image-filter"]:checked').val();
-                const isFilterActive = activeFilter && activeFilter !== '';
                 
-                if (isFilterActive && scannedImages && scannedImages.length > 0) {
-                    // Filter is active but returned 0 results
+                if (activeFilter) {
+                    // Filter is active = no images match this filter
                     $emptyState.find('h2').text('No Images Found');
-                    $emptyState.find('p').text('No images match the selected filter criteria. Try a different filter or reset to view all images.');
+                    $emptyState.find('p').text('No images match the selected filter. Try a different filter or click Reset to view all images.');
                 } else {
-                    // Images exist but all are optimized (filtered out)
-                    $emptyState.find('h2').text('Great Job!');
-                    $emptyState.find('p').text('All images have optimized alt text. No issues found.');
+                    // No filter active = media library is empty
+                    $emptyState.find('h2').text('No Images Found in the Media');
+                    $emptyState.find('p').text('Your media library appears to be empty. Upload some images to get started.');
                 }
             }
             
@@ -983,16 +982,15 @@ jQuery(document).ready(function($) {
             
             // Check if a filter is active
             const activeFilter = $('input[name="image-filter"]:checked').val();
-            const isFilterActive = activeFilter && activeFilter !== '';
             
-            if (isFilterActive && scannedImages && scannedImages.length > 0) {
-                // Filter is active but returned 0 results
+            if (activeFilter) {
+                // Filter is active = no images match this filter
                 $emptyState.find('h2').text('No Images Found');
-                $emptyState.find('p').text('No images match the selected filter criteria. Try a different filter or reset to view all images.');
+                $emptyState.find('p').text('No images match the selected filter. Try a different filter or click Reset to view all images.');
             } else {
-                // All images are actually optimized
-                $emptyState.find('h2').text('Great Job!');
-                $emptyState.find('p').text('All images have optimized alt text. No issues found.');
+                // No filter active = media library is empty
+                $emptyState.find('h2').text('No Images Found in the Media');
+                $emptyState.find('p').text('Your media library appears to be empty. Upload some images to get started.');
             }
             
             $emptyState.show();
