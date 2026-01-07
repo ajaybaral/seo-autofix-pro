@@ -942,7 +942,20 @@ class SEOAutoFix_Image_SEO {
      * Module activation
      */
     public function activate() {
-        // Create database tables
+        global $wpdb;
+        
+        // Drop old tables if they exist (prevents errors from old plugin versions)
+        $tables_to_drop = array(
+            $wpdb->prefix . 'seoautofix_imageseo_audit',
+            $wpdb->prefix . 'seoautofix_imageseo_rollback',
+            $wpdb->prefix . 'seoautofix_image_history'
+        );
+        
+        foreach ($tables_to_drop as $table) {
+            $wpdb->query("DROP TABLE IF EXISTS `$table`");
+        }
+        
+        // Create fresh database tables
         $this->create_tables();
     }
     

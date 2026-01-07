@@ -148,9 +148,11 @@ class Image_Analyzer {
                             );
                             
                             // Count by type
+                            // Posts = 'post', Pages = 'page' + any custom post type (elementor_library, etc.)
                             if ($page_data['type'] === 'post') {
                                 $post_count++;
-                            } elseif ($page_data['type'] === 'page') {
+                            } else {
+                                // Count pages + all custom post types (element or_library, etc.) as pages
                                 $page_count++;
                             }
                         }
