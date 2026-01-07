@@ -95,7 +95,6 @@ if (!defined('ABSPATH')) {
     
     
     <!-- NEW: Filter & AI Generation Controls (hidden until first scan) -->
-    <?php if (\SEOAutoFix_Settings::is_api_configured()): ?>
     <div class="imageseo-filter-controls" style="margin: 20px 0; padding: 20px; background: #fff; border: 1px solid #ddd; border-radius: 4px; display: none;">
         <!-- Filter Section -->
         <div style="margin-bottom: 20px;">
@@ -156,7 +155,6 @@ if (!defined('ABSPATH')) {
             </div>
         </div>
     </div>
-    <?php endif; ?>
     
     <!-- Clear All AI Suggestions Button (appears after generation) -->
     <div id="clear-suggestions-container" style="display: none; margin: 20px 0; text-align: right;">

@@ -58,6 +58,30 @@ jQuery(document).ready(function($) {
     }
     
     /**
+     * Update stats cards display
+     * Recalculates stats from scannedImages array and updates DOM
+     */
+    function updateStats() {
+        if (!scannedImages ||  scannedImages.length === 0) {
+            return;
+        }
+        
+        // Recalculate stats from current scannedImages array
+        const total = scannedImages.length;
+        const withAlt = scannedImages.filter(img => {
+            return img.current_alt && img.current_alt.trim().length > 0;
+        }).length;
+        const withoutAlt = total - withAlt;
+        
+        // Update stat cards
+        $('#stat-total').text(total);
+        $('#stat-missing-alt').text(withoutAlt);
+        $('#stat-has-alt').text(withAlt);
+        
+        console.log('STATS-UPDATE: Total:', total, 'With Alt:', withAlt, 'Missing Alt:', withoutAlt);
+    }
+    
+    /**
      * Update Bulk Apply button state based on available Apply buttons
      * Button should only be enabled when at least one visible row has an enabled Apply button
      */
@@ -122,6 +146,15 @@ jQuery(document).ready(function($) {
     // Filter controls should be hidden until first scan completes
     $('.imageseo-filter-controls').hide();
     console.log('PAGE-INIT-DEBUG: [Frontend] Filter controls hidden (will show after scan)');
+    
+    // Disable AI generation features if no API key
+    if (!imageSeoData.hasApiKey) {
+        console.log('API-KEY-DEBUG: No API key - Disabling AI generation features');
+        $('#generate-visible-btn').prop('disabled', true).css('opacity', '0.5');
+        // Individual generate buttons will be disabled when rows are created
+    } else {
+        console.log('API-KEY-DEBUG: API key configured - AI features enabled');
+    }
     
     console.log('PAGE-INIT-DEBUG: [Frontend] Page initialized successfully');
     
@@ -1227,6 +1260,11 @@ jQuery(document).ready(function($) {
         });
         
         // Generate button - NEW INDIVIDUAL GENERATE FEATURE
+        // Disable if no API key
+        if (!imageSeoData.hasApiKey) {
+            $row.find('.generate-btn').prop('disabled', true).css('opacity', '0.5');
+        }
+        
         $row.find('.generate-btn').on('click', function() {
             // Check if API key is configured
             if (!imageSeoData.hasApiKey) {
