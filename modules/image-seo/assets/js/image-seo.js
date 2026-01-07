@@ -62,7 +62,12 @@ jQuery(document).ready(function($) {
      * Recalculates stats from scannedImages array and updates DOM
      */
     function updateStats() {
+        console.log('🔴 updateStats() CALLED from:', new Error().stack);
+        console.log('🔴 scannedImages exists?', !!scannedImages);
+        console.log('🔴 scannedImages.length:', scannedImages ? scannedImages.length : 'undefined');
+        
         if (!scannedImages ||  scannedImages.length === 0) {
+            console.log('🔴 updateStats() ABORTED - no images');
             return;
         }
         
@@ -78,7 +83,7 @@ jQuery(document).ready(function($) {
         $('#stat-missing-alt').text(withoutAlt);
         $('#stat-has-alt').text(withAlt);
         
-        console.log('STATS-UPDATE: Total:', total, 'With Alt:', withAlt, 'Missing Alt:', withoutAlt);
+        console.log('✅ STATS-UPDATE: Total:', total, 'With Alt:', withAlt, 'Missing Alt:', withoutAlt);
     }
     
     /**
