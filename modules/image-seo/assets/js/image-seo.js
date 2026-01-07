@@ -478,8 +478,12 @@ jQuery(document).ready(function($) {
                 
                 if (response.success && response.data.has_data) {
                     console.log('STATS-REFRESH-DEBUG: Stats data received:', response.data.stats);
-                    // Update stats if data exists
-                    updateStats(response.data.stats);
+                    // Update stats if data exists - but we can't use scannedImages yet on page load
+                    // Just display the backend stats directly
+                    const stats = response.data.stats;
+                    $('#stat-total').text(stats.total || 0);
+                    $('#stat-missing-alt').text(stats.low_score_empty || 0);
+                    $('#stat-has-alt').text((stats.total || 0) - (stats.low_score_empty || 0));
                 } else {
                     console.log('STATS-REFRESH-DEBUG: No stats data available');
                 }
@@ -863,7 +867,7 @@ jQuery(document).ready(function($) {
                         console.log('🔥🔥🔥 FILTER & STATS DEBUG END 🔥🔥🔥');
                         
                         renderResults(scannedImages);
-                        updateStats(globalStats);
+                        updateStats(); // Recalculate from scannedImages array
                         
                         // RE-ENABLE RADIO BUTTONS after scan completes
                         $('input[name="image-filter"]').prop('disabled', false);
@@ -2204,43 +2208,6 @@ jQuery(document).ready(function($) {
         // Simply return the global stats from backend
         // Don't try to recalculate based on DOM state
         return globalStats;
-    }
-    
-    /**
-     * Update statistics display
-     */
-    function updateStats(stats) {
-        console.log('STATS-DEBUG: [Frontend] ===== UPDATE STATS =====');
-        console.log('STATS-DEBUG: [Frontend] Stats received:', stats);
-        
-        // Calculate the 3 simple stats
-        const total = stats.total || 0;
-        const missingAlt = stats.low_score_empty || 0;
-        const hasAlt = total - missingAlt;
-        
-        console.log('STATS-DEBUG: [Frontend] Total:', total);
-        console.log('STATS-DEBUG: [Frontend] Missing Alt:', missingAlt);
-        console.log('STATS-DEBUG: [Frontend] Has Alt:', hasAlt);
-        
-        // Update the 3 stat cards
-        $('#stat-total').text(total);
-        $('#stat-missing-alt').text(missingAlt);
-        $('#stat-has-alt').text(hasAlt);
-        
-        console.log('STATS-DEBUG: [Frontend] Stats updated successfully!');
-        
-        // Enable/disable action buttons based on total
-        if (total === 0) {
-            console.log('STATS-UPDATE: 0 images - disabling action buttons');
-            $('#export-csv').prop('disabled', true).addClass('disabled');
-            $('#email-csv').prop('disabled', true).addClass('disabled');
-            $('#bulk-delete-btn').prop('disabled', true).addClass('disabled');
-        } else {
-            console.log('STATS-UPDATE: Images exist - enabling action buttons');
-            $('#export-csv').prop('disabled', false).removeClass('disabled');
-            $('#email-csv').prop('disabled', false).removeClass('disabled');
-            $('#bulk-delete-btn').prop('disabled', false).removeClass('disabled');
-        }
     }
     
     /**
