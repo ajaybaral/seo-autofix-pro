@@ -41,6 +41,10 @@ class Image_Usage_Tracker {
         $featured_usage = $this->scan_featured_images($attachment_id);
         $usage['pages'] = array_merge($usage['pages'], $featured_usage);
         
+        // Check background image usage (CSS backgrounds)
+        $background_usage = $this->scan_background_images($attachment_id);
+        $usage['pages'] = array_merge($usage['pages'], $background_usage);
+        
         // Remove duplicates
         $usage['pages'] = $this->remove_duplicate_pages($usage['pages']);
         
@@ -118,6 +122,52 @@ class Image_Usage_Tracker {
                 'h1' => $this->extract_h1($post->post_content),
                 'surrounding_content' => wp_trim_words($post->post_content, 50, '...')
             );
+        }
+        
+        return $pages;
+    }
+    
+    /**
+     * Scan for background image CSS usage
+     * Detects images used as backgrounds via inline styles or block editor
+     *
+     * @param int $attachment_id The attachment ID
+     * @return array Array of pages using this as background image
+     */
+    public function scan_background_images($attachment_id) {
+        global $wpdb;
+        
+        $file_url = wp_get_attachment_url($attachment_id);
+        $filename = basename($file_url);
+        $pages = array();
+        
+        // Search for background-image CSS in post content
+        // Patterns: background-image: url('filename.jpg'), background: url(filename.jpg)
+        $posts = $wpdb->get_results($wpdb->prepare(
+            "SELECT ID, post_title, post_content, post_type 
+            FROM {$wpdb->posts} 
+            WHERE post_status = 'publish' 
+            AND (
+                post_content LIKE %s 
+                OR post_content LIKE %s
+            )
+            LIMIT 10",
+            '%background-image:%' . $wpdb->esc_like($filename) . '%',
+            '%background:%url%' . $wpdb->esc_like($filename) . '%'
+        ));
+        
+        foreach ($posts as $post) {
+            // Verify it's actually in a background-image style (not just text)
+            if (preg_match('/background(-image)?:\s*url\([\'"]?[^\'")]*' . preg_quote($filename, '/') . '/i', $post->post_content)) {
+                $pages[] = array(
+                    'post_id' => $post->ID,
+                    'title' => $post->post_title,
+                    'url' => get_permalink($post->ID),
+                    'type' => $post->post_type,
+                    'h1' => $this->extract_h1($post->post_content),
+                    'surrounding_content' => wp_trim_words($post->post_content, 50, '...')
+                );
+            }
         }
         
         return $pages;
