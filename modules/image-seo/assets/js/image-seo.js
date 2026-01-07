@@ -423,10 +423,32 @@ jQuery(document).ready(function($) {
             generationCancelled = true;
             console.log('CANCEL-GENERATION: User confirmed cancellation');
             
+            // Clear all AI-generated alt text from visible rows
+            $('.result-row').each(function() {
+                const $row = $(this);
+                const $editableInput = $row.find('.alt-text-editable');
+                const $applyBtn = $row.find('.apply-btn');
+                const attachmentId = $row.attr('data-attachment-id');
+                
+                // Clear the input field
+                $editableInput.text('');
+                
+                // Disable Apply button
+                $applyBtn.prop('disabled', true);
+                
+                // Clear from scannedImages array
+                const imgIndex = scannedImages.findIndex(img => parseInt(img.id) === parseInt(attachmentId));
+                if (imgIndex !== -1) {
+                    delete scannedImages[imgIndex].ai_suggestion;
+                }
+                
+                console.log('CANCEL-GENERATION: Cleared AI suggestion for image', attachmentId);
+            });
+            
             // Hide progress, re-enable filters
             endBulkGeneration(true);
             
-            showToast('Generation cancelled', 'info');
+            showToast('Generation cancelled - All AI suggestions cleared', 'info');
         }
     });
     
