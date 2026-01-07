@@ -1176,28 +1176,22 @@ jQuery(document).ready(function($) {
             }
         });
     }
-    
     /**
      * Add a result row to the table
      */
     function addResultRow(image, rowNumber) {
-        console.log('========================================');
-        console.log('ROW-RENDER-DEBUG: [Frontend] ===== ADDING ROW =====');
-        console.log('ROW-RENDER-DEBUG: [Frontend] Image ID:', image.id);
-        console.log('ROW-RENDER-DEBUG: [Frontend] Image filename:', image.filename);
-        console.log('ROW-RENDER-DEBUG: [Frontend] Image status:', image.status);
-        console.log('ROW-RENDER-DEBUG: [Frontend] Image issue_type:', image.issue_type);
-        console.log('ROW-RENDER-DEBUG: [Frontend] Current alt:', image.current_alt);
-        console.log('ROW-RENDER-DEBUG: [Frontend] SEO score:', image.seo_score);
-        console.log('========================================');
+        // USAGE TRACKING DEBUG - Show detailed usage information
+        console.log('🔍 Image:', image.filename, '(ID:', image.id + ')');
+        console.log('   Used in posts:', image.used_in_posts || 0, '| Used in pages:', image.used_in_pages || 0);
         
-        console.log('FEATURE-DEBUG: Creating row for image ID:', image.id);
-        console.log('FEATURE-DEBUG: Usage data for this image:', {
-            used_in_posts: image.used_in_posts || 0,
-            used_in_pages: image.used_in_pages || 0,
-            is_unused: (!image.used_in_posts && !image.used_in_pages)
-        })
-        console.log('FEATURE-DEBUG: DELETE button should appear for unused images here');
+        if (image.usage_details && image.usage_details.length > 0) {
+            console.log('   ✅ Used in', image.usage_details.length, 'posts/pages:');
+            image.usage_details.forEach((detail, idx) => {
+                console.log(`      ${idx + 1}. ${detail.type}: "${detail.title}"`);
+            });
+        } else {
+            console.log('   ❌ Not used anywhere');
+        }
         
         // Determine if delete button should be visible
         const isUnused = (!image.used_in_posts && !image.used_in_pages);
@@ -1219,7 +1213,6 @@ jQuery(document).ready(function($) {
         
         // CRITICAL: Restore AI suggestion from array if it exists (persists across filter changes)
         if (image.ai_suggestion) {
-            console.log('RESTORE-DEBUG: Found ai_suggestion for image', image.id, ':', image.ai_suggestion);
             $row.find('.alt-text-editable').text(image.ai_suggestion);
             $row.find('.char-count').text(image.ai_suggestion.length);
             $row.find('.apply-btn').prop('disabled', false); // Enable Apply button
@@ -2061,6 +2054,9 @@ jQuery(document).ready(function($) {
                         scannedImages[imgIndex].current_alt = altText;
                         scannedImages[imgIndex].status = 'optimized'; // Mark as optimized
                     }
+                    
+                    // Update stats cards in real-time
+                    updateStats();
                     
                     // Update Bulk Apply button state
                     updateBulkApplyButtonState();
