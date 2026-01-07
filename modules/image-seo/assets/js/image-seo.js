@@ -949,9 +949,20 @@ jQuery(document).ready(function($) {
                 $emptyState.find('p').text('Click "Scan Images" to analyze your media library for SEO issues.');
             } else {
                 console.log('RENDER-DEBUG: [Frontend] Reason: All images filtered out or optimized');
-                // Images exist but all are optimized (filtered out)
-                $emptyState.find('h2').text('Great Job!');
-                $emptyState.find('p').text('All images have optimized alt text. No issues found.');
+                
+                // Check if a filter is active
+                const activeFilter = $('input[name="image-filter"]:checked').val();
+                const isFilterActive = activeFilter && activeFilter !== '';
+                
+                if (isFilterActive && scannedImages && scannedImages.length > 0) {
+                    // Filter is active but returned 0 results
+                    $emptyState.find('h2').text('No Images Found');
+                    $emptyState.find('p').text('No images match the selected filter criteria. Try a different filter or reset to view all images.');
+                } else {
+                    // Images exist but all are optimized (filtered out)
+                    $emptyState.find('h2').text('Great Job!');
+                    $emptyState.find('p').text('All images have optimized alt text. No issues found.');
+                }
             }
             
             $resultsTable.hide();
@@ -969,8 +980,21 @@ jQuery(document).ready(function($) {
         
         if (!images || images.length === 0) {
             console.log('No images to render!');
-            $emptyState.find('h2').text('Great Job!');
-            $emptyState.find('p').text('All images have optimized alt text. No issues found.');
+            
+            // Check if a filter is active
+            const activeFilter = $('input[name="image-filter"]:checked').val();
+            const isFilterActive = activeFilter && activeFilter !== '';
+            
+            if (isFilterActive && scannedImages && scannedImages.length > 0) {
+                // Filter is active but returned 0 results
+                $emptyState.find('h2').text('No Images Found');
+                $emptyState.find('p').text('No images match the selected filter criteria. Try a different filter or reset to view all images.');
+            } else {
+                // All images are actually optimized
+                $emptyState.find('h2').text('Great Job!');
+                $emptyState.find('p').text('All images have optimized alt text. No issues found.');
+            }
+            
             $emptyState.show();
             $resultsTable.hide();
             $filtersSection.hide();
