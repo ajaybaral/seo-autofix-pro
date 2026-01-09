@@ -137,6 +137,7 @@ class SEOAutoFix_Image_SEO {
         add_action('wp_ajax_imageseo_skip', array($this, 'ajax_skip_image'));
         add_action('wp_ajax_imageseo_bulk_apply', array($this, 'ajax_bulk_apply'));
         add_action('wp_ajax_imageseo_export_audit', array($this, 'ajax_export_audit_csv'));
+        add_action('wp_ajax_imageseo_export_filter_csv', array($this, 'ajax_export_filter_csv'));  // NEW: Filter-scoped CSV
         add_action('wp_ajax_imageseo_migrate_db', array($this, 'ajax_migrate_database'));
         add_action('wp_ajax_imageseo_get_stats', array($this, 'ajax_get_stats'));
         add_action('wp_ajax_imageseo_delete_image', array($this, 'ajax_delete_image'));
@@ -1274,6 +1275,81 @@ class SEOAutoFix_Image_SEO {
             error_log('FEATURE-DEBUG-EMAIL: EXCEPTION: ' . $e->getMessage());
             wp_send_json_error(array('message' => $e->getMessage()));
         }
+    }
+    
+    /**
+     * AJAX: Export filter-scoped CSV
+     * Only exports changes made in the current filter session
+     */
+    public function ajax_export_filter_csv() {
+        check_ajax_referer('imageseo_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions'));
+        }
+        
+        // Get changes from frontend
+        $changes_json = isset($_POST['changes']) ? stripslashes($_POST['changes']) : '';
+        $filter_name = isset($_POST['filter']) ? sanitize_text_field($_POST['filter']) : 'unknown';
+        
+        if (empty($changes_json)) {
+            wp_send_json_error(array('message' => 'No changes to export'));
+        }
+        
+        $changes = json_decode($changes_json, true);
+        
+        if (!is_array($changes) || empty($changes)) {
+            wp_send_json_error(array('message' => 'Invalid changes data'));
+        }
+        
+        // Generate CSV content
+        $csv_output = '';
+        
+        // CSV Headers (same format as main export)
+        $headers = array(
+            'Media Link',
+            'Previous Alt Text',
+            'New Alt Text',
+            'Image URL',
+            'Filter'
+        );
+        $csv_output .= '"' . implode('","', $headers) . '"' . "\n";
+        
+        // CSV Rows
+        foreach ($changes as $change) {
+            $attachment_id = intval($change['attachment_id']);
+            $previous_alt = isset($change['previous_alt']) ? $change['previous_alt'] : '';
+            $new_alt = isset($change['new_alt']) ? $change['new_alt'] : '';
+            $filename = isset($change['filename']) ? $change['filename'] : '';
+            
+            // Get media edit link
+            $media_link = admin_url('post.php?post=' . $attachment_id . '&action=edit');
+            
+            // Get image URL
+            $image_url = wp_get_attachment_url($attachment_id);
+            
+            // Escape values for CSV
+            $row = array(
+                $media_link,
+                str_replace('"', '""', $previous_alt),
+                str_replace('"', '""', $new_alt),
+                $image_url,
+                $filter_name
+            );
+            
+            $csv_output .= '"' . implode('","', $row) . '"' . "\n";
+        }
+        
+        // Generate filename
+        $timestamp = current_time('Y-m-d-His');
+        $filter_slug = sanitize_title($filter_name);
+        $filename = "image-seo-filter-{$filter_slug}-{$timestamp}.csv";
+        
+        wp_send_json_success(array(
+            'csv' => $csv_output,
+            'filename' => $filename,
+            'count' => count($changes)
+        ));
     }
     
     /**

@@ -16,11 +16,16 @@ jQuery(document).ready(function($) {
     let totalToGenerate = 0;
     let generatedCount = 0;
     
+    // Filter-Scoped CSV Export Tracking
+    let filterChanges = [];  // Track changes made in current filter
+    let currentFilterValue = null;  // Track which filter is active
+    
     // Elements
     console.log('SCAN-BUTTON-DEBUG: Setting up scan button selector #scan-btn');
     const $scanBtn = $('#scan-btn');
     console.log('SCAN-BUTTON-DEBUG: Scan button found:', $scanBtn.length, 'element:', $scanBtn[0]);
     const $exportBtn = $('#export-csv-btn');
+    const $exportFilterCsvBtn = $('#export-filter-csv-btn');  // NEW: Filter-scoped export
     const $bulkApplyBtn = $('#bulk-apply-btn');
     const $resultsTable = $('.imageseo-results');
     const $resultsTbody = $('#results-tbody');
@@ -361,6 +366,16 @@ jQuery(document).ready(function($) {
             });
         }
         
+        // Filter-Scoped CSV: Clear changes when switching filters
+        if (currentFilterValue !== filterValue) {
+            console.log('FILTER-CSV: Filter changed from', currentFilterValue, 'to', filterValue, '- clearing', filterChanges.length, 'tracked changes');
+            filterChanges = [];
+            currentFilterValue = filterValue;
+            
+            // Show the export button (disabled until changes are made)
+            $exportFilterCsvBtn.show().prop('disabled', true);
+        }
+        
         currentPage = 1;
         renderResults(filtered, shouldGroup);
         console.log('NEW-RADIO-DEBUG: Showing', filtered.length, 'images, grouped:', shouldGroup);
@@ -636,9 +651,11 @@ jQuery(document).ready(function($) {
                 
                 if (response.success) {
                     $('.bulk-delete-progress-text').text('Success! Deleted ' + response.data.deleted_count + ' images.');
+                    // Refresh stats cards immediately
+                    loadInitialStats();
                     setTimeout(function() {
                         $('#bulk-delete-modal').fadeOut(200);
-                        location.reload();
+                        // Don't reload page - stats already refreshed
                     }, 1500);
                 } else {
                     alert('Error: ' + response.data.message);
@@ -1678,20 +1695,23 @@ jQuery(document).ready(function($) {
      * Check if there are any unsaved AI suggestions
      */
     function checkForUnsavedSuggestions() {
-        let hasUnsaved = false;
+        let unsavedCount = 0;
         
         $resultsTbody.find('tr.result-row:visible').each(function() {
             const $row = $(this);
             const aiSuggestion = $row.data('ai-suggestion');
+            const currentAlt = $row.data('original-alt') || '';
             
-            // If row has AI suggestion that hasn't been applied
-            if (aiSuggestion && aiSuggestion.length > 0) {
-                hasUnsaved = true;
-                return false; // Break loop
+            // Only count as unsaved if:
+            // 1. AI suggestion exists
+            // 2. It's different from the current alt text (hasn't been applied)
+            if (aiSuggestion && aiSuggestion.length > 0 && aiSuggestion !== currentAlt) {
+                unsavedCount++;
             }
         });
         
-        return hasUnsaved;
+        console.log('UNSAVED-CHECK: Found', unsavedCount, 'unsaved AI suggestions');
+        return unsavedCount > 0;
     }
     
     /**
@@ -1730,6 +1750,34 @@ jQuery(document).ready(function($) {
         
         // Update Bulk Apply button state
         updateBulkApplyButtonState();
+    }
+    
+    /**
+     * Get the last NON-EMPTY alt text from an image's history
+     * This is critical for CSV export - we want the last actual value, not empty states
+     */
+    function getLastNonEmptyAltText(attachmentId) {
+        const imgIndex = scannedImages.findIndex(img => parseInt(img.id) === parseInt(attachmentId));
+        
+        if (imgIndex === -1) {
+            return '';  // Image not found
+        }
+        
+        const image = scannedImages[imgIndex];
+        
+        // Current alt text (before applying new one)
+        const currentAlt = image.current_alt || '';
+        
+        // If current is not empty, use it
+        if (currentAlt.trim().length > 0) {
+            return currentAlt;
+        }
+        
+        // Otherwise, check if there's a history
+        // NOTE: In the current implementation, we don't store full history in scannedImages
+        // So if current is empty, we return empty
+        // The backend should handle this via the database history
+        return '';
     }
     
     /**
@@ -2095,6 +2143,31 @@ jQuery(document).ready(function($) {
                     
                     // Update Bulk Apply button state
                     updateBulkApplyButtonState();
+                    
+                    // Filter-Scoped CSV: Track this change
+                    if (currentFilterValue) {
+                        const imgIndex = scannedImages.findIndex(img => parseInt(img.id) === parseInt(attachmentId));
+                        if (imgIndex !== -1) {
+                            const image = scannedImages[imgIndex];
+                            
+                            // Get previous alt text (last non-empty value before this change)
+                            const previousAlt = getLastNonEmptyAltText(attachmentId);
+                            
+                            filterChanges.push({
+                                attachment_id: attachmentId,
+                                filename: image.filename || '',
+                                thumbnail: image.thumbnail || '',
+                                previous_alt: previousAlt,
+                                new_alt: altText,
+                                filter: currentFilterValue
+                            });
+                            
+                            console.log('FILTER-CSV: Tracked change', filterChanges.length, '- Previous:', previousAlt, '→ New:', altText);
+                            
+                            // Enable the Export button now that we have changes
+                            $exportFilterCsvBtn.prop('disabled', false);
+                        }
+                    }
                 } else {
                     showToast(' Failed to apply: ' + (response.data.message || 'Unknown error'), 'error');
                     $btn.prop('disabled', false).text('Apply');
@@ -2500,6 +2573,52 @@ jQuery(document).ready(function($) {
         });
     }
     
+    // ========== FILTER-SCOPED CSV EXPORT ==========
+    
+    $exportFilterCsvBtn.on('click', function() {
+        if (filterChanges.length === 0) {
+            showToast('No changes to export', 'warning');
+            return;
+        }
+        
+        console.log('FILTER-CSV: Exporting', filterChanges.length, 'changes from filter:', currentFilterValue);
+        
+        const $btn = $(this);
+        $btn.prop('disabled', true).html('<span class="dashicons dashicons-update-alt" style="animation: spin 1s linear infinite;"></span> Generating CSV...');
+        
+        $.ajax({
+            url: imageSeoData.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'imageseo_export_filter_csv',
+                nonce: imageSeoData.nonce,
+                changes: JSON.stringify(filterChanges),
+                filter: currentFilterValue
+            },
+            success: function(response) {
+                if (response.success) {
+                    // Trigger CSV download
+                    const blob = new Blob([response.data.csv], { type: 'text/csv' });
+                    const link = document.createElement('a');
+                    link.href = window.URL.createObjectURL(blob);
+                    link.download = response.data.filename;
+                    link.click();
+                    
+                    showToast(`✓ Exported ${filterChanges.length} changes to CSV`, 'success');
+                    console.log('FILTER-CSV: Export successful -', response.data.filename);
+                } else {
+                    showToast('Failed to export CSV: ' + response.data.message, 'error');
+                }
+            },
+            error: function() {
+                showToast('Error exporting CSV', 'error');
+            },
+           always: function() {
+                $btn.prop('disabled', false).html('<span class="dashicons dashicons-download"></span> Export Changes in CSV');
+            }
+        });
+    });
+    
     // ========== CLEANUP & DELETE TAB HANDLERS ==========
     
     // Remove All Alt Texts
@@ -2516,6 +2635,8 @@ jQuery(document).ready(function($) {
         }, function(response) {
             if (response.success) {
                 showToast(`Removed alt text from ${response.data.removed_count} images`, 'success');
+                // Refresh stats cards immediately
+                loadInitialStats();
             } else {
                 showToast('Failed: ' + response.data.message, 'error');
             }
@@ -2598,6 +2719,8 @@ jQuery(document).ready(function($) {
                 
                 showToast(msg, toastType);
                 $('#delete-urls-input').val('');
+                // Refresh stats cards immediately
+                loadInitialStats();
             } else {
                 console.log('DELETE-URL-DEBUG: Request failed:', response.data.message);
                 showToast('Failed: ' + response.data.message, 'error');

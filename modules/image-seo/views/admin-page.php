@@ -135,6 +135,12 @@ if (!defined('ABSPATH')) {
                 <?php _e('Generate AI Suggested Alt Text for Below', 'seo-autofix-pro'); ?>
             </button>
             
+            <!-- Filter-Scoped CSV Export Button (hidden by default, enabled when changes are made) -->
+            <button id="export-filter-csv-btn" class="button" style="display: none; padding: 8px 20px; background: #2271b1; color: #fff; border-color: #2271b1;">
+                <span class="dashicons dashicons-download"></span>
+                <?php _e('Export Changes in CSV', 'seo-autofix-pro'); ?>
+            </button>
+            
             <button id="bulk-apply-btn" class="button button-primary" style="padding: 8px 20px;">
                 <span class="dashicons dashicons-yes"></span>
                 <?php _e('Bulk Apply Images Below', 'seo-autofix-pro'); ?>
