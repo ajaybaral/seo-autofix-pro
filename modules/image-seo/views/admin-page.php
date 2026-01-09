@@ -58,14 +58,6 @@ if (!defined('ABSPATH')) {
             <span class="dashicons dashicons-search"></span>
             <?php _e('Scan Images', 'seo-autofix-pro'); ?>
         </button>
-        <button id="export-csv-btn" class="button button-secondary">
-            <span class="dashicons dashicons-media-spreadsheet"></span>
-            <?php _e('Export CSV', 'seo-autofix-pro'); ?>
-        </button>
-        <button id="email-csv-btn" class="button button-secondary">
-            <span class="dashicons dashicons-email"></span>
-            <?php _e('Email CSV to Admin', 'seo-autofix-pro'); ?>
-        </button>
     </div>
 
     

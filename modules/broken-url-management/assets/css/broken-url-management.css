@@ -1,0 +1,466 @@
+/**
+ * Broken URL Management - Admin Styles
+ */
+
+/* Main Container */
+.seoautofix-broken-urls {
+    padding: 20px;
+    max-width: 1400px;
+}
+
+.seoautofix-page-title {
+    font-size: 28px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    color: #1d2327;
+}
+
+/* Notice */
+.seoautofix-notice-info {
+    background: #e7f3ff;
+    border-left: 4px solid #2271b1;
+    padding: 12px 15px;
+    margin-bottom: 20px;
+    border-radius: 4px;
+}
+
+.seoautofix-notice-info p {
+    margin: 0;
+    color: #1d2327;
+}
+
+/* Card */
+.seoautofix-card {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 1px rgba(0,0,0,0.04);
+}
+
+.seoautofix-card h2 {
+    margin-top: 0;
+    margin-bottom: 20px;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+/* Scan Controls */
+.seoautofix-scan-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    align-items: center;
+}
+
+.seoautofix-scan-controls .button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.seoautofix-scan-controls .dashicons {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+}
+
+.seoautofix-scan-history {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+#scan-history-select {
+    min-width: 300px;
+}
+
+/* Progress Bar */
+.seoautofix-progress-container {
+    margin-top: 20px;
+    padding: 20px;
+    background: #f6f7f7;
+    border-radius: 6px;
+}
+
+.seoautofix-progress-info {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    font-weight: 600;
+}
+
+.seoautofix-progress-bar {
+    height: 24px;
+    background: #fff;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid #c3c4c7;
+}
+
+.seoautofix-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #2271b1, #135e96);
+    transition: width 0.3s ease;
+    width: 0%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.seoautofix-progress-details {
+    margin-top: 10px;
+    text-align: center;
+    color: #50575e;
+    font-size: 13px;
+}
+
+/* Results Header */
+.seoautofix-results-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+.seoautofix-count-badge {
+    display: inline-block;
+    background: #d63638;
+    color: #fff;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    margin-left: 10px;
+}
+
+.seoautofix-results-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.seoautofix-results-actions .button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Filters */
+.seoautofix-filters {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.seoautofix-filter-buttons {
+    display: flex;
+    gap: 10px;
+}
+
+.seoautofix-filter-btn {
+    padding: 8px 16px;
+    background: #f6f7f7;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.seoautofix-filter-btn:hover {
+    background: #e7f3ff;
+    border-color: #2271b1;
+}
+
+.seoautofix-filter-btn.active {
+    background: #2271b1;
+    color: #fff;
+    border-color: #2271b1;
+}
+
+.filter-count {
+    display: inline-block;
+    background: rgba(0, 0, 0, 0.1);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.seoautofix-filter-btn.active .filter-count {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.seoautofix-search {
+    position: relative;
+}
+
+.seoautofix-search input {
+    padding-right: 35px;
+}
+
+.seoautofix-search .dashicons {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #8c8f94;
+}
+
+/* Results Table */
+.seoautofix-table-container {
+    overflow-x: auto;
+}
+
+.seoautofix-results-table {
+    table-layout: auto;
+}
+
+.seoautofix-results-table th,
+.seoautofix-results-table td {
+    padding: 12px;
+}
+
+.column-serial {
+    width: 50px;
+}
+
+.column-type {
+    width: 100px;
+}
+
+.column-current-url {
+    width: 25%;
+}
+
+.column-suggested-url {
+    width: 25%;
+}
+
+.column-reason {
+    width: 25%;
+}
+
+.column-actions {
+    width: 80px;
+    text-align: center;
+}
+
+/* Link Type Badge */
+.link-type-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.link-type-badge.internal {
+    background: #d5e5f7;
+    color: #135e96;
+}
+
+.link-type-badge.external {
+    background: #fef0e5;
+    color: #a86400;
+}
+
+/* URL Display */
+.url-display {
+    word-break: break-all;
+    color: #2271b1;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+}
+
+/* Editable URL */
+.suggested-url-editable {
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.suggested-url-editable:hover {
+    background: #f6f7f7;
+}
+
+.suggested-url-input {
+    width: 100%;
+    padding: 6px;
+    border: 1px solid #2271b1;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+}
+
+/* Reason Text */
+.reason-text {
+    color: #50575e;
+    font-size: 13px;
+}
+
+/* Delete Button */
+.delete-entry-btn {
+    color: #d63638;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.delete-entry-btn:hover {
+    background: #f0f0f1;
+    color: #a00;
+}
+
+/* Pagination */
+.seoautofix-pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #c3c4c7;
+}
+
+.pagination-info {
+    color: #50575e;
+    font-size: 13px;
+}
+
+.pagination-buttons {
+    display: flex;
+    gap: 5px;
+}
+
+.pagination-btn {
+    padding: 6px 12px;
+    background: #f6f7f7;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.pagination-btn:hover:not(:disabled) {
+    background: #e7f3ff;
+    border-color: #2271b1;
+}
+
+.pagination-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.pagination-btn.active {
+    background: #2271b1;
+    color: #fff;
+    border-color: #2271b1;
+}
+
+/* Empty State */
+.seoautofix-empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 8px;
+}
+
+.seoautofix-empty-state-icon {
+    font-size: 64px;
+    color: #46b450;
+    margin-bottom: 20px;
+}
+
+.seoautofix-empty-state-icon .dashicons {
+    width: 64px;
+    height: 64px;
+    font-size: 64px;
+}
+
+.seoautofix-empty-state h3 {
+    font-size: 22px;
+    margin-bottom: 10px;
+    color: #1d2327;
+}
+
+.seoautofix-empty-state p {
+    color: #50575e;
+    font-size: 14px;
+}
+
+/* Loading States */
+.seoautofix-loading {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #2271b1;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Status Fixed */
+.status-fixed {
+    background: #d5e5d5;
+    color: #2d5f2d;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* Responsive */
+@media (max-width: 782px) {
+    .seoautofix-page-title {
+        font-size: 24px;
+    }
+    
+    .seoautofix-scan-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .seoautofix-scan-controls .button {
+        justify-content: center;
+    }
+    
+    .seoautofix-results-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .seoautofix-results-actions {
+        flex-direction: column;
+    }
+    
+    .seoautofix-filters {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .seoautofix-filter-buttons {
+        flex-wrap: wrap;
+    }
+}

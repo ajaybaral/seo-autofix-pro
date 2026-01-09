@@ -2138,8 +2138,8 @@ jQuery(document).ready(function($) {
                         scannedImages[imgIndex].status = 'optimized'; // Mark as optimized
                     }
                     
-                    // Update stats cards in real-time
-                    updateStats();
+                    // Update stats cards in real-time - fetch fresh from backend
+                    loadInitialStats();
                     
                     // Update Bulk Apply button state
                     updateBulkApplyButtonState();
@@ -2613,7 +2613,7 @@ jQuery(document).ready(function($) {
             error: function() {
                 showToast('Error exporting CSV', 'error');
             },
-           always: function() {
+            complete: function() {
                 $btn.prop('disabled', false).html('<span class="dashicons dashicons-download"></span> Export Changes in CSV');
             }
         });
