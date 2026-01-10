@@ -81,14 +81,14 @@ class Local_Vision_Analyzer {
         
         // Check for errors
         if (is_wp_error($response)) {
-            error_log('Local vision API error: ' . $response->get_error_message());
+
             return false;
         }
         
         $response_code = wp_remote_retrieve_response_code($response);
         
         if ($response_code !== 200) {
-            error_log('Local vision API returned code: ' . $response_code);
+
             return false;
         }
         

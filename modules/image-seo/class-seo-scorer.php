@@ -161,18 +161,18 @@ class SEO_Scorer {
         // Ensure score is within 0-100
         $score = max(0, min(100, $score));
         
-        error_log('SEO-SCORE-DEBUG: ===== SCORING COMPLETE =====');
-        error_log('SEO-SCORE-DEBUG: Alt text: "' . $alt_text . '"');
-        error_log('SEO-SCORE-DEBUG: Length: ' . $length . ' chars, Words: ' . $word_count);
-        error_log('SEO-SCORE-DEBUG: Is generic: ' . ($is_generic ? 'YES' : 'NO'));
-        error_log('SEO-SCORE-DEBUG: Final score: ' . $score . '/100');
-        error_log('SEO-SCORE-DEBUG: Reasoning: ' . implode(', ', $reasons));
+
+
+
+
+
+
         
         // OPTIMIZATION THRESHOLD DEBUG
         if ($score >= 50) {
-            error_log('SEO-SCORE-DEBUG: CLASSIFICATION = OPTIMIZED (score >= 50)');
+
         } else {
-            error_log('SEO-SCORE-DEBUG: CLASSIFICATION = LOW SCORE (score < 50)');
+
         }
         
         return array(

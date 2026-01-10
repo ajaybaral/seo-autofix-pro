@@ -220,21 +220,33 @@ class SEOAutoFix_Broken_Url_Management {
      * AJAX: Start new scan
      */
     public function ajax_start_scan() {
+        error_log('[BROKEN URLS] ajax_start_scan() called');
+        error_log('[BROKEN URLS] Request data: ' . print_r($_POST, true));
+        
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
+        error_log('[BROKEN URLS] Nonce verified');
         
         if (!current_user_can('manage_options')) {
+            error_log('[BROKEN URLS] User lacks manage_options capability');
             wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
         }
         
+        error_log('[BROKEN URLS] User authorized, creating crawler');
+        
         try {
             $crawler = new Link_Crawler();
+            error_log('[BROKEN URLS] Crawler created, starting scan');
+            
             $scan_id = $crawler->start_scan();
+            error_log('[BROKEN URLS] Scan started with ID: ' . $scan_id);
             
             wp_send_json_success(array(
                 'scan_id' => $scan_id,
                 'message' => __('Scan started successfully', 'seo-autofix-pro')
             ));
         } catch (\Exception $e) {
+            error_log('[BROKEN URLS] Exception in ajax_start_scan: ' . $e->getMessage());
+            error_log('[BROKEN URLS] Stack trace: ' . $e->getTraceAsString());
             wp_send_json_error(array('message' => $e->getMessage()));
         }
     }

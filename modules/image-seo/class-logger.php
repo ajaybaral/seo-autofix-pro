@@ -54,11 +54,7 @@ class Logger {
      * @param string $message Error message
      */
     public function log_error($context, $message) {
-        error_log(sprintf(
-            'Image SEO - %s: %s',
-            $context,
-            $message
-        ));
+        // Error logging removed
     }
     
     /**

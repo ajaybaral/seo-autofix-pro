@@ -82,20 +82,31 @@
      * Start a new scan
      */
     function startNewScan() {
+        console.log('[SCAN DEBUG] startNewScan() called');
+        
         if (isScanning) {
+            console.log('[SCAN DEBUG] Already scanning, aborting');
             alert(seoautofixBrokenUrls.strings.scanInProgress);
             return;
         }
         
         if (!confirm('This will scan your entire website for broken links. This may take several minutes. Continue?')) {
+            console.log('[SCAN DEBUG] User cancelled confirmation');
             return;
         }
         
+        console.log('[SCAN DEBUG] Setting up scan UI');
         isScanning = true;
         $('#start-scan-btn').prop('disabled', true).text(seoautofixBrokenUrls.strings.startingScan);
         $('#scan-progress-container').show();
         $('#results-container').hide();
         $('#empty-state').hide();
+        
+        console.log('[SCAN DEBUG] Sending AJAX request to:', seoautofixBrokenUrls.ajaxUrl);
+        console.log('[SCAN DEBUG] AJAX data:', {
+            action: 'seoautofix_broken_links_start_scan',
+            nonce: seoautofixBrokenUrls.nonce
+        });
         
         $.ajax({
             url: seoautofixBrokenUrls.ajaxUrl,
@@ -105,15 +116,25 @@
                 nonce: seoautofixBrokenUrls.nonce
             },
             success: function(response) {
+                console.log('[SCAN DEBUG] AJAX success response:', response);
+                
                 if (response.success) {
+                    console.log('[SCAN DEBUG] Scan started successfully, scan_id:', response.data.scan_id);
                     currentScanId = response.data.scan_id;
                     startProgressMonitoring();
                 } else {
+                    console.error('[SCAN DEBUG] Scan failed:', response.data.message);
                     alert(response.data.message || seoautofixBrokenUrls.strings.error);
                     resetScanState();
                 }
             },
-            error: function() {
+            error: function(jqXHR, textStatus, errorThrown) {
+                console.error('[SCAN DEBUG] AJAX error:', {
+                    status: jqXHR.status,
+                    statusText: textStatus,
+                    error: errorThrown,
+                    response: jqXHR.responseText
+                });
                 alert(seoautofixBrokenUrls.strings.error);
                 resetScanState();
             }
@@ -124,7 +145,11 @@
      * Start monitoring scan progress
      */
     function startProgressMonitoring() {
+        console.log('[SCAN DEBUG] startProgressMonitoring() called, scan_id:', currentScanId);
+        
         scanProgressInterval = setInterval(function() {
+            console.log('[SCAN DEBUG] Checking progress for scan_id:', currentScanId);
+            
             $.ajax({
                 url: seoautofixBrokenUrls.ajaxUrl,
                 method: 'GET',
@@ -134,19 +159,32 @@
                     scan_id: currentScanId
                 },
                 success: function(response) {
+                    console.log('[SCAN DEBUG] Progress response:', response);
+                    
                     if (response.success) {
                         updateProgressBar(response.data);
                         
                         // Check if scan completed
                         if (response.data.status === 'completed') {
+                            console.log('[SCAN DEBUG] Scan completed!');
                             clearInterval(scanProgressInterval);
                             onScanComplete();
                         } else if (response.data.status === 'failed') {
+                            console.error('[SCAN DEBUG] Scan failed!');
                             clearInterval(scanProgressInterval);
                             alert('Scan failed. Please try again.');
                             resetScanState();
                         }
+                    } else {
+                        console.error('[SCAN DEBUG] Progress check failed:', response.data);
                     }
+                },
+                error: function(jqXHR, textStatus, errorThrown) {
+                    console.error('[SCAN DEBUG] Progress check error:', {
+                        status: jqXHR.status,
+                        statusText: textStatus,
+                        error: errorThrown
+                    });
                 }
             });
         }, 2000); // Check every 2 seconds

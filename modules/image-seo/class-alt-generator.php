@@ -101,7 +101,7 @@ class Alt_Generator {
             
         } catch (\Exception $e) {
             // If Vision API fails, return empty string (will fallback to metadata-only generation)
-            error_log('Image SEO - Vision API failed: ' . $e->getMessage());
+
             return '';
         }
     }
@@ -282,21 +282,21 @@ class Alt_Generator {
      * @return array Validation result with is_valid, match_percentage, reasoning
      */
     public function validate_alt_text_with_image($attachment_id, $user_alt_text) {
-        error_log('AI-VALIDATION-DEBUG: [Backend] ===== VALIDATING ALT TEXT =====');
-        error_log('AI-VALIDATION-DEBUG: [Backend] Attachment ID: ' . $attachment_id);
-        error_log('AI-VALIDATION-DEBUG: [Backend] User alt text: ' . $user_alt_text);
+
+
+
         
         try {
             // Get image URL and check if localhost
             $image_url = wp_get_attachment_url($attachment_id);
             
             if (!$image_url) {
-                error_log('AI-VALIDATION-DEBUG: [Backend] ERROR: Could not get image URL');
+
                 throw new \Exception('Could not get image URL');
             }
             
             $is_localhost = $this->is_localhost_url($image_url);
-            error_log('AI-VALIDATION-DEBUG: [Backend] Is localhost: ' . ($is_localhost ? 'YES' : 'NO'));
+
             
             // Build validation prompt
             $prompt = "You are an expert image analyzer. Your task is to determine if the provided alt text accurately describes the image.
@@ -321,7 +321,7 @@ class Alt_Generator {
     \"reasoning\": \"<brief explanation why it matches or doesn't match>\"
 }";
 
-            error_log('AI-VALIDATION-DEBUG: [Backend] Prompt: ' . substr($prompt, 0, 200) . '...');
+
             
             // Call Vision API
             if ($is_localhost) {
@@ -329,24 +329,24 @@ class Alt_Generator {
                 $base64_data_url = $this->convert_image_to_base64($attachment_id);
                 
                 if (!$base64_data_url) {
-                    error_log('AI-VALIDATION-DEBUG: [Backend] ERROR: Could not convert image to base64');
+
                     throw new \Exception('Could not convert image to base64');
                 }
                 
-                error_log('AI-VALIDATION-DEBUG: [Backend] Using base64 image (localhost)');
+
                 $response = $this->api_manager->call_openai_vision($base64_data_url, $prompt, 150, true);
             } else {
-                error_log('AI-VALIDATION-DEBUG: [Backend] Using image URL (public)');
+
                 $response = $this->api_manager->call_openai_vision($image_url, $prompt, 150, false);
             }
             
-            error_log('AI-VALIDATION-DEBUG: [Backend] OpenAI response: ' . $response);
+
             
             // Parse JSON response
             $data = json_decode($response, true);
             
             if (json_last_error() !== JSON_ERROR_NONE) {
-                error_log('AI-VALIDATION-DEBUG: [Backend] ERROR: JSON decode failed: ' . json_last_error_msg());
+
                 throw new \Exception('Failed to parse API response');
             }
             
@@ -357,10 +357,10 @@ class Alt_Generator {
             
             $is_valid = ($match_percentage >= 70);
             
-            error_log('AI-VALIDATION-DEBUG: [Backend] Match percentage: ' . $match_percentage . '%');
-            error_log('AI-VALIDATION-DEBUG: [Backend] Is valid (>=70%): ' . ($is_valid ? 'YES' : 'NO'));
-            error_log('AI-VALIDATION-DEBUG: [Backend] Image content: ' . $image_content);
-            error_log('AI-VALIDATION-DEBUG: [Backend] Reasoning: ' . $reasoning);
+
+
+
+
             
             return array(
                 'is_valid' => $is_valid,
@@ -370,8 +370,8 @@ class Alt_Generator {
             );
             
         } catch (\Exception $e) {
-            error_log('AI-VALIDATION-DEBUG: [Backend] EXCEPTION: ' . $e->getMessage());
-            error_log('AI-VALIDATION-DEBUG: [Backend] Stack trace: ' . $e->getTraceAsString());
+
+
             
             // On error, fail gracefully - assume valid to not block user
             return array(

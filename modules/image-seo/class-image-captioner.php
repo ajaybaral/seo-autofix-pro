@@ -69,7 +69,7 @@ class Image_Captioner {
             return $caption;
             
         } catch (\Exception $e) {
-            error_log('Image Captioning Error: ' . $e->getMessage());
+
             return false;
         }
     }

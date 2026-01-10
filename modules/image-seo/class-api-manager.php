@@ -222,7 +222,7 @@ class API_Manager {
         $message = $error->getMessage();
         
         // Log error
-        error_log('Image SEO - API Error: ' . $message);
+
         
         // Return formatted error
         return array(
