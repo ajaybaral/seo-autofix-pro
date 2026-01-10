@@ -258,8 +258,13 @@ class URL_Similarity {
             return true;
         }
         
-        // Check if it's a relative URL
+        // Check if it's a relative URL (starts with /)
         if (strpos($url, '/') === 0 && strpos($url, '//') !== 0) {
+            return true;
+        }
+        
+        // Check if it's a query string or anchor (always relative to current page)
+        if (strpos($url, '?') === 0 || strpos($url, '#') === 0) {
             return true;
         }
         
