@@ -142,52 +142,70 @@
     }
     
     /**
-     * Start monitoring scan progress
+     * Start monitoring scan progress and processing batches
      */
     function startProgressMonitoring() {
         console.log('[SCAN DEBUG] startProgressMonitoring() called, scan_id:', currentScanId);
         
-        scanProgressInterval = setInterval(function() {
-            console.log('[SCAN DEBUG] Checking progress for scan_id:', currentScanId);
-            
-            $.ajax({
-                url: seoautofixBrokenUrls.ajaxUrl,
-                method: 'GET',
-                data: {
-                    action: 'seoautofix_broken_links_get_progress',
-                    nonce: seoautofixBrokenUrls.nonce,
-                    scan_id: currentScanId
-                },
-                success: function(response) {
-                    console.log('[SCAN DEBUG] Progress response:', response);
+        // Process the first batch immediately
+        processBatch();
+    }
+    
+    /**
+     * Process a batch of URLs
+     */
+    function processBatch() {
+        console.log('[SCAN DEBUG] processBatch() called for scan_id:', currentScanId);
+        
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'POST',
+            data: {
+                action: 'seoautofix_broken_links_process_batch',
+                nonce: seoautofixBrokenUrls.nonce,
+                scan_id: currentScanId
+            },
+            success: function(response) {
+                console.log('[SCAN DEBUG] Batch response:', response);
+                
+                if (response.success) {
+                    const data = response.data;
                     
-                    if (response.success) {
-                        updateProgressBar(response.data);
-                        
-                        // Check if scan completed
-                        if (response.data.status === 'completed') {
-                            console.log('[SCAN DEBUG] Scan completed!');
-                            clearInterval(scanProgressInterval);
-                            onScanComplete();
-                        } else if (response.data.status === 'failed') {
-                            console.error('[SCAN DEBUG] Scan failed!');
-                            clearInterval(scanProgressInterval);
-                            alert('Scan failed. Please try again.');
-                            resetScanState();
-                        }
-                    } else {
-                        console.error('[SCAN DEBUG] Progress check failed:', response.data);
-                    }
-                },
-                error: function(jqXHR, textStatus, errorThrown) {
-                    console.error('[SCAN DEBUG] Progress check error:', {
-                        status: jqXHR.status,
-                        statusText: textStatus,
-                        error: errorThrown
+                    // Update progress
+                    updateProgressBar({
+                        progress: data.progress || 0,
+                        tested_urls: data.pages_processed || 0,
+                        total_urls: data.total_pages || 0,
+                        broken_count: 0, // Will get from results
+                        status: data.completed ? 'completed' : 'in_progress'
                     });
+                    
+                    // Load current results if any broken links found  
+                    loadScanResults(currentScanId);
+                    
+                    if (data.completed) {
+                        console.log('[SCAN DEBUG] Scan completed!');
+                        onScanComplete();
+                    } else {
+                        // Process next batch after a short delay
+                        setTimeout(processBatch, 500);
+                    }
+                } else {
+                    console.error('[SCAN DEBUG] Batch processing failed:', response.data);
+                    alert('Batch processing failed: ' + (response.data.message || 'Unknown error'));
+                    resetScanState();
                 }
-            });
-        }, 2000); // Check every 2 seconds
+            },
+            error: function(jqXHR, textStatus, errorThrown) {
+                console.error('[SCAN DEBUG] Batch processing error:', {
+                    status: jqXHR.status,
+                    statusText: textStatus,
+                    error: errorThrown
+                });
+                alert('Error processing batch. See console for details.');
+                resetScanState();
+            }
+        });
     }
     
     /**

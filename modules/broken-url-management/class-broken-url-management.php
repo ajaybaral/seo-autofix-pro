@@ -49,6 +49,17 @@ class SEOAutoFix_Broken_Url_Management {
         // Create database tables on activation
         add_action('seoautofix_activated', array($this, 'create_database_tables'));
         
+        // Wait for WordPress to load before registering admin hooks
+        add_action('plugins_loaded', array($this, 'register_hooks'));
+        
+        // Load required files immediately
+        $this->load_dependencies();
+    }
+    
+    /**
+     * Register WordPress hooks (called after WordPress loads)
+     */
+    public function register_hooks() {
         // Add admin menu
         add_action('admin_menu', array($this, 'add_admin_menu'));
         
@@ -57,9 +68,6 @@ class SEOAutoFix_Broken_Url_Management {
         
         // Register AJAX endpoints
         $this->register_ajax_endpoints();
-        
-        // Load required files
-        $this->load_dependencies();
     }
     
     /**
@@ -82,10 +90,24 @@ class SEOAutoFix_Broken_Url_Management {
     public function create_database_tables() {
         global $wpdb;
         
+        error_log('[BROKEN URLS] create_database_tables() called');
+        
+        // Drop old tables if they exist (prevents errors from old plugin versions)
+        $tables_to_drop = array(
+            $wpdb->prefix . 'seoautofix_broken_links_scans',
+            $wpdb->prefix . 'seoautofix_broken_links_scan_results'
+        );
+        
+        foreach ($tables_to_drop as $table) {
+            error_log('[BROKEN URLS] Dropping table if exists: ' . $table);
+            $wpdb->query("DROP TABLE IF EXISTS `$table`");
+        }
+        
         $charset_collate = $wpdb->get_charset_collate();
         
         // Scans table
-        $sql_scans = "CREATE TABLE IF NOT EXISTS {$this->table_scans} (
+        error_log('[BROKEN URLS] Creating scans table');
+        $sql_scans = "CREATE TABLE {$this->table_scans} (
             id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             scan_id VARCHAR(50) UNIQUE NOT NULL,
             total_urls_found INT DEFAULT 0,
@@ -99,7 +121,8 @@ class SEOAutoFix_Broken_Url_Management {
         ) $charset_collate;";
         
         // Results table
-        $sql_results = "CREATE TABLE IF NOT EXISTS {$this->table_results} (
+        error_log('[BROKEN URLS] Creating results table');
+        $sql_results = "CREATE TABLE {$this->table_results} (
             id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             scan_id VARCHAR(50) NOT NULL,
             found_on_url TEXT NOT NULL,
@@ -122,6 +145,8 @@ class SEOAutoFix_Broken_Url_Management {
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         dbDelta($sql_scans);
         dbDelta($sql_results);
+        
+        error_log('[BROKEN URLS] Database tables created successfully');
     }
     
     /**
@@ -200,6 +225,9 @@ class SEOAutoFix_Broken_Url_Management {
         // Start scan
         add_action('wp_ajax_seoautofix_broken_links_start_scan', array($this, 'ajax_start_scan'));
         
+        // Process batch
+        add_action('wp_ajax_seoautofix_broken_links_process_batch', array($this, 'ajax_process_batch'));
+        
         // Get scan progress
         add_action('wp_ajax_seoautofix_broken_links_get_progress', array($this, 'ajax_get_progress'));
         
@@ -247,6 +275,41 @@ class SEOAutoFix_Broken_Url_Management {
         } catch (\Exception $e) {
             error_log('[BROKEN URLS] Exception in ajax_start_scan: ' . $e->getMessage());
             error_log('[BROKEN URLS] Stack trace: ' . $e->getTraceAsString());
+            wp_send_json_error(array('message' => $e->getMessage()));
+        }
+    }
+    
+    
+    /**
+     * AJAX: Process batch of URLs
+     */
+    public function ajax_process_batch() {
+        error_log('[BROKEN URLS] ajax_process_batch() called');
+        
+        check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            error_log('[BROKEN URLS] User lacks manage_options capability');
+            wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
+        }
+        
+        $scan_id = isset($_POST['scan_id']) ? sanitize_text_field($_POST['scan_id']) : '';
+        
+        if (empty($scan_id)) {
+            wp_send_json_error(array('message' => __('Scan ID is required', 'seo-autofix-pro')));
+        }
+        
+        error_log('[BROKEN URLS] Processing batch for scan_id: ' . $scan_id);
+        
+        try {
+            $crawler = new Link_Crawler();
+            $result = $crawler->process_batch($scan_id, 5); // Process 5 pages per batch
+            
+            error_log('[BROKEN URLS] Batch processing result: ' . print_r($result, true));
+            
+            wp_send_json_success($result);
+        } catch (\Exception $e) {
+            error_log('[BROKEN URLS] Exception in ajax_process_batch: ' . $e->getMessage());
             wp_send_json_error(array('message' => $e->getMessage()));
         }
     }

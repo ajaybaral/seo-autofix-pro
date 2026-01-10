@@ -63,23 +63,7 @@ class Link_Crawler {
         $scan_id = $this->db_manager->create_scan();
         error_log('[CRAWLER] Created scan with ID: ' . $scan_id);
         
-        // Start crawling in background
-        error_log('[CRAWLER] Starting crawl_and_test()');
-        $this->crawl_and_test($scan_id);
-        
-        return $scan_id;
-    }
-    
-    /**
-     * Crawl site and test links
-     * 
-     * @param string $scan_id Scan ID
-     */
-    private function crawl_and_test($scan_id) {
-        error_log('[CRAWLER] crawl_and_test() started for scan: ' . $scan_id);
-        
-        // Get all published posts and pages
-        error_log('[CRAWLER] Getting all site URLs');
+        // Get all URLs to crawl and store in scan metadata
         $all_urls = $this->get_all_site_urls();
         error_log('[CRAWLER] Found ' . count($all_urls) . ' URLs to crawl');
         
@@ -87,14 +71,77 @@ class Link_Crawler {
         $this->db_manager->update_scan($scan_id, array(
             'total_urls_found' => count($all_urls)
         ));
-        error_log('[CRAWLER] Updated scan with total URLs found');
         
-        // Extract all links from all pages
-        $all_links = array();
+        // Store the URLs to process in a transient for this scan
+        set_transient('seoautofix_scan_urls_' . $scan_id, $all_urls, DAY_IN_SECONDS);
+        set_transient('seoautofix_scan_progress_' . $scan_id, 0, DAY_IN_SECONDS);
         
-        error_log('[CRAWLER] Starting to extract links from pages');
-        foreach ($all_urls as $index => $page_url) {
-            error_log('[CRAWLER] Extracting links from page ' . ($index + 1) . '/' . count($all_urls) . ': ' . $page_url);
+        error_log('[CRAWLER] Scan initialized, ready for batch processing');
+        
+        return $scan_id;
+    }
+    
+    /**
+     * Process a batch of URLs for a scan
+     * 
+     * @param string $scan_id Scan ID
+     * @param int $batch_size Number of pages to process
+     * @return array Progress info
+     */
+    public function process_batch($scan_id, $batch_size = 5) {
+        error_log('[CRAWLER] process_batch() called for scan: ' . $scan_id . ', batch_size: ' . $batch_size);
+        
+        // Get URLs to process
+        $all_urls = get_transient('seoautofix_scan_urls_' . $scan_id);
+        if ($all_urls === false) {
+            error_log('[CRAWLER] No URLs found in transient, scan may have expired');
+            return array(
+                'completed' => true,
+                'error' => 'Scan data expired'
+            );
+        }
+        
+        // Get current progress
+        $progress_index = get_transient('seoautofix_scan_progress_' . $scan_id);
+        if ($progress_index === false) {
+            $progress_index = 0;
+        }
+        
+        error_log('[CRAWLER] Current progress: ' . $progress_index . '/' . count($all_urls));
+        
+        // Get the batch of URLs to process
+        $batch_urls = array_slice($all_urls, $progress_index, $batch_size);
+        
+        if (empty($batch_urls)) {
+            error_log('[CRAWLER] No more URLs to process, marking scan as completed');
+            
+            // Mark scan as complete
+            $this->db_manager->update_scan($scan_id, array(
+                'status' => 'completed',
+                'completed_at' => current_time('mysql')
+            ));
+            
+            // Clean up transients
+            delete_transient('seoautofix_scan_urls_' . $scan_id);
+            delete_transient('seoautofix_scan_progress_' . $scan_id);
+            delete_transient('seoautofix_scan_links_' . $scan_id);
+            
+            return array(
+                'completed' => true,
+                'progress' => 100,
+                'pages_processed' => count($all_urls)
+            );
+        }
+        
+        // Get existing links data
+        $all_links = get_transient('seoautofix_scan_links_' . $scan_id);
+        if ($all_links === false) {
+            $all_links = array();
+        }
+        
+        // Extract links from this batch of pages
+        foreach ($batch_urls as $page_url) {
+            error_log('[CRAWLER] Extracting links from: ' . $page_url);
             
             $links = $this->extract_links_from_page($page_url);
             error_log('[CRAWLER] Found ' . count($links) . ' links on this page');
@@ -103,51 +150,96 @@ class Link_Crawler {
                 if (!isset($all_links[$link])) {
                     $all_links[$link] = array();
                 }
-                $all_links[$link][] = $page_url; // Track where link was found
+                $all_links[$link][] = $page_url;
             }
         }
         
-        error_log('[CRAWLER] Total unique links found: ' . count($all_links));
+        // Update progress
+        $new_progress = $progress_index + count($batch_urls);
+        set_transient('seoautofix_scan_progress_' . $scan_id, $new_progress, DAY_IN_SECONDS);
+        set_transient('seoautofix_scan_links_' . $scan_id, $all_links, DAY_IN_SECONDS);
         
-        // Get all valid internal URLs for similarity matching
+        // Now test the links found so far (only new ones)
+        $this->test_links_batch($scan_id, $all_links);
+        
+        $progress_percent = round(($new_progress / count($all_urls)) * 100, 2);
+        
+        error_log('[CRAWLER] Batch completed. Progress: ' . $new_progress . '/' . count($all_urls) . ' (' . $progress_percent . '%)');
+        
+        return array(
+            'completed' => false,
+            'progress' => $progress_percent,
+            'pages_processed' => $new_progress,
+            'total_pages' => count($all_urls),
+            'links_found' => count($all_links)
+        );
+    }
+    
+    /**
+     * Test links and store broken ones
+     * 
+     * @param string $scan_id Scan ID
+     * @param array $all_links All links found with their locations
+     */
+    private function test_links_batch($scan_id, $all_links) {
+        // Get already tested links
+        $tested_links = get_transient('seoautofix_scan_tested_' . $scan_id);
+        if ($tested_links === false) {
+            $tested_links = array();
+        }
+        
+        
+        $links_to_test = array();
+        foreach ($all_links as $link => $locations) {
+            if (!in_array($link, $tested_links)) {
+                $links_to_test[$link] = $locations;
+            }
+        }
+        
+        if (empty($links_to_test)) {
+            return;
+        }
+        
+        // CRITICAL: Limit to 30 links per batch to prevent timeout
+        $max_links_per_batch = 30;
+        if (count($links_to_test) > $max_links_per_batch) {
+            $links_to_test = array_slice($links_to_test, 0, $max_links_per_batch, true);
+            error_log('[CRAWLER] Limited to ' . $max_links_per_batch . ' links per batch (from ' . count($all_links) . ' total)');
+        }
+        
+        error_log('[CRAWLER] Testing ' . count($links_to_test) . ' new links');
+        
+        // Get valid internal URLs for similarity matching
         $valid_internal_urls = $this->get_all_site_urls();
-        error_log('[CRAWLER] Got ' . count($valid_internal_urls) . ' valid internal URLs for matching');
         
-        // Test each unique link
         $tested_count = 0;
         $broken_count = 0;
         
-        error_log('[CRAWLER] Starting to test links');
-        foreach ($all_links as $link => $found_on_pages) {
-            error_log('[CRAWLER] Testing link ' . ($tested_count + 1) . '/' . count($all_links) . ': ' . $link);
+        foreach ($links_to_test as $link => $found_on_pages) {
+            // Mark as tested
+            $tested_links[] = $link;
             
             // Test the link
             $test_result = $this->link_tester->test_url($link);
             $tested_count++;
             
-            error_log('[CRAWLER] Test result - Status: ' . $test_result['status_code'] . ', Broken: ' . ($test_result['is_broken'] ? 'yes' : 'no'));
-            
-            // If broken, add to results with suggestion
+            // If broken, add to results
             if ($test_result['is_broken']) {
                 $broken_count++;
-                error_log('[CRAWLER] Link is broken! Total broken so far: ' . $broken_count);
+                error_log('[CRAWLER] Link is broken: ' . $link);
                 
                 $is_internal = $this->url_similarity->is_internal_url($link);
                 $link_type = $is_internal ? 'internal' : 'external';
                 
-                // Get suggestion for internal links
                 $suggested_url = null;
                 $reason = '';
                 
                 if ($is_internal) {
-                    error_log('[CRAWLER] Finding suggestion for internal broken link');
                     $match = $this->url_similarity->find_closest_match($link, $valid_internal_urls);
                     $suggested_url = $match['url'];
                     $reason = $match['reason'];
-                    error_log('[CRAWLER] Suggested: ' . $suggested_url . ' - Reason: ' . $reason);
                 } else {
                     $reason = __('This link is not working, either delete it or provide a new link', 'seo-autofix-pro');
-                    error_log('[CRAWLER] External link - no suggestion');
                 }
                 
                 // Add entry for each page where link was found
@@ -161,28 +253,25 @@ class Link_Crawler {
                         'reason' => $reason
                     ));
                 }
-                error_log('[CRAWLER] Added broken link to database');
             }
             
-            // Update progress
-            $this->db_manager->update_scan($scan_id, array(
-                'total_urls_tested' => $tested_count,
-                'total_broken_links' => $broken_count
-            ));
-            
-            // Small delay to avoid overwhelming server
-            usleep(200000); // 0.2 seconds
+            // Small delay
+            usleep(50000); // 0.05 seconds (reduced from 0.1)
         }
         
-        error_log('[CRAWLER] Link testing complete. Tested: ' . $tested_count . ', Broken: ' . $broken_count);
-        
-        // Mark scan as complete
+        // Update scan stats
+        $current_stats = $this->db_manager->get_scan_progress($scan_id);
         $this->db_manager->update_scan($scan_id, array(
-            'status' => 'completed',
-            'completed_at' => current_time('mysql')
+            'total_urls_tested' => $current_stats['tested_urls'] + $tested_count,
+            'total_broken_links' => $current_stats['broken_count'] + $broken_count
         ));
-        error_log('[CRAWLER] Scan marked as completed');
+        
+        // Save tested links
+        set_transient('seoautofix_scan_tested_' . $scan_id, $tested_links, DAY_IN_SECONDS);
+        
+        error_log('[CRAWLER] Testing batch complete. Tested: ' . $tested_count . ', Broken: ' . $broken_count);
     }
+    
     
     /**
      * Get all site URLs (posts, pages, custom post types)

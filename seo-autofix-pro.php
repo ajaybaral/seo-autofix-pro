@@ -53,6 +53,9 @@ class SEO_AutoFix_Pro {
         // Load plugin files
         $this->includes();
         
+        // Load modules BEFORE activation hooks so they can respond to activation
+        $this->load_modules();
+        
         // Initialize plugin
         add_action('plugins_loaded', array($this, 'init'));
         
@@ -75,9 +78,6 @@ class SEO_AutoFix_Pro {
     public function init() {
         // Load text domain for translations
         load_plugin_textdomain('seo-autofix-pro', false, dirname(SEOAUTOFIX_PLUGIN_BASENAME) . '/languages');
-        
-        // Load modules
-        $this->load_modules();
     }
     
     /**
