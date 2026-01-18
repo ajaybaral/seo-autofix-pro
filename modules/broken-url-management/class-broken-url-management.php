@@ -37,6 +37,8 @@ class SEOAutoFix_Broken_Url_Management {
         // Set table names
         $this->table_scans = $wpdb->prefix . 'seoautofix_broken_links_scans';
         $this->table_results = $wpdb->prefix . 'seoautofix_broken_links_scan_results';
+        $this->table_fix_plans = $wpdb->prefix . 'seoautofix_broken_links_fix_plans';
+        $this->table_fix_history = $wpdb->prefix . 'seoautofix_broken_links_fix_history';
         
         // Initialize module
         $this->init();
@@ -95,7 +97,9 @@ class SEOAutoFix_Broken_Url_Management {
         // Drop old tables if they exist (prevents errors from old plugin versions)
         $tables_to_drop = array(
             $wpdb->prefix . 'seoautofix_broken_links_scans',
-            $wpdb->prefix . 'seoautofix_broken_links_scan_results'
+            $wpdb->prefix . 'seoautofix_broken_links_scan_results',
+            $wpdb->prefix . 'seoautofix_broken_links_fix_plans',
+            $wpdb->prefix . 'seoautofix_broken_links_fix_history'
         );
         
         foreach ($tables_to_drop as $table) {
@@ -120,7 +124,7 @@ class SEOAutoFix_Broken_Url_Management {
             INDEX idx_status (status)
         ) $charset_collate;";
         
-        // Results table
+        // Results table - Enhanced with anchor_text, location, and grouping support
         error_log('[BROKEN URLS] Creating results table');
         $sql_results = "CREATE TABLE {$this->table_results} (
             id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -129,6 +133,10 @@ class SEOAutoFix_Broken_Url_Management {
             broken_url TEXT NOT NULL,
             link_type ENUM('internal', 'external') NOT NULL,
             status_code INT NOT NULL,
+            anchor_text TEXT NULL,
+            link_location VARCHAR(50) NULL,
+            occurrences_count INT DEFAULT 1,
+            affected_pages_json LONGTEXT NULL,
             suggested_url TEXT NULL,
             user_modified_url TEXT NULL,
             reason TEXT NOT NULL,
@@ -142,9 +150,43 @@ class SEOAutoFix_Broken_Url_Management {
             INDEX idx_is_fixed (is_fixed)
         ) $charset_collate;";
         
+        // Fix Plans table
+        error_log('[BROKEN URLS] Creating fix plans table');
+        $sql_fix_plans = "CREATE TABLE {$this->table_fix_plans} (
+            id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            scan_id VARCHAR(50) NOT NULL,
+            broken_url TEXT NOT NULL,
+            fix_action ENUM('replace', 'remove', 'redirect') NOT NULL,
+            suggested_url TEXT NULL,
+            custom_url TEXT NULL,
+            affected_pages_count INT DEFAULT 0,
+            status ENUM('pending', 'approved', 'applied', 'reverted') DEFAULT 'pending',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            applied_at DATETIME NULL,
+            INDEX idx_scan_id (scan_id),
+            INDEX idx_status (status)
+        ) $charset_collate;";
+
+        // Fix History table
+        error_log('[BROKEN URLS] Creating fix history table');
+        $sql_fix_history = "CREATE TABLE {$this->table_fix_history} (
+            id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            scan_id VARCHAR(50) NOT NULL,
+            post_id BIGINT(20) NOT NULL,
+            old_content LONGTEXT NOT NULL,
+            new_content LONGTEXT NOT NULL,
+            changes_made JSON NOT NULL,
+            applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            reverted_at DATETIME NULL,
+            INDEX idx_scan_id (scan_id),
+            INDEX idx_post_id (post_id)
+        ) $charset_collate;";
+        
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         dbDelta($sql_scans);
         dbDelta($sql_results);
+        dbDelta($sql_fix_plans);
+        dbDelta($sql_fix_history);
         
         error_log('[BROKEN URLS] Database tables created successfully');
     }

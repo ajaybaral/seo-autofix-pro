@@ -81,8 +81,8 @@ class SEOAutoFix_Image_SEO {
         // Initialize classes
         $this->init_classes();
         
-        // Register hooks
-        $this->register_hooks();
+        // Register hooks after WordPress loads (fixes menu registration timing)
+        add_action('plugins_loaded', array($this, 'register_hooks'));
         
         // Ensure tables exist (create if missing)
         $this->ensure_tables_exist();
