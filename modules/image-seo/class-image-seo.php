@@ -122,7 +122,7 @@ class SEOAutoFix_Image_SEO {
     /**
      * Register WordPress hooks
      */
-    private function register_hooks() {
+    public function register_hooks() {
         // Admin menu
         add_action('admin_menu', array($this, 'register_admin_menu'));
         
