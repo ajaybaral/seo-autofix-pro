@@ -164,14 +164,18 @@ class Database_Manager
             array(
                 'scan_id' => $scan_id,
                 'found_on_url' => $data['found_on_url'],
+                'found_on_page_id' => isset($data['found_on_page_id']) ? $data['found_on_page_id'] : 0,
+                'found_on_page_title' => isset($data['found_on_page_title']) ? $data['found_on_page_title'] : '',
                 'broken_url' => $data['broken_url'],
                 'link_type' => $data['link_type'],
                 'status_code' => $data['status_code'],
                 'suggested_url' => isset($data['suggested_url']) ? $data['suggested_url'] : null,
                 'reason' => isset($data['reason']) ? $data['reason'] : '',
+                'anchor_text' => isset($data['anchor_text']) ? $data['anchor_text'] : '',
+                'link_location' => isset($data['location']) ? $data['location'] : 'content',
                 'created_at' => current_time('mysql')
             ),
-            array('%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s')
+            array('%s', '%s', '%d', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s')
         ) !== false;
     }
 

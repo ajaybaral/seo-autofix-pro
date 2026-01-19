@@ -111,6 +111,7 @@
         $('#skip-fix-btn').on('click', function () {
             $('#auto-fix-panel').hide();
         });
+        $('#delete-broken-link-btn').on('click', deleteBrokenLink);
 
         // Bulk action buttons
         $('#remove-broken-links-btn').on('click', removeBrokenLinks);
@@ -119,8 +120,8 @@
 
         // History & Export buttons
         $('#undo-changes-btn').on('click', undoChanges);
-        $('#download-report-btn, #download-report-empty-btn').on('click', downloadReport);
-        $('#email-report-btn, #email-report-empty-btn').on('click', emailReport);
+        $('#download-report-btn, #download-report-empty-btn, #download-report-header-btn').on('click', downloadReport);
+        $('#email-report-btn, #email-report-empty-btn, #email-report-header-btn').on('click', emailReport);
     }
 
     /**
@@ -365,18 +366,35 @@
         // Update header stats
         updateHeaderStats(data.stats);
 
-        // Show/hide appropriate sections
-        if (total === 0) {
-            $('#results-container').hide();
-            $('#empty-state').show();
-            return;
-        }
-
+        // Always show results container (table and filters)
         $('#results-container').show();
         $('#empty-state').hide();
 
         // Clear table
         $('#results-table-body').empty();
+
+        // If no results, show message in table
+        if (total === 0) {
+            const emptyRow = $('<tr class="empty-results-row"></tr>');
+            emptyRow.html(
+                '<td colspan="5" style="text-align: center; padding: 40px; color: #6b7280;">' +
+                '<div style="font-size: 16px; font-weight: 500; margin-bottom: 8px;">No broken links found matching your filters</div>' +
+                '<div style="font-size: 14px;">Try adjusting your filter criteria or search term</div>' +
+                '</td>'
+            );
+            $('#results-table-body').append(emptyRow);
+
+            // Update pagination to show no pages
+            updatePagination({
+                current_page: 1,
+                total_pages: 0,
+                total: 0
+            });
+
+            // Update filter counts
+            updateFilterCounts(data);
+            return;
+        }
 
         // Calculate serial number offset
         const offset = (data.current_page - 1) * data.per_page;
@@ -434,6 +452,17 @@
             row.addClass('status-fixed');
         }
 
+        // Build suggested URL display for internal links
+        let suggestedUrlHtml = '';
+        if (result.link_type === 'internal' && result.suggested_url) {
+            suggestedUrlHtml = '<div class="suggested-url-display">' +
+                '<span class="suggested-label">Suggested: </span>' +
+                '<a href="' + escapeHtml(result.suggested_url) + '" class="suggested-url-link" target="_blank">' +
+                escapeHtml(result.suggested_url) +
+                '</a>' +
+                '</div>';
+        }
+
         row.html(
             '<td class="column-page">' +
             '<strong>' + escapeHtml(pageTitle) + '</strong>' +
@@ -443,6 +472,7 @@
             '<a href="' + escapeHtml(result.broken_url) + '" class="broken-url-link" target="_blank">' +
             escapeHtml(result.broken_url) +
             '</a>' +
+            suggestedUrlHtml +
             '</td>' +
             '<td class="column-link-type">' +
             '<span class="link-type-badge ' + (result.link_type === 'internal' ? 'badge-internal' : 'badge-external') + '">' +
@@ -474,6 +504,22 @@
         try {
             const urlObj = new URL(url);
             const path = urlObj.pathname;
+            const searchParams = new URLSearchParams(urlObj.search);
+
+            // Check for page_id or p parameter (WordPress post/page ID)
+            const pageId = searchParams.get('page_id') || searchParams.get('p');
+            if (pageId) {
+                return 'Post/Page ID: ' + pageId;
+            }
+
+            // Check for pagename parameter
+            const pageName = searchParams.get('pagename');
+            if (pageName) {
+                return pageName
+                    .replace(/-/g, ' ')
+                    .replace(/_/g, ' ')
+                    .replace(/\b\w/g, l => l.toUpperCase());
+            }
 
             // Handle root/home page
             if (path === '/' || path === '') {
@@ -483,18 +529,25 @@
             // Split path and filter out empty parts
             const parts = path.split('/').filter(p => p);
 
-            // Remove common WordPress directory names
+            // Remove common WordPress directory names but keep at least one part
             const filteredParts = parts.filter(part => {
                 const lower = part.toLowerCase();
-                return lower !== 'wordpress' &&
-                    lower !== 'wp-content' &&
+                return lower !== 'wp-content' &&
+                    lower !== 'wp-includes' &&
+                    lower !== 'wp-admin';
+            });
+
+            // If we filtered out everything, use the original parts (except wp-content, wp-includes, wp-admin)
+            const finalParts = filteredParts.length > 0 ? filteredParts : parts.filter(part => {
+                const lower = part.toLowerCase();
+                return lower !== 'wp-content' &&
                     lower !== 'wp-includes' &&
                     lower !== 'wp-admin';
             });
 
             // Get the last meaningful part (the page slug)
-            if (filteredParts.length > 0) {
-                const slug = filteredParts[filteredParts.length - 1];
+            if (finalParts.length > 0) {
+                const slug = finalParts[finalParts.length - 1];
                 // Convert slug to title case (e.g., "about-me" -> "About Me")
                 return slug
                     .replace(/-/g, ' ')
@@ -502,9 +555,10 @@
                     .replace(/\b\w/g, l => l.toUpperCase());
             }
 
-            return 'Page';
+            return 'Home Page';
         } catch (e) {
-            return 'Page';
+            console.error('[extractPageName] Error:', e);
+            return 'Unknown Page';
         }
     }
     /**
@@ -1185,6 +1239,7 @@
         const statusCode = result.status_code || 404;
         const errorType = statusCode >= 500 ? '5xx' : '4xx';
         const errorClass = statusCode >= 500 ? 'error-5xx' : 'error-4xx';
+        const isExternal = result.link_type === 'external';
 
         // Populate panel
         $('#fix-page-name').text(pageTitle);
@@ -1192,19 +1247,27 @@
         $('#fix-error-badge').text(errorType).attr('class', 'error-badge ' + errorClass);
 
         const suggestedUrl = result.user_modified_url || result.suggested_url || '';
-        if (suggestedUrl) {
+
+        // For internal links with suggested URL, show the suggestion
+        if (!isExternal && suggestedUrl) {
             $('#fix-suggested-url').text(suggestedUrl).attr('href', suggestedUrl).show();
             $('.fix-suggestion').show();
+            $('input[name="fix-action"][value="suggested"]').closest('.fix-option').show();
+            $('input[name="fix-action"][value="suggested"]').prop('checked', true);
         } else {
+            // For external links or no suggestion, hide the suggestion section
             $('.fix-suggestion').hide();
+            $('input[name="fix-action"][value="suggested"]').closest('.fix-option').hide();
+            // Default to custom URL for external links
+            $('input[name="fix-action"][value="custom"]').prop('checked', true);
         }
 
         // Store result data for later use
         $('#auto-fix-panel').data('current-result', result);
 
-        // Reset radio buttons
-        $('input[name="fix-action"][value="suggested"]').prop('checked', true);
+        // Reset custom URL input
         $('#custom-url-input').hide();
+        $('#custom-url-field').val('');
 
         // Show panel
         $('#auto-fix-panel').slideDown();
@@ -1252,6 +1315,39 @@
             },
             error: function () {
                 alert('An error occurred while applying the fix');
+            }
+        });
+    }
+
+    /**
+     * Delete broken link entry from auto-fix panel
+     */
+    function deleteBrokenLink() {
+        const result = $('#auto-fix-panel').data('current-result');
+
+        if (!confirm('Are you sure you want to delete this broken link entry? This action cannot be undone.')) {
+            return;
+        }
+
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'POST',
+            data: {
+                action: 'seoautofix_broken_links_delete_entry',
+                nonce: seoautofixBrokenUrls.nonce,
+                id: result.id
+            },
+            success: function (response) {
+                if (response.success) {
+                    $('#auto-fix-panel').slideUp();
+                    loadScanResults(currentScanId);
+                    alert('Broken link entry deleted successfully!');
+                } else {
+                    alert(response.data.message || 'Failed to delete entry');
+                }
+            },
+            error: function () {
+                alert('An error occurred while deleting the entry');
             }
         });
     }

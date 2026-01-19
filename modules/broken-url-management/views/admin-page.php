@@ -67,6 +67,21 @@ $recent_scans = $db_manager->get_scans(10);
         </div>
     </div>
 
+    <!-- Download/Email Buttons (Always Visible) -->
+    <div class="history-export-section-header">
+        <button id="download-report-header-btn" class="button">
+            <span class="dashicons dashicons-download"></span>
+            <?php echo esc_html__('Download Fixed Report', 'seo-autofix-pro'); ?>
+            <span class="file-format">.csv</span>
+        </button>
+
+        <button id="email-report-header-btn" class="button">
+            <span class="dashicons dashicons-email"></span>
+            <?php echo esc_html__('Email Fixed Report', 'seo-autofix-pro'); ?>
+            <span class="email-icon">✉</span>
+        </button>
+    </div>
+
     <!-- Results Section -->
     <div id="results-container" style="display: none;">
         <!-- Filters and Search -->
@@ -181,6 +196,13 @@ $recent_scans = $db_manager->get_scans(10);
                         <input type="radio" name="fix-action" value="home" />
                         <?php echo esc_html__('Or Redirect to Home Page', 'seo-autofix-pro'); ?>
                     </label>
+
+                    <div class="fix-delete-option">
+                        <button id="delete-broken-link-btn" class="button button-link-delete">
+                            <span class="dashicons dashicons-trash"></span>
+                            <?php echo esc_html__('Delete This Broken Link', 'seo-autofix-pro'); ?>
+                        </button>
+                    </div>
                 </div>
 
                 <div class="fix-actions">
@@ -233,7 +255,7 @@ $recent_scans = $db_manager->get_scans(10);
     </div>
 
     <!-- Empty State / Success State -->
-    <div id="empty-state" class="seoautofix-empty-state">
+    <div id="empty-state" class="seoautofix-empty-state" style="display: none;">
         <div class="seoautofix-empty-state-icon success">
             <span class="dashicons dashicons-yes-alt"></span>
         </div>

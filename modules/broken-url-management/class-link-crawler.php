@@ -143,21 +143,33 @@ class Link_Crawler
             $all_links = array();
         }
 
+
         // Extract links from this batch of pages
         foreach ($batch_urls as $page_data) {
-            // Extract URL string from the array
+            // Extract page data
             $page_url = is_array($page_data) ? $page_data['url'] : $page_data;
+            $page_id = is_array($page_data) && isset($page_data['page_id']) ? $page_data['page_id'] : 0;
+            $page_title = is_array($page_data) && isset($page_data['page_title']) ? $page_data['page_title'] : '';
 
-            error_log('[CRAWLER] Extracting links from: ' . $page_url);
+            error_log('[CRAWLER] Extracting links from: ' . $page_url . ' (Title: ' . $page_title . ')');
 
-            $links = $this->extract_links_from_page($page_url);
+            // Use v2 method to get links with metadata
+            $links = $this->extract_links_from_page_v2($page_url, $page_id, $page_title);
             error_log('[CRAWLER] Found ' . count($links) . ' links on this page');
 
-            foreach ($links as $link) {
-                if (!isset($all_links[$link])) {
-                    $all_links[$link] = array();
+            foreach ($links as $link_data) {
+                $link_url = $link_data['url'];
+                if (!isset($all_links[$link_url])) {
+                    $all_links[$link_url] = array();
                 }
-                $all_links[$link][] = $page_url;
+                // Store the full link data including page title
+                $all_links[$link_url][] = array(
+                    'found_on_url' => $page_url,
+                    'found_on_page_id' => $page_id,
+                    'found_on_page_title' => $page_title,
+                    'anchor_text' => isset($link_data['anchor_text']) ? $link_data['anchor_text'] : '',
+                    'location' => isset($link_data['location']) ? $link_data['location'] : 'content'
+                );
             }
         }
 
@@ -253,14 +265,33 @@ class Link_Crawler
                 }
 
                 // Add entry for each page where link was found
-                foreach ($found_on_pages as $found_on_url) {
+                foreach ($found_on_pages as $page_data) {
+                    // Handle both old format (string) and new format (array)
+                    if (is_array($page_data)) {
+                        $found_on_url = $page_data['found_on_url'];
+                        $found_on_page_id = isset($page_data['found_on_page_id']) ? $page_data['found_on_page_id'] : 0;
+                        $found_on_page_title = isset($page_data['found_on_page_title']) ? $page_data['found_on_page_title'] : '';
+                        $anchor_text = isset($page_data['anchor_text']) ? $page_data['anchor_text'] : '';
+                        $location = isset($page_data['location']) ? $page_data['location'] : 'content';
+                    } else {
+                        $found_on_url = $page_data;
+                        $found_on_page_id = 0;
+                        $found_on_page_title = '';
+                        $anchor_text = '';
+                        $location = 'content';
+                    }
+
                     $this->db_manager->add_broken_link($scan_id, array(
                         'found_on_url' => $found_on_url,
+                        'found_on_page_id' => $found_on_page_id,
+                        'found_on_page_title' => $found_on_page_title,
                         'broken_url' => $link,
                         'link_type' => $link_type,
                         'status_code' => $test_result['status_code'],
                         'suggested_url' => $suggested_url,
-                        'reason' => $reason
+                        'reason' => $reason,
+                        'anchor_text' => $anchor_text,
+                        'location' => $location
                     ));
                 }
             }
