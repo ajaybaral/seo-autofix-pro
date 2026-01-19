@@ -464,3 +464,405 @@
         flex-wrap: wrap;
     }
 }
+
+/* ========================================
+   NEW v2.0 STYLES
+   ======================================== */
+
+/* Modal Overlays */
+.occurrences-modal-overlay,
+.fix-plan-modal-overlay,
+.export-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 100000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.2s;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Modal Containers */
+.occurrences-modal,
+.fix-plan-modal,
+.export-modal {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    max-width: 90%;
+    max-height: 90%;
+    display: flex;
+    flex-direction: column;
+    animation: slideUp 0.3s;
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.occurrences-modal {
+    width: 600px;
+}
+
+.fix-plan-modal {
+    width: 1000px;
+}
+
+.export-modal {
+    width: 500px;
+}
+
+/* Modal Header */
+.modal-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid #dcdcde;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #1d2327;
+}
+
+.modal-close {
+    font-size: 24px;
+    color: #8c8f94;
+    cursor: pointer;
+    line-height: 1;
+    transition: color 0.2s;
+}
+
+.modal-close:hover {
+    color: #1d2327;
+}
+
+/* Modal Body */
+.modal-body {
+    padding: 24px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* Modal Footer */
+.modal-footer {
+    padding: 16px 24px;
+    border-top: 1px solid #dcdcde;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+/* Occurrences List */
+.occurrences-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.occurrences-list li {
+    padding: 12px;
+    border-bottom: 1px solid #f0f0f1;
+    transition: background 0.2s;
+}
+
+.occurrences-list li:hover {
+    background: #f6f7f7;
+}
+
+.occurrences-list li:last-child {
+    border-bottom: none;
+}
+
+.occurrences-list strong {
+    color: #1d2327;
+    display: block;
+    margin-bottom: 4px;
+}
+
+.occurrences-list small {
+    color: #646970;
+    font-size: 12px;
+}
+
+/* Fix Plan Table */
+.fix-plan-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.fix-plan-table th,
+.fix-plan-table td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #f0f0f1;
+}
+
+.fix-plan-table th {
+    background: #f6f7f7;
+    font-weight: 600;
+    color: #1d2327;
+    position: sticky;
+    top: 0;
+}
+
+.fix-plan-table tbody tr:hover {
+    background: #f6f7f7;
+}
+
+.fix-plan-table input[type="text"] {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #8c8f94;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.fix-plan-table select {
+    padding: 6px 8px;
+    border: 1px solid #8c8f94;
+    border-radius: 4px;
+}
+
+.fix-new-url,
+.fix-action {
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+}
+
+/* Export Options */
+.export-option {
+    padding: 16px;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    margin-bottom: 16px;
+}
+
+.export-option:last-child {
+    margin-bottom: 0;
+}
+
+.export-option h4 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1d2327;
+}
+
+.export-option p {
+    margin: 8px 0 0 0;
+    font-size: 13px;
+    color: #646970;
+}
+
+.export-option input[type="email"] {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #8c8f94;
+    border-radius: 4px;
+    margin-bottom: 8px;
+}
+
+.export-option select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #8c8f94;
+    border-radius: 4px;
+    margin-bottom: 8px;
+}
+
+/* Revert Notification */
+.revert-notification {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: #46b450;
+    color: #fff;
+    padding: 16px 20px;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    z-index: 100001;
+    animation: slideInRight 0.3s;
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(400px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.revert-notification span {
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.revert-notification .revert-btn {
+    background: #fff;
+    color: #46b450;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.revert-notification .revert-btn:hover {
+    background: #f0f0f1;
+}
+
+.revert-notification .close-notification {
+    cursor: pointer;
+    font-size: 20px;
+    line-height: 1;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+}
+
+.revert-notification .close-notification:hover {
+    opacity: 1;
+}
+
+/* Status Badges for Error Types */
+.status-badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-badge-4xx {
+    background: #fef0e5;
+    color: #a86400;
+}
+
+.status-badge-5xx {
+    background: #fce4e4;
+    color: #d63638;
+}
+
+.status-badge-timeout {
+    background: #f0f0f1;
+    color: #646970;
+}
+
+.status-badge-dns {
+    background: #e5f5fa;
+    color: #0073aa;
+}
+
+/* Location Badges */
+.location-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    background: #f0f0f1;
+    color: #646970;
+}
+
+.location-badge.header {
+    background: #e7f3ff;
+    color: #135e96;
+}
+
+.location-badge.footer {
+    background: #f0f0f1;
+    color: #646970;
+}
+
+.location-badge.content {
+    background: #d5e5f7;
+    color: #135e96;
+}
+
+.location-badge.sidebar {
+    background: #fef0e5;
+    color: #a86400;
+}
+
+.location-badge.image {
+    background: #fce4e4;
+    color: #d63638;
+}
+
+/* Occurrences Count Badge */
+.occurrences-count {
+    display: inline-block;
+    background: #2271b1;
+    color: #fff;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-left: 6px;
+}
+
+/* Button Enhancements */
+.button.button-small {
+    padding: 4px 8px;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+/* Responsive Modals */
+@media (max-width: 782px) {
+    .occurrences-modal,
+    .fix-plan-modal,
+    .export-modal {
+        max-width: 95%;
+        max-height: 95%;
+    }
+    
+    .fix-plan-modal {
+        width: 95%;
+    }
+    
+    .fix-plan-table {
+        font-size: 12px;
+    }
+    
+    .fix-plan-table th,
+    .fix-plan-table td {
+        padding: 8px;
+    }
+    
+    .revert-notification {
+        bottom: 10px;
+        right: 10px;
+        left: 10px;
+        flex-direction: column;
+        align-items: stretch;
+        text-align: center;
+    }
+}

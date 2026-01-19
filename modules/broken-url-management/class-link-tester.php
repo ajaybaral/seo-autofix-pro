@@ -15,39 +15,42 @@ if (!defined('ABSPATH')) {
 /**
  * Link Tester Class
  */
-class Link_Tester {
-    
+class Link_Tester
+{
+
     /**
      * Timeout for requests (seconds)
      */
     const REQUEST_TIMEOUT = 10;
-    
+
     /**
      * User agent string
      */
     const USER_AGENT = 'SEO AutoFix Pro/1.0 WordPress Link Checker';
-    
+
     /**
      * Test a URL and return its status
      * 
      * @param string $url URL to test
-     * @return array Test result with status_code and is_broken
+     * @return array Test result with status_code, error_type, and is_broken
      */
-    public function test_url($url) {
+    public function test_url($url)
+    {
         // Validate URL
         if (!filter_var($url, FILTER_VALIDATE_URL) && strpos($url, '/') !== 0) {
             return array(
                 'status_code' => 0,
+                'error_type' => 'dns',
                 'is_broken' => true,
                 'error' => __('Invalid URL format', 'seo-autofix-pro')
             );
         }
-        
+
         // Convert relative URLs to absolute
         if (strpos($url, '/') === 0 && strpos($url, '//') !== 0) {
             $url = home_url($url);
         }
-        
+
         // Make HEAD request first (faster)
         $response = wp_remote_head($url, array(
             'timeout' => self::REQUEST_TIMEOUT,
@@ -55,7 +58,7 @@ class Link_Tester {
             'user-agent' => self::USER_AGENT,
             'sslverify' => false // Allow self-signed certificates
         ));
-        
+
         // If HEAD fails, try GET request
         if (is_wp_error($response)) {
             $response = wp_remote_get($url, array(
@@ -65,25 +68,54 @@ class Link_Tester {
                 'sslverify' => false
             ));
         }
-        
+
         // Handle errors
         if (is_wp_error($response)) {
+            $error_message = $response->get_error_message();
+            $error_type = 'timeout';
+
+            // Check if it's a DNS error
+            if (stripos($error_message, 'dns') !== false || stripos($error_message, 'resolve') !== false) {
+                $error_type = 'dns';
+            }
+
             return array(
                 'status_code' => 0,
+                'error_type' => $error_type,
                 'is_broken' => true,
-                'error' => $response->get_error_message()
+                'error' => $error_message
             );
         }
-        
+
         $status_code = wp_remote_retrieve_response_code($response);
-        
+        $error_type = $this->categorize_error_type($status_code);
+
         return array(
             'status_code' => $status_code,
+            'error_type' => $error_type,
             'is_broken' => $this->is_broken_status_code($status_code),
             'error' => null
         );
     }
-    
+
+    /**
+     * Categorize error type based on status code
+     * 
+     * @param int $status_code HTTP status code
+     * @return string Error type (4xx, 5xx, timeout, dns, or null)
+     */
+    private function categorize_error_type($status_code)
+    {
+        if ($status_code >= 400 && $status_code < 500) {
+            return '4xx';
+        } elseif ($status_code >= 500) {
+            return '5xx';
+        } elseif ($status_code === 0) {
+            return 'timeout';
+        }
+        return null; // Success codes (2xx, 3xx)
+    }
+
     /**
      * Test multiple URLs in batch
      * 
@@ -91,45 +123,48 @@ class Link_Tester {
      * @param callable $progress_callback Optional callback for progress updates
      * @return array Results indexed by URL
      */
-    public function test_urls_batch($urls, $progress_callback = null) {
+    public function test_urls_batch($urls, $progress_callback = null)
+    {
         $results = array();
         $total = count($urls);
         $tested = 0;
-        
+
         foreach ($urls as $url) {
             $results[$url] = $this->test_url($url);
             $tested++;
-            
+
             // Call progress callback if provided
             if (is_callable($progress_callback)) {
                 call_user_func($progress_callback, $tested, $total);
             }
-            
+
             // Small delay to avoid overwhelming servers
             usleep(100000); // 0.1 second delay
         }
-        
+
         return $results;
     }
-    
+
     /**
      * Check if status code indicates a broken link
      * 
      * @param int $status_code HTTP status code
      * @return bool True if broken
      */
-    private function is_broken_status_code($status_code) {
+    private function is_broken_status_code($status_code)
+    {
         // Consider 4xx and 5xx as broken, also 0 for connection failures
         return $status_code === 0 || $status_code >= 400;
     }
-    
+
     /**
      * Get categorized broken status codes
      * 
      * @param int $status_code HTTP status code
      * @return string Category
      */
-    public function categorize_status_code($status_code) {
+    public function categorize_status_code($status_code)
+    {
         if ($status_code === 0) {
             return 'connection_failed';
         } elseif ($status_code === 404) {
@@ -142,14 +177,15 @@ class Link_Tester {
             return 'success';
         }
     }
-    
+
     /**
      * Get human-readable status message
      * 
      * @param int $status_code HTTP status code
      * @return string Status message
      */
-    public function get_status_message($status_code) {
+    public function get_status_message($status_code)
+    {
         switch ($status_code) {
             case 0:
                 return __('Connection failed', 'seo-autofix-pro');
