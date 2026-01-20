@@ -10,6 +10,7 @@
     let currentFilter = 'all';
     let currentSearch = '';
     let currentPage = 1;
+    let perPage = 25; // Default entries per page
     let isScanning = false;
     let scanProgressInterval = null;
 
@@ -75,7 +76,8 @@
                 console.log('[PER PAGE] No scan ID, returning');
                 return;
             }
-            currentPage = 1;
+            perPage = parseInt($(this).val());
+            currentPage = 1; // Reset to first page
             loadScanResults(currentScanId);
         });
 
@@ -97,6 +99,56 @@
             }
         });
 
+        // Fix button - use event delegation since rows are dynamically created
+        $(document).on('click', '.fix-btn', function () {
+            console.log('[FIX BTN] Clicked');
+            const resultData = $(this).data('result');
+            const entryId = $(this).data('id');
+
+            console.log('[FIX BTN] Entry ID:', entryId, 'Result data:', resultData);
+
+            if (!resultData) {
+                alert('Error: No data available for this entry');
+                return;
+            }
+
+            // Store current fix data globally
+            window.currentFixData = {
+                id: entryId,
+                broken_url: resultData.broken_url,
+                suggested_url: resultData.suggested_url,
+                found_on_page_title: resultData.found_on_page_title,
+                status_code: resultData.status_code
+            };
+
+            // Populate the auto-fix panel
+            $('#fix-page-name').text(resultData.found_on_page_title || 'Unknown Page');
+            $('#fix-broken-url').text(resultData.broken_url);
+            $('#fix-error-badge').text(resultData.status_code + 'XX');
+
+            if (resultData.suggested_url) {
+                $('#fix-suggested-url').text(resultData.suggested_url).attr('href', resultData.suggested_url);
+                $('input[name="fix-action"][value="suggested"]').prop('disabled', false);
+            } else {
+                $('#fix-suggested-url').text('No suggestion available');
+                $('input[name="fix-action"][value="suggested"]').prop('disabled', true);
+                $('input[name="fix-action"][value="custom"]').prop('checked', true);
+            }
+
+            // Reset to suggested URL option
+            $('input[name="fix-action"][value="suggested"]').prop('checked', true);
+            $('#custom-url-input').hide();
+            $('#custom-url-field').val('');
+
+            // Show the panel
+            $('#auto-fix-panel').slideDown();
+
+            // Scroll to panel
+            $('html, body').animate({
+                scrollTop: $('#auto-fix-panel').offset().top - 100
+            }, 500);
+        });
+
         // Auto-fix panel radio buttons
         $('input[name="fix-action"]').on('change', function () {
             if ($(this).val() === 'custom') {
@@ -107,11 +159,19 @@
         });
 
         // Auto-fix panel buttons
-        $('#apply-fix-btn').on('click', applyCurrentFix);
+        $('#apply-fix-btn').on('click', function () {
+            console.log('[APPLY FIX BTN] Button clicked!');
+            console.log('[APPLY FIX BTN] currentFixData:', window.currentFixData);
+            applyCurrentFix();
+        });
         $('#skip-fix-btn').on('click', function () {
+            console.log('[SKIP FIX BTN] Clicked');
             $('#auto-fix-panel').hide();
         });
-        $('#delete-broken-link-btn').on('click', deleteBrokenLink);
+        $('#delete-broken-link-btn').on('click', function () {
+            console.log('[DELETE BTN] Clicked');
+            deleteBrokenLink();
+        });
 
         // Bulk action buttons
         $('#remove-broken-links-btn').on('click', removeBrokenLinks);
@@ -314,7 +374,6 @@
         const pageType = $('#filter-page-type').val() || 'all';
         const errorType = $('#filter-error-type').val() || 'all';
         const location = $('#filter-location').val() || 'all';
-        const perPage = $('#per-page-select').val() || 25;
 
         console.log('[LOAD SCAN RESULTS] Filter values:', {
             pageType,
@@ -430,7 +489,14 @@
             trimmed: result.anchor_text ? result.anchor_text.trim() : ''
         });
 
-        if (result.anchor_text && result.anchor_text.trim() !== '' && result.anchor_text.trim() !== result.broken_url) {
+        // Check if it's a real anchor text (not empty, not the URL itself, not placeholder text)
+        const hasRealAnchorText = result.anchor_text &&
+            result.anchor_text.trim() !== '' &&
+            result.anchor_text.trim() !== result.broken_url &&
+            result.anchor_text !== '[No text]' &&
+            !result.anchor_text.startsWith('Image: ');
+
+        if (hasRealAnchorText) {
             linkTypeDisplay = 'Anchor Text: "' + escapeHtml(result.anchor_text) + '"';
         } else {
             linkTypeDisplay = 'Naked Link:';
@@ -577,12 +643,7 @@
         topContainer.empty();
         bottomContainer.empty();
 
-        if (data.pages <= 1) {
-            console.log('[UPDATE PAGINATION] Only 1 page, not showing pagination');
-            return;
-        }
-
-        // Create pagination HTML
+        // Always create pagination HTML (even for 1 page)
         const paginationHtml = createPaginationButtons(data);
 
         // Add to both containers
@@ -648,8 +709,8 @@
         paginationHtml.append('<span>Show</span>');
 
         const perPageSelect = $('<select id="per-page-select" class="per-page-select"></select>');
-        const currentPerPage = data.per_page || 25;
-        [10, 25, 50, 100].forEach(function (val) {
+        const currentPerPage = data.per_page || 5;
+        [5, 10, 25, 50, 100].forEach(function (val) {
             const option = $('<option value="' + val + '">' + val + '</option>');
             if (val == currentPerPage) {
                 option.attr('selected', 'selected');
@@ -777,22 +838,30 @@
     /**
      * Apply selected fixes
      */
-    function applySelectedFixes() {
-        const selectedIds = [];
-        $('.result-checkbox:checked').each(function () {
-            selectedIds.push($(this).data('id'));
-        });
+    function applySelectedFixes(idsToFix) {
+        console.log('[APPLY SELECTED FIXES] Called with IDs:', idsToFix);
+
+        let selectedIds = idsToFix || [];
+
+        // If no IDs provided, get from checkboxes
+        if (!selectedIds || selectedIds.length === 0) {
+            $('.result-checkbox:checked').each(function () {
+                selectedIds.push($(this).data('id'));
+            });
+        }
+
+        console.log('[APPLY SELECTED FIXES] Selected IDs:', selectedIds);
 
         if (selectedIds.length === 0) {
             alert('Please select at least one entry to fix');
             return;
         }
 
-        if (!confirm(seoautofixBrokenUrls.strings.confirmApplyFixes)) {
+        if (!confirm('Are you sure you want to apply fixes for ' + selectedIds.length + ' link(s)?')) {
             return;
         }
 
-        $('#apply-selected-fixes-btn').prop('disabled', true).text('Applying fixes...');
+        console.log('[APPLY SELECTED FIXES] Sending AJAX request');
 
         $.ajax({
             url: seoautofixBrokenUrls.ajaxUrl,
@@ -803,18 +872,18 @@
                 ids: selectedIds
             },
             success: function (response) {
-                $('#apply-selected-fixes-btn').prop('disabled', false).html('<span class="dashicons dashicons-yes"></span> Apply Selected Fixes');
+                console.log('[APPLY SELECTED FIXES] Success response:', response);
 
                 if (response.success) {
-                    alert('Fixed: ' + response.data.fixed_count + '\nFailed: ' + response.data.failed_count);
+                    alert('Fixed: ' + response.data.fixed_count + '\nFailed: ' + response.data.failed_count + '\n\nMessages:\n' + response.data.messages.join('\n'));
                     loadScanResults(currentScanId);
                 } else {
                     alert(response.data.message || 'Failed to apply fixes');
                 }
             },
-            error: function () {
-                $('#apply-selected-fixes-btn').prop('disabled', false).html('<span class="dashicons dashicons-yes"></span> Apply Selected Fixes');
-                alert(seoautofixBrokenUrls.strings.error);
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.log('[APPLY SELECTED FIXES] Error:', textStatus, errorThrown);
+                alert('Error applying fixes: ' + textStatus);
             }
         });
     }
@@ -1453,6 +1522,126 @@
             $('#header-4xx-count').text(stats['4xx'] || 0);
             $('#header-5xx-count').text(stats['5xx'] || 0);
         }
+    }
+
+    /**
+     * Apply current fix from auto-fix panel
+     */
+    function applyCurrentFix() {
+        console.log('[APPLY CURRENT FIX] Called');
+        console.log('[APPLY CURRENT FIX] window.currentFixData:', window.currentFixData);
+        console.log('[APPLY CURRENT FIX] typeof applySelectedFixes:', typeof applySelectedFixes);
+
+        if (!window.currentFixData) {
+            console.log('[APPLY CURRENT FIX] No currentFixData, showing alert');
+            alert('Error: No fix data available');
+            return;
+        }
+
+        const fixAction = $('input[name="fix-action"]:checked').val();
+        console.log('[APPLY CURRENT FIX] Fix action:', fixAction);
+
+        let replacementUrl = '';
+
+        // Determine replacement URL based on user selection
+        if (fixAction === 'suggested') {
+            replacementUrl = window.currentFixData.suggested_url;
+            console.log('[APPLY CURRENT FIX] Using suggested URL:', replacementUrl);
+            if (!replacementUrl) {
+                alert('No suggested URL available');
+                return;
+            }
+        } else if (fixAction === 'custom') {
+            replacementUrl = $('#custom-url-field').val().trim();
+            console.log('[APPLY CURRENT FIX] Using custom URL:', replacementUrl);
+            if (!replacementUrl) {
+                alert('Please enter a custom URL');
+                return;
+            }
+        } else if (fixAction === 'home') {
+            // Use WordPress home URL
+            replacementUrl = window.location.origin + '/wordpress/';
+            console.log('[APPLY CURRENT FIX] Using home URL:', replacementUrl);
+        }
+
+        console.log('[APPLY CURRENT FIX] Final replacement URL:', replacementUrl);
+
+        // Update the entry with the user-modified URL
+        const entryId = window.currentFixData.id;
+        console.log('[APPLY CURRENT FIX] Entry ID:', entryId);
+
+        // First, update the database with the user's custom URL choice
+        console.log('[APPLY CURRENT FIX] Sending update entry AJAX request');
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'POST',
+            data: {
+                action: 'seoautofix_broken_links_update_entry',
+                nonce: seoautofixBrokenUrls.nonce,
+                id: entryId,
+                user_modified_url: replacementUrl
+            },
+            success: function (response) {
+                console.log('[APPLY CURRENT FIX] Update entry response:', response);
+
+                // Now apply the fix
+                console.log('[APPLY CURRENT FIX] Calling applySelectedFixes with ID:', [entryId]);
+                applySelectedFixes([entryId]);
+
+                // Hide the panel
+                $('#auto-fix-panel').slideUp();
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.log('[APPLY CURRENT FIX] Error updating entry:', textStatus, errorThrown);
+                // Still try to apply the fix even if update fails
+                console.log('[APPLY CURRENT FIX] Still calling applySelectedFixes despite error');
+                applySelectedFixes([entryId]);
+                $('#auto-fix-panel').slideUp();
+            }
+        });
+    }
+
+    /**
+     * Delete broken link
+     */
+    function deleteBrokenLink() {
+        console.log('[DELETE BROKEN LINK] Called');
+
+        if (!window.currentFixData) {
+            alert('Error: No fix data available');
+            return;
+        }
+
+        if (!confirm('Are you sure you want to delete this broken link entry?')) {
+            return;
+        }
+
+        const entryId = window.currentFixData.id;
+
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'POST',
+            data: {
+                action: 'seoautofix_broken_links_delete_entry',
+                nonce: seoautofixBrokenUrls.nonce,
+                id: entryId
+            },
+            success: function (response) {
+                console.log('[DELETE BROKEN LINK] Response:', response);
+
+                if (response.success) {
+                    alert('Broken link entry deleted successfully');
+                    $('#auto-fix-panel').slideUp();
+                    loadScanResults(currentScanId);
+                } else {
+                    alert(response.data.message || 'Failed to delete entry');
+                }
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.log('[DELETE BROKEN LINK] Error:', textStatus, errorThrown);
+                alert('Error deleting entry: ' + textStatus);
+            }
+        });
     }
 
 })(jQuery);

@@ -1,0 +1,64 @@
+/**
+ * Broken URL Management - Redesigned UI Styles
+ * Matching the new design mockup
+ */
+
+/* ========================================
+   PAGINATION ENTRIES SELECTOR
+   ======================================== */
+
+.pagination-entries-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.pagination-entries-selector label {
+    font-size: 14px;
+    color: #64748b;
+    margin: 0;
+}
+
+.pagination-entries-selector select.entries-per-page-select {
+    padding: 6px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 14px;
+    color: #1e293b;
+    background-color: #fff;
+    cursor: pointer;
+    transition: border-color 0.2s ease;
+}
+
+.pagination-entries-selector select.entries-per-page-select:hover {
+    border-color: #3b82f6;
+}
+
+.pagination-entries-selector select.entries-per-page-select:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.pagination-entries-selector span {
+    font-size: 14px;
+    color: #64748b;
+}
+
+/* Update pagination info containers to use flexbox */
+.pagination-info-top,
+.pagination-info-bottom {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 15px 20px;
+    background: #fff;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.pagination-info-bottom {
+    margin-top: 20px;
+    margin-bottom: 0;
+}

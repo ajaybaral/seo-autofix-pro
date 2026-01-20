@@ -380,7 +380,9 @@ class Database_Manager
     {
         global $wpdb;
 
-        return $wpdb->update(
+        error_log('[MARK_AS_FIXED] Marking entry ID ' . $id . ' as fixed');
+
+        $result = $wpdb->update(
             $this->table_results,
             array(
                 'is_fixed' => 1,
@@ -389,7 +391,11 @@ class Database_Manager
             array('id' => $id),
             array('%d', '%s'),
             array('%d')
-        ) !== false;
+        );
+
+        error_log('[MARK_AS_FIXED] Update result: ' . print_r($result, true) . ', wpdb->last_error: ' . $wpdb->last_error);
+
+        return $result !== false;
     }
 
     /**
