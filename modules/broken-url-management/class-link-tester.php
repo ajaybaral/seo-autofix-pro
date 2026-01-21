@@ -48,9 +48,82 @@ class Link_Tester
 
         // Convert relative URLs to absolute
         if (strpos($url, '/') === 0 && strpos($url, '//') !== 0) {
-            $url = home_url($url);
+            // Get only the scheme and host (without subdirectory path)
+            $parsed_home = parse_url(home_url());
+            $base = $parsed_home['scheme'] . '://' . $parsed_home['host'];
+            if (isset($parsed_home['port'])) {
+                $base .= ':' . $parsed_home['port'];
+            }
+            $url = $base . $url;
         }
 
+        // For internal WordPress URLs, use faster WordPress functions
+        $site_url = get_site_url();
+        $home_url = get_home_url();
+
+        if (strpos($url, $site_url) === 0 || strpos($url, $home_url) === 0) {
+            // This is an internal WordPress URL - use WordPress functions
+            $path = parse_url($url, PHP_URL_PATH);
+            $query = parse_url($url, PHP_URL_QUERY);
+            $fragment = parse_url($url, PHP_URL_FRAGMENT);
+
+            // Build the internal URL (path + query, without fragment)
+            $internal_url = $path;
+            if ($query) {
+                $internal_url .= '?' . $query;
+            }
+
+            // Check if it's a valid WordPress post/page
+            $post_id = url_to_postid($internal_url);
+
+            if ($post_id > 0) {
+                // Valid post/page exists
+                $post = get_post($post_id);
+                if ($post && $post->post_status === 'publish') {
+                    // Post exists and is published - not broken
+                    return array(
+                        'status_code' => 200,
+                        'error_type' => null,
+                        'is_broken' => false,
+                        'error' => null
+                    );
+                }
+            }
+
+            // Check if it's a valid attachment
+            if (preg_match('/wp-content\/uploads\//', $url)) {
+                $upload_dir = wp_upload_dir();
+                $file_path = str_replace($upload_dir['baseurl'], $upload_dir['basedir'], $url);
+
+                if (file_exists($file_path)) {
+                    return array(
+                        'status_code' => 200,
+                        'error_type' => null,
+                        'is_broken' => false,
+                        'error' => null
+                    );
+                } else {
+                    return array(
+                        'status_code' => 404,
+                        'error_type' => '4xx',
+                        'is_broken' => true,
+                        'error' => __('File not found', 'seo-autofix-pro')
+                    );
+                }
+            }
+
+            // Check if it's admin/login page (not broken, just requires auth)
+            if (strpos($url, '/wp-admin/') !== false || strpos($url, '/wp-login.php') !== false) {
+                return array(
+                    'status_code' => 200,
+                    'error_type' => null,
+                    'is_broken' => false,
+                    'error' => null
+                );
+            }
+        }
+
+        // For external URLs or URLs that don't match above patterns, use HTTP request
         // Make HEAD request first (faster)
         $response = wp_remote_head($url, array(
             'timeout' => self::REQUEST_TIMEOUT,

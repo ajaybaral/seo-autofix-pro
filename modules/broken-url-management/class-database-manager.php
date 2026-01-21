@@ -453,4 +453,23 @@ class Database_Manager
             ARRAY_A
         );
     }
+
+    /**
+     * Get list of broken URLs for a scan
+     * 
+     * @param string $scan_id Scan ID
+     * @return array Array of broken URLs
+     */
+    public function get_broken_urls_for_scan($scan_id)
+    {
+        global $wpdb;
+
+        return $wpdb->get_col(
+            $wpdb->prepare(
+                "SELECT DISTINCT broken_url FROM {$this->table_results} 
+                WHERE scan_id = %s AND is_deleted = 0",
+                $scan_id
+            )
+        );
+    }
 }

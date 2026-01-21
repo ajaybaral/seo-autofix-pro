@@ -195,6 +195,9 @@ $recent_scans = $db_manager->get_scans(10);
                     <label class="fix-option">
                         <input type="radio" name="fix-action" value="home" />
                         <?php echo esc_html__('Or Redirect to Home Page', 'seo-autofix-pro'); ?>
+                        <span class="home-url-display" style="color: #666; font-size: 0.9em; margin-left: 8px;">
+                            (<?php echo esc_html(home_url('/')); ?>)
+                        </span>
                     </label>
 
                     <div class="fix-delete-option">

@@ -127,18 +127,25 @@
             $('#fix-error-badge').text(resultData.status_code + 'XX');
 
             if (resultData.suggested_url) {
-                $('#fix-suggested-url').text(resultData.suggested_url).attr('href', resultData.suggested_url);
-                $('input[name="fix-action"][value="suggested"]').prop('disabled', false);
-            } else {
-                $('#fix-suggested-url').text('No suggestion available');
-                $('input[name="fix-action"][value="suggested"]').prop('disabled', true);
-                $('input[name="fix-action"][value="custom"]').prop('checked', true);
-            }
+                // Show suggested URL section
+                $('.fix-suggestion').show();
+                $('input[name="fix-action"][value="suggested"]').parent().show();
 
-            // Reset to suggested URL option
-            $('input[name="fix-action"][value="suggested"]').prop('checked', true);
-            $('#custom-url-input').hide();
-            $('#custom-url-field').val('');
+                $('#fix-suggested-url').text(resultData.suggested_url).attr('href', resultData.suggested_url);
+                $('input[name="fix-action"][value="suggested"]').prop('disabled', false).prop('checked', true);
+                $('#custom-url-input').hide();
+                $('#custom-url-field').val('');
+            } else {
+                // Hide suggested URL section (like external links)
+                $('.fix-suggestion').hide();
+                $('input[name="fix-action"][value="suggested"]').parent().hide();
+                $('input[name="fix-action"][value="suggested"]').prop('disabled', true);
+
+                // Auto-select custom option
+                $('input[name="fix-action"][value="custom"]').prop('checked', true);
+                $('#custom-url-input').show();
+                $('#custom-url-field').val('');
+            }
 
             // Show the panel
             $('#auto-fix-panel').slideDown();
@@ -203,7 +210,15 @@
 
         console.log('[SCAN DEBUG] Setting up scan UI');
         isScanning = true;
-        $('#start-scan-btn').prop('disabled', true).text(seoautofixBrokenUrls.strings.startingScan);
+        $('#start-auto-fix-btn').prop('disabled', true).text(seoautofixBrokenUrls.strings.startingScan);
+
+        // Reset progress bar values to 0
+        $('#scan-progress-percentage').text('0%');
+        $('#scan-progress-fill').css('width', '0%');
+        $('#scan-urls-tested').text('0');
+        $('#scan-urls-total').text('0');
+        $('#scan-broken-count').text('0');
+
         $('#scan-progress-container').show();
         $('#results-container').hide();
         $('#empty-state').hide();
@@ -358,7 +373,7 @@
      * Reset scan button
      */
     function resetScanButton() {
-        $('#start-scan-btn').prop('disabled', false).html(
+        $('#start-auto-fix-btn').prop('disabled', false).html(
             '<span class="dashicons dashicons-search"></span> Start New Scan'
         );
     }
@@ -875,8 +890,43 @@
                 console.log('[APPLY SELECTED FIXES] Success response:', response);
 
                 if (response.success) {
-                    alert('Fixed: ' + response.data.fixed_count + '\nFailed: ' + response.data.failed_count + '\n\nMessages:\n' + response.data.messages.join('\n'));
-                    loadScanResults(currentScanId);
+                    const fixed = response.data.fixed_count || 0;
+                    const failed = response.data.failed_count || 0;
+                    const skipped = response.data.skipped_count || 0;
+
+                    // Show summary message
+                    let message = '✅ Fixed: ' + fixed + '\n❌ Failed: ' + failed;
+                    if (skipped > 0) {
+                        message += '\n⚠️ Skipped: ' + skipped;
+                    }
+                    message += '\n\nMessages:\n' + response.data.messages.join('\n');
+                    alert(message);
+
+                    // Remove successfully fixed rows dynamically
+                    if (fixed > 0) {
+                        selectedIds.forEach(function (id) {
+                            $('tr[data-id="' + id + '"]').fadeOut(300, function () {
+                                $(this).remove();
+
+                                // Update the "No results" message if table is empty
+                                if ($('.broken-links-table tbody tr').length === 0) {
+                                    $('.broken-links-table tbody').html(
+                                        '<tr><td colspan="5" style="text-align:center; padding: 30px;">No broken links found</td></tr>'
+                                    );
+                                }
+                            });
+                        });
+
+                        // Update stats dynamically (subtract fixed count)
+                        updateStatsAfterFix(fixed);
+                    }
+
+                    // If there were failures, reload to show updated state
+                    if (failed > 0) {
+                        setTimeout(function () {
+                            loadScanResults(currentScanId);
+                        }, 500);
+                    }
                 } else {
                     alert(response.data.message || 'Failed to apply fixes');
                 }
@@ -886,6 +936,35 @@
                 alert('Error applying fixes: ' + textStatus);
             }
         });
+    }
+
+
+    /**
+     * Update stats dynamically after fixing links
+     */
+    function updateStatsAfterFix(fixedCount) {
+        // Update the total count badge if it exists
+        const totalBadge = $('.filter-btn[data-filter="all"] .count');
+        if (totalBadge.length) {
+            const currentTotal = parseInt(totalBadge.text()) || 0;
+            const newTotal = Math.max(0, currentTotal - fixedCount);
+            totalBadge.text(newTotal);
+        }
+
+        // Update pagination info
+        const paginationInfo = $('.pagination-controls span:first');
+        if (paginationInfo.length) {
+            const text = paginationInfo.text();
+            const match = text.match(/of (\d+)/);
+            if (match) {
+                const currentTotal = parseInt(match[1]);
+                const newTotal = Math.max(0, currentTotal - fixedCount);
+                const newText = text.replace(/of \d+/, 'of ' + newTotal);
+                paginationInfo.text(newText);
+            }
+        }
+
+        console.log('[UPDATE STATS] Reduced counts by', fixedCount);
     }
 
     /**

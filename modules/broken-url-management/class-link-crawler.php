@@ -178,6 +178,13 @@ class Link_Crawler
         set_transient('seoautofix_scan_progress_' . $scan_id, $new_progress, DAY_IN_SECONDS);
         set_transient('seoautofix_scan_links_' . $scan_id, $all_links, DAY_IN_SECONDS);
 
+        // Update scan with total URLs found (only on first batch)
+        if ($progress_index === 0) {
+            $this->db_manager->update_scan($scan_id, array(
+                'total_urls_found' => count($all_urls)
+            ));
+        }
+
         // Now test the links found so far (only new ones)
         $this->test_links_batch($scan_id, $all_links);
 
@@ -234,12 +241,26 @@ class Link_Crawler
         // Extract just the URL strings from the array of arrays
         $valid_internal_urls = array_column($valid_internal_urls_data, 'url');
 
+        // Remove any URLs that are in our broken links list for this scan
+        $broken_urls_in_scan = $this->db_manager->get_broken_urls_for_scan($scan_id);
+        if (!empty($broken_urls_in_scan)) {
+            $valid_internal_urls = array_diff($valid_internal_urls, $broken_urls_in_scan);
+            error_log('[CRAWLER] Filtered out ' . count($broken_urls_in_scan) . ' broken URLs from suggestions');
+        }
+
         $tested_count = 0;
         $broken_count = 0;
 
         foreach ($links_to_test as $link => $found_on_pages) {
             // Mark as tested
             $tested_links[] = $link;
+
+            // Skip template-generated links (theme/plugin auto-generated)
+            if ($this->is_template_generated_link($link)) {
+                error_log('[CRAWLER] Skipping template-generated link: ' . $link);
+                $tested_count++;
+                continue;
+            }
 
             // Test the link
             $test_result = $this->link_tester->test_url($link);
@@ -260,6 +281,13 @@ class Link_Crawler
                     $match = $this->url_similarity->find_closest_match($link, $valid_internal_urls);
                     $suggested_url = $match['url'];
                     $reason = $match['reason'];
+
+                    // Don't show homepage as suggestion (it's not useful)
+                    $home_url_clean = untrailingslashit(home_url());
+                    if (untrailingslashit($suggested_url) === $home_url_clean || untrailingslashit($suggested_url) === $home_url_clean . '/') {
+                        $suggested_url = null;
+                        $reason = __('No relevant page found. Please provide a custom link or redirect to home.', 'seo-autofix-pro');
+                    }
                 } else {
                     $reason = __('This link is not working, either delete it or provide a new link', 'seo-autofix-pro');
                 }
@@ -474,7 +502,13 @@ class Link_Crawler
 
             // Convert relative URLs to absolute
             if (strpos($href, '/') === 0 && strpos($href, '//') !== 0) {
-                $href = home_url($href);
+                // Get only the scheme and host (without subdirectory path)
+                $parsed_home = parse_url(home_url());
+                $base = $parsed_home['scheme'] . '://' . $parsed_home['host'];
+                if (isset($parsed_home['port'])) {
+                    $base .= ':' . $parsed_home['port'];
+                }
+                $href = $base . $href;
             }
 
             // Extract anchor text
@@ -511,7 +545,13 @@ class Link_Crawler
 
             // Convert relative URLs to absolute
             if (strpos($src, '/') === 0 && strpos($src, '//') !== 0) {
-                $src = home_url($src);
+                // Get only the scheme and host (without subdirectory path)
+                $parsed_home = parse_url(home_url());
+                $base = $parsed_home['scheme'] . '://' . $parsed_home['host'];
+                if (isset($parsed_home['port'])) {
+                    $base .= ':' . $parsed_home['port'];
+                }
+                $src = $base . $src;
             }
 
             // Skip data URIs
@@ -623,5 +663,36 @@ class Link_Crawler
         }
 
         return $context;
+    }
+
+    /**
+     * Check if a link is template-generated and should be ignored
+     * 
+     * @param string $url The URL to check
+     * @return bool True if template-generated
+     */
+    private function is_template_generated_link($url)
+    {
+        // Common patterns for template-generated links that should be ignored
+        $template_patterns = array(
+            '#respond',              // Comment reply links
+            '#comment-',             // Comment anchors
+            '/wp-admin/',           // Admin links
+            '/wp-login.php',        // Login links
+            '/wp-comments-post.php', // Comment form actions
+            '/feed/',               // Feed links
+            '?replytocom=',         // Reply to comment parameter
+            '/wp-content/themes/',  // Theme file links (usually not in content)
+            '/wp-content/plugins/', // Plugin file links (usually not in content)
+            '/wp-includes/',        // WordPress core files
+        );
+
+        foreach ($template_patterns as $pattern) {
+            if (strpos($url, $pattern) !== false) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
