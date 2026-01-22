@@ -218,8 +218,8 @@ class Database_Manager
 
         // Apply location filter
         if ($location !== 'all' && !empty($location)) {
-            $where[] = 'location = %s';
-            $where_values[] = $location;
+            $where[] = 'link_location = %s';
+            $where_values[] = strtolower($location); // Convert to lowercase to match database values
         }
 
         // Note: page_type filter would require additional data we don't currently store

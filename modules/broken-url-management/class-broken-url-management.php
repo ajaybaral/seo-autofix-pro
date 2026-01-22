@@ -304,6 +304,9 @@ class SEOAutoFix_Broken_Url_Management
         // Apply fixes
         add_action('wp_ajax_seoautofix_broken_links_apply_fixes', array($this, 'ajax_apply_fixes'));
 
+        // Undo fix
+        add_action('wp_ajax_seoautofix_broken_links_undo_fix', array($this, 'ajax_undo_fix'));
+
         // NEW v2.0 endpoints - Occurrences
         add_action('wp_ajax_seoautofix_broken_links_get_occurrences', array($this, 'ajax_get_occurrences'));
         add_action('wp_ajax_seoautofix_broken_links_bulk_fix', array($this, 'ajax_bulk_fix'));
@@ -322,6 +325,7 @@ class SEOAutoFix_Broken_Url_Management
         add_action('wp_ajax_seoautofix_broken_links_export_csv', array($this, 'ajax_export_csv'));
         add_action('wp_ajax_seoautofix_broken_links_export_pdf', array($this, 'ajax_export_pdf'));
         add_action('wp_ajax_seoautofix_broken_links_email_report', array($this, 'ajax_email_report'));
+        add_action('wp_ajax_seoautofix_broken_links_email_fixed_report', array($this, 'ajax_email_fixed_report'));
     }
 
     /**
@@ -435,7 +439,7 @@ class SEOAutoFix_Broken_Url_Management
         $search = isset($_GET['search']) ? sanitize_text_field($_GET['search']) : '';
         $page = isset($_GET['page']) ? intval($_GET['page']) : 1;
         $per_page = isset($_GET['per_page']) ? intval($_GET['per_page']) : 25;
-        
+
         // New filter parameters
         $error_type = isset($_GET['error_type']) ? sanitize_text_field($_GET['error_type']) : 'all';
         $page_type = isset($_GET['page_type']) ? sanitize_text_field($_GET['page_type']) : 'all';
@@ -837,6 +841,116 @@ class SEOAutoFix_Broken_Url_Management
             wp_send_json_success($result);
         } else {
             wp_send_json_error($result);
+        }
+    }
+
+    /**
+     * AJAX: Email fixed report (session data)
+     */
+    public function ajax_email_fixed_report()
+    {
+        check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
+        }
+
+        $csv_data = isset($_POST['csv_data']) ? json_decode(stripslashes($_POST['csv_data']), true) : array();
+
+        if (empty($csv_data)) {
+            wp_send_json_error(array('message' => __('Missing parameters', 'seo-autofix-pro')));
+        }
+
+        try {
+            // Generate CSV content
+            $csv_output = '';
+            if (isset($csv_data['headers']) && isset($csv_data['rows'])) {
+                $csv_output .= '"' . implode('","', $csv_data['headers']) . '"' . "\n";
+                foreach ($csv_data['rows'] as $row) {
+                    $escaped_row = array_map(function ($cell) {
+                        $escaped = str_replace('"', '""', $cell ?: '');
+                        return strpos($escaped, ',') !== false ? '"' . $escaped . '"' : $escaped;
+                    }, $row);
+                    $csv_output .= '"' . implode('","', $escaped_row) . '"' . "\n";
+                }
+            }
+
+            if (empty($csv_output)) {
+                wp_send_json_error(array('message' => __('No data to email', 'seo-autofix-pro')));
+            }
+
+            // Send email to admin
+            $admin_email = get_option('admin_email');
+            $subject = 'Fixed Links Report - ' . get_bloginfo('name');
+            $message = "Hi,\n\nAttached is the fixed links report for " . get_bloginfo('name') . ".\n\nTotal fixed links: " . count($csv_data['rows']);
+
+            // Create temporary file for CSV
+            $upload_dir = wp_upload_dir();
+            $csv_file = $upload_dir['path'] . '/fixed-links-report-' . date('Y-m-d-His') . '.csv';
+
+            $written = file_put_contents($csv_file, $csv_output);
+
+            if (!$written) {
+                wp_send_json_error(array('message' => __('Failed to create CSV file', 'seo-autofix-pro')));
+            }
+
+            $attachments = array($csv_file);
+
+            $sent = wp_mail($admin_email, $subject, $message, '', $attachments);
+
+            // Clean up temporary file
+            @unlink($csv_file);
+
+            if ($sent) {
+                wp_send_json_success(array('message' => __('Email sent successfully to ', 'seo-autofix-pro') . $admin_email));
+            } else {
+                // Check if localhost
+                $is_localhost = (strpos($_SERVER['HTTP_HOST'], 'localhost') !== false || strpos($_SERVER['HTTP_HOST'], '127.0.0.1') !== false);
+
+                if ($is_localhost) {
+                    wp_send_json_error(array('message' => __('Email failed: XAMPP/localhost has no mail server. Email will work on production server with proper mail configuration.', 'seo-autofix-pro')));
+                } else {
+                    wp_send_json_error(array('message' => __('Failed to send email. Check WordPress mail configuration or use SMTP plugin.', 'seo-autofix-pro')));
+                }
+            }
+
+        } catch (\Exception $e) {
+            wp_send_json_error(array('message' => $e->getMessage()));
+        }
+    }
+
+    /**
+     * Undo a fix (restore link to broken state)
+     */
+    public function ajax_undo_fix()
+    {
+        check_ajax_referer('seoautofix_broken_links', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Unauthorized access', 'seo-autofix-pro')));
+        }
+
+        $id = isset($_POST['id']) ? intval($_POST['id']) : 0;
+
+        if (!$id) {
+            wp_send_json_error(array('message' => __('Invalid link ID', 'seo-autofix-pro')));
+        }
+
+        global $wpdb;
+
+        // Restore the link to broken state
+        $result = $wpdb->update(
+            $this->table_results,
+            array('is_fixed' => 0),
+            array('id' => $id),
+            array('%d'),
+            array('%d')
+        );
+
+        if ($result !== false) {
+            wp_send_json_success(array('message' => __('Link restored successfully', 'seo-autofix-pro')));
+        } else {
+            wp_send_json_error(array('message' => __('Failed to restore link', 'seo-autofix-pro')));
         }
     }
 }

@@ -130,10 +130,17 @@ class Link_Crawler
             delete_transient('seoautofix_scan_progress_' . $scan_id);
             delete_transient('seoautofix_scan_links_' . $scan_id);
 
+            // Get final stats
+            $stats = $this->db_manager->get_scan_progress($scan_id);
+
             return array(
                 'completed' => true,
                 'progress' => 100,
-                'pages_processed' => count($all_urls)
+                'pages_processed' => count($all_urls),
+                'total_pages' => count($all_urls),
+                'tested_urls' => $stats['tested_urls'],
+                'total_urls' => $stats['total_urls'],
+                'broken_count' => $stats['broken_count']
             );
         }
 
@@ -178,12 +185,10 @@ class Link_Crawler
         set_transient('seoautofix_scan_progress_' . $scan_id, $new_progress, DAY_IN_SECONDS);
         set_transient('seoautofix_scan_links_' . $scan_id, $all_links, DAY_IN_SECONDS);
 
-        // Update scan with total URLs found (only on first batch)
-        if ($progress_index === 0) {
-            $this->db_manager->update_scan($scan_id, array(
-                'total_urls_found' => count($all_urls)
-            ));
-        }
+        // Update scan with total unique links found (update every batch as links accumulate)
+        $this->db_manager->update_scan($scan_id, array(
+            'total_urls_found' => count($all_links)
+        ));
 
         // Now test the links found so far (only new ones)
         $this->test_links_batch($scan_id, $all_links);
@@ -192,12 +197,18 @@ class Link_Crawler
 
         error_log('[CRAWLER] Batch completed. Progress: ' . $new_progress . '/' . count($all_urls) . ' (' . $progress_percent . '%)');
 
+        // Get current stats
+        $stats = $this->db_manager->get_scan_progress($scan_id);
+
         return array(
             'completed' => false,
             'progress' => $progress_percent,
             'pages_processed' => $new_progress,
             'total_pages' => count($all_urls),
-            'links_found' => count($all_links)
+            'links_found' => count($all_links),
+            'tested_urls' => $stats['tested_urls'],
+            'total_urls' => $stats['total_urls'],
+            'broken_count' => $stats['broken_count']
         );
     }
 

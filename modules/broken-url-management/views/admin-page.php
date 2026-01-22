@@ -40,6 +40,14 @@ $recent_scans = $db_manager->get_scans(10);
         </div>
 
         <div class="seoautofix-header-actions">
+            <button id="undo-last-fix-btn" class="button button-secondary" disabled>
+                <span class="dashicons dashicons-undo"></span>
+                <?php echo esc_html__('Undo Last Fix', 'seo-autofix-pro'); ?>
+            </button>
+            <button id="fix-all-issues-btn" class="button button-secondary">
+                <span class="dashicons dashicons-yes-alt"></span>
+                <?php echo esc_html__('Fix All Issues', 'seo-autofix-pro'); ?>
+            </button>
             <button id="export-report-btn" class="button button-secondary">
                 <?php echo esc_html__('Export Report', 'seo-autofix-pro'); ?>
             </button>
@@ -67,20 +75,7 @@ $recent_scans = $db_manager->get_scans(10);
         </div>
     </div>
 
-    <!-- Download/Email Buttons (Always Visible) -->
-    <div class="history-export-section-header">
-        <button id="download-report-header-btn" class="button">
-            <span class="dashicons dashicons-download"></span>
-            <?php echo esc_html__('Download Fixed Report', 'seo-autofix-pro'); ?>
-            <span class="file-format">.csv</span>
-        </button>
 
-        <button id="email-report-header-btn" class="button">
-            <span class="dashicons dashicons-email"></span>
-            <?php echo esc_html__('Email Fixed Report', 'seo-autofix-pro'); ?>
-            <span class="email-icon">✉</span>
-        </button>
-    </div>
 
     <!-- Results Section -->
     <div id="results-container" style="display: none;">

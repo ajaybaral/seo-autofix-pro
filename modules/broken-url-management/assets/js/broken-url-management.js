@@ -14,6 +14,12 @@
     let isScanning = false;
     let scanProgressInterval = null;
 
+    // Track fixed links in current session (for export)
+    let fixedLinksSession = [];
+
+    // Undo stack for tracking changes
+    let undoStack = [];
+
     // Initialize on document ready
     $(document).ready(function () {
         initializeEventListeners();
@@ -33,6 +39,8 @@
         // Header action buttons
         $('#start-auto-fix-btn').on('click', startNewScan);
         $('#export-report-btn').on('click', exportToCSV);
+        $('#undo-last-fix-btn').on('click', undoLastFix);
+        $('#fix-all-issues-btn').on('click', fixAllIssues);
 
         // Filter dropdowns
         $('#filter-page-type, #filter-error-type, #filter-location').on('change', function () {
@@ -218,6 +226,7 @@
         $('#scan-urls-tested').text('0');
         $('#scan-urls-total').text('0');
         $('#scan-broken-count').text('0');
+        $('#scan-progress-text').text(seoautofixBrokenUrls.strings.scanning || 'Scanning...');
 
         $('#scan-progress-container').show();
         $('#results-container').hide();
@@ -295,9 +304,9 @@
                     // Update progress
                     updateProgressBar({
                         progress: data.progress || 0,
-                        tested_urls: data.pages_processed || 0,
-                        total_urls: data.total_pages || 0,
-                        broken_count: 0, // Will get from results
+                        tested_urls: data.tested_urls || 0,
+                        total_urls: data.total_urls || 0,
+                        broken_count: data.broken_count || 0,
                         status: data.completed ? 'completed' : 'in_progress'
                     });
 
@@ -444,6 +453,9 @@
         $('#results-container').show();
         $('#empty-state').hide();
 
+        // Show download/email buttons when results are available
+        $('.history-export-section-header').show();
+
         // Clear table
         $('#results-table-body').empty();
 
@@ -491,9 +503,9 @@
      */
     function createResultRow(result, serialNumber) {
         const isFixed = result.is_fixed == 1;
-        const statusCode = result.status_code || 404;
-        const errorType = statusCode >= 500 ? '5xx' : '4xx';
-        const errorClass = statusCode >= 500 ? 'error-5xx' : 'error-4xx';
+        const statusCode = parseInt(result.status_code) || 0;
+        const errorType = result.error_type || (statusCode >= 500 ? '5xx' : '4xx');
+        const errorClass = errorType === '5xx' ? 'error-5xx' : 'error-4xx';
 
         // Determine link type display (Anchor Text vs Naked Link)
         let linkTypeDisplay = '';
@@ -905,7 +917,34 @@
                     // Remove successfully fixed rows dynamically
                     if (fixed > 0) {
                         selectedIds.forEach(function (id) {
-                            $('tr[data-id="' + id + '"]').fadeOut(300, function () {
+                            const $row = $('tr[data-id="' + id + '"]');
+                            const rowData = $row.data('result');
+
+                            // Push to undo stack before removing
+                            undoStack.push({
+                                id: id,
+                                action: 'fix',
+                                original_data: rowData,
+                                row_html: $row[0].outerHTML
+                            });
+
+                            // Add to fixed links session for export
+                            if (rowData) {
+                                fixedLinksSession.push({
+                                    location: rowData.location || 'content',
+                                    anchor_text: rowData.anchor_text || '',
+                                    broken_url: rowData.broken_url,
+                                    link_type: rowData.link_type,
+                                    status_code: rowData.status_code,
+                                    error_type: rowData.status_code,
+                                    suggested_url: rowData.suggested_url || '',
+                                    reason: rowData.reason || '',
+                                    is_fixed: 'Yes',
+                                    fixed_at: new Date().toISOString()
+                                });
+                            }
+
+                            $row.fadeOut(300, function () {
                                 $(this).remove();
 
                                 // Update the "No results" message if table is empty
@@ -919,6 +958,14 @@
 
                         // Update stats dynamically (subtract fixed count)
                         updateStatsAfterFix(fixed);
+
+                        // Update button text to show number of fixed links
+                        updateFixedReportButtonText();
+
+                        // Enable undo button since we have changes in the stack
+                        if (undoStack.length > 0) {
+                            $('#undo-last-fix-btn').prop('disabled', false);
+                        }
                     }
 
                     // If there were failures, reload to show updated state
@@ -966,6 +1013,307 @@
 
         console.log('[UPDATE STATS] Reduced counts by', fixedCount);
     }
+
+    /**
+     * Update fixed report button text with count
+     */
+    function updateFixedReportButtonText() {
+        const count = fixedLinksSession.length;
+        if (count > 0) {
+            $('#download-report-header-btn').find('.file-format').text('.csv (' + count + ')');
+            $('#email-report-header-btn').find('.email-icon').text('✉ (' + count + ')');
+        }
+    }
+
+    /**
+     * Download fixed links report as CSV
+     */
+    function downloadFixedReport(e) {
+        if (e) e.preventDefault();
+
+        if (fixedLinksSession.length === 0) {
+            alert('No fixed links to export. Fix some broken links first!');
+            return;
+        }
+
+        // Create CSV content
+        const headers = ['Location', 'Anchor Text', 'Broken URL', 'Link Type', 'Status Code', 'Error Type', 'Suggested URL', 'Reason', 'Is Fixed'];
+        const rows = fixedLinksSession.map(function (link) {
+            return [
+                link.location,
+                link.anchor_text,
+                link.broken_url,
+                link.link_type,
+                link.status_code,
+                link.error_type,
+                link.suggested_url,
+                link.reason,
+                link.is_fixed
+            ];
+        });
+
+        let csvContent = headers.join(',') + '\n';
+        rows.forEach(function (row) {
+            csvContent += row.map(function (cell) {
+                // Escape quotes and wrap in quotes if contains comma
+                const escaped = String(cell || '').replace(/"/g, '""');
+                return escaped.indexOf(',') >= 0 ? '"' + escaped + '"' : escaped;
+            }).join(',') + '\n';
+        });
+
+        // Create download link
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', 'fixed-links-' + Date.now() + '.csv');
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    /**
+     * Email fixed links report
+     */
+    function emailFixedReport(e) {
+        if (e) e.preventDefault();
+
+        if (fixedLinksSession.length === 0) {
+            alert('No fixed links to email. Fix some broken links first!');
+            return;
+        }
+
+        // Show loading state
+        $('#email-report-header-btn').prop('disabled', true).text('Sending...');
+
+        // Convert fixed links to CSV format
+        const headers = ['Location', 'Anchor Text', 'Broken URL', 'Link Type', 'Status Code', 'Error Type', 'Suggested URL', 'Reason', 'Is Fixed'];
+        const csvData = {
+            headers: headers,
+            rows: fixedLinksSession.map(function (link) {
+                return [
+                    link.location,
+                    link.anchor_text,
+                    link.broken_url,
+                    link.link_type,
+                    link.status_code,
+                    link.error_type,
+                    link.suggested_url,
+                    link.reason,
+                    link.is_fixed
+                ];
+            })
+        };
+
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'POST',
+            data: {
+                action: 'seoautofix_broken_links_email_fixed_report',
+                nonce: seoautofixBrokenUrls.nonce,
+                csv_data: JSON.stringify(csvData)
+            },
+            success: function (response) {
+                $('#email-report-header-btn').prop('disabled', false).find('.email-icon').text('✉ (' + fixedLinksSession.length + ')');
+
+                if (response.success) {
+                    alert(response.data.message || 'Fixed links report sent successfully!');
+                } else {
+                    alert(response.data.message || 'Failed to send email');
+                }
+            },
+            error: function () {
+                $('#email-report-header-btn').prop('disabled', false).find('.email-icon').text('✉ (' + fixedLinksSession.length + ')');
+                alert('An error occurred while sending the email');
+            }
+        });
+    }
+
+    /**
+     * Undo the last fix
+     */
+    function undoLastFix() {
+        if (undoStack.length === 0) {
+            alert('No changes to undo');
+            return;
+        }
+
+        const lastChange = undoStack.pop();
+        console.log('[UNDO] Restoring change:', lastChange);
+
+        // Call backend to restore the link
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'POST',
+            data: {
+                action: 'seoautofix_broken_links_undo_fix',
+                nonce: seoautofixBrokenUrls.nonce,
+                id: lastChange.id
+            },
+            success: function (response) {
+                if (response.success) {
+                    // Re-insert the row with animation
+                    const newRow = $(lastChange.row_html);
+                    $('#results-table-body').prepend(newRow);
+                    newRow.hide().fadeIn(400);
+
+                    // Update stats
+                    updateStatsAfterUndo();
+
+                    // Remove from fixed links session
+                    fixedLinksSession = fixedLinksSession.filter(function (link) {
+                        return link.id !== lastChange.id;
+                    });
+
+                    // Update fixed report buttons
+                    updateFixedReportButtonText();
+
+                    // Disable undo button if stack is empty
+                    if (undoStack.length === 0) {
+                        $('#undo-last-fix-btn').prop('disabled', true);
+                    }
+
+                    console.log('[UNDO] Successfully restored link ID:', lastChange.id);
+                } else {
+                    alert(response.data.message || 'failed to undo fix');
+                    undoStack.push(lastChange); // Put it back
+                }
+            },
+            error: function () {
+                alert('Error occurred while trying to undo');
+                undoStack.push(lastChange); // Put it back
+            }
+        });
+    }
+
+    /**
+     * Fix all issues on current page
+     */
+    function fixAllIssues() {
+        const brokenLinks = [];
+
+        // Collect all broken links from the table
+        $('#results-table-body tr').not('.status-fixed').each(function () {
+            const $fixBtn = $(this).find('.fix-btn');
+            if ($fixBtn.length) {
+                const resultData = $fixBtn.data('result');
+                if (resultData) {
+                    brokenLinks.push(resultData);
+                }
+            }
+        });
+
+        if (brokenLinks.length === 0) {
+            alert('No broken links to fix!');
+            return;
+        }
+
+        if (!confirm('Fix ' + brokenLinks.length + ' broken link(s)? This will use suggested URLs where available, or redirect to homepage.')) {
+            return;
+        }
+
+        // Disable button during processing
+        $('#fix-all-issues-btn').prop('disabled', true).text('Fixing...');
+
+        let processed = 0;
+        const total = brokenLinks.length;
+
+        // Process each link
+        brokenLinks.forEach(function (link, index) {
+            const redirectUrl = link.suggested_url || seoautofixBrokenUrls.homeUrl;
+
+            // Push to undo stack before fixing
+            const $row = $('#results-table-body').find('.fix-btn[data-id="' + link.id + '"]').closest('tr');
+            undoStack.push({
+                id: link.id,
+                action: 'fix',
+                original_data: link,
+                row_html: $row[0].outerHTML
+            });
+
+            // Apply the fix
+            $.ajax({
+                url: seoautofixBrokenUrls.ajaxUrl,
+                method: 'POST',
+                data: {
+                    action: 'seoautofix_broken_links_apply_fixes',
+                    nonce: seoautofixBrokenUrls.nonce,
+                    fixes: JSON.stringify([{
+                        id: link.id,
+                        fix_type: link.suggested_url ? 'suggested' : 'homepage',
+                        redirect_url: redirectUrl
+                    }])
+                },
+                success: function (response) {
+                    processed++;
+
+                    if (response.success) {
+                        // Remove row
+                        $row.fadeOut(300, function () {
+                            $(this).remove();
+
+                            if ($('#results-table-body tr').length === 0) {
+                                $('#results-table-body').html(
+                                    '<tr class="empty-results-row"><td colspan="5" style="text-align: center; padding: 40px;">No broken links found</td></tr>'
+                                );
+                            }
+                        });
+
+                        // Track for export
+                        fixedLinksSession.push({
+                            id: link.id,
+                            location: link.found_on_page_title,
+                            anchor_text: link.anchor_text,
+                            broken_url: link.broken_url,
+                            link_type: link.link_type,
+                            status_code: link.status_code,
+                            error_type: link.error_type,
+                            suggested_url: link.suggested_url,
+                            reason: link.reason,
+                            is_fixed: 1
+                        });
+                    }
+
+                    // When all processed, update UI
+                    if (processed === total) {
+                        $('#fix-all-issues-btn').prop('disabled', false).html('<span class="dashicons dashicons-yes-alt"></span> Fix All Issues');
+                        updateStatsAfterFix(total);
+                        updateFixedReportButtonText();
+
+                        // Enable undo button
+                        $('#undo-last-fix-btn').prop('disabled', false);
+
+                        alert('Successfully fixed ' + total + ' link(s)!');
+                    }
+                },
+                error: function () {
+                    processed++;
+
+                    if (processed === total) {
+                        $('#fix-all-issues-btn').prop('disabled', false).html('<span class="dashicons dashicons-yes-alt"></span> Fix All Issues');
+                        alert('Some fixes failed. Please try again.');
+                    }
+                }
+            });
+        });
+    }
+
+    /**
+     * Update stats after undo
+     */
+    function updateStatsAfterUndo() {
+        const currentTotal = parseInt($('#header-broken-count').text()) || 0;
+        $('#header-broken-count').text(currentTotal + 1);
+
+        // Update pagination info if visible
+        const $paginationInfo = $('.pagination-container .pagination-info');
+        if ($paginationInfo.length) {
+            const newTotal = currentTotal + 1;
+            $paginationInfo.text('Page 1 of 1 | Showing 1 of ' + newTotal + ' total');
+        }
+    }
+
 
     /**
      * Export to CSV
