@@ -192,12 +192,85 @@ class Link_Crawler
 
         error_log('[CRAWLER] Batch completed. Progress: ' . $new_progress . '/' . count($all_urls) . ' (' . $progress_percent . '%)');
 
+        // Get current broken links and stats for real-time frontend updates
+        $broken_links = $this->get_broken_links_for_scan($scan_id);
+        $stats = $this->get_scan_stats($scan_id);
+        
+        error_log('[CRAWLER] 🔵 Returning batch response with ' . count($broken_links) . ' broken links');
+        error_log('[CRAWLER] Stats: total=' . $stats['total'] . ', 4xx=' . $stats['4xx'] . ', 5xx=' . $stats['5xx']);
+
         return array(
             'completed' => false,
             'progress' => $progress_percent,
             'pages_processed' => $new_progress,
             'total_pages' => count($all_urls),
-            'links_found' => count($all_links)
+            'links_found' => count($all_links),
+            'broken_links' => $broken_links,
+            'stats' => $stats
+        );
+    }
+
+    /**
+     * Get broken links for a scan
+     * Used for real-time updates during scanning
+     * 
+     * @param string $scan_id Scan ID
+     * @return array Broken links
+     */
+    private function get_broken_links_for_scan($scan_id)
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'seoautofix_broken_links_scan_results';
+        
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$table} WHERE scan_id = %s ORDER BY id DESC LIMIT 100",
+            $scan_id
+        ), ARRAY_A);
+    }
+
+    /**
+     * Get scan statistics  
+     * Used for real-time stats updates
+     * 
+     * @param string $scan_id Scan ID
+     * @return array Stats
+     */
+    private function get_scan_stats($scan_id)
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'seoautofix_broken_links_scan_results';
+        
+        $total = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$table} WHERE scan_id = %s",
+            $scan_id
+        ));
+        
+        $count_4xx = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$table} WHERE scan_id = %s AND status_code >= 400 AND status_code < 500",
+            $scan_id
+        ));
+        
+        $count_5xx = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$table} WHERE scan_id = %s AND status_code >= 500 AND status_code < 600",
+            $scan_id
+        ));
+
+        $internal = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$table} WHERE scan_id = %s AND link_type = 'internal'",
+            $scan_id
+        ));
+
+        $external = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$table} WHERE scan_id = %s AND link_type = 'external'",
+            $scan_id
+        ));
+        
+        return array(
+            'total' => intval($total),
+            '4xx' => intval($count_4xx),
+            '5xx' => intval($count_5xx),
+            'internal' => intval($internal),
+            'external' => intval($external)
         );
     }
 
@@ -369,6 +442,9 @@ class Link_Crawler
 
         $query = new \WP_Query($args);
 
+        error_log('[CRAWLER] WP_Query found ' . $query->found_posts . ' total posts/pages');
+        error_log('[CRAWLER] Post types queried: ' . implode(', ', $args['post_type']));
+
         if ($query->have_posts()) {
             while ($query->have_posts()) {
                 $query->the_post();
@@ -377,9 +453,12 @@ class Link_Crawler
                     'page_id' => get_the_ID(),
                     'page_title' => get_the_title()
                 );
+                error_log('[CRAWLER] Added URL: ' . get_the_title() . ' (' . get_permalink() . ')');
             }
             wp_reset_postdata();
         }
+
+        error_log('[CRAWLER] Total URLs to crawl (including homepage): ' . count($urls));
 
         return $urls;
     }

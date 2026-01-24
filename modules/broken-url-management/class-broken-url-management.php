@@ -213,11 +213,31 @@ class SEOAutoFix_Broken_Url_Management
             INDEX idx_action_type (action_type)
         ) $charset_collate;";
 
+        // Snapshot table - NEW for undo changes functionality
+        error_log('[BROKEN URLS] Creating snapshot table');
+        $table_snapshot = $wpdb->prefix . 'seoautofix_broken_links_snapshot';
+        
+        // Drop existing table to ensure clean recreation
+        $wpdb->query("DROP TABLE IF EXISTS {$table_snapshot}");
+        error_log('[BROKEN URLS] Dropped existing snapshot table (if exists)');
+        
+        $sql_snapshot = "CREATE TABLE {$table_snapshot} (
+            id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            scan_id VARCHAR(50) NOT NULL,
+            page_id BIGINT(20) NOT NULL,
+            original_content LONGTEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_scan_id (scan_id),
+            INDEX idx_page_id (page_id),
+            UNIQUE KEY unique_scan_page (scan_id, page_id)
+        ) $charset_collate;";
+
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         dbDelta($sql_scans);
         dbDelta($sql_results);
         dbDelta($sql_history);
         dbDelta($sql_activity);
+        dbDelta($sql_snapshot);
 
         error_log('[BROKEN URLS] Database tables created/updated successfully');
     }
@@ -354,6 +374,11 @@ class SEOAutoFix_Broken_Url_Management
         // Export activity log (fixed links)
         add_action('wp_ajax_seoautofix_broken_links_export_activity_log', array($this, 'ajax_export_activity_log'));
         add_action('wp_ajax_seoautofix_broken_links_email_activity_log', array($this, 'ajax_email_activity_log'));
+        
+        // Snapshot and Undo
+        add_action('wp_ajax_seoautofix_broken_links_create_snapshot', array($this, 'ajax_create_snapshot'));
+        add_action('wp_ajax_seoautofix_broken_links_undo_changes', array($this, 'ajax_undo_changes'));
+        add_action('wp_ajax_seoautofix_broken_links_check_snapshot', array($this, 'ajax_check_snapshot'));
     }
 
     /**
@@ -1138,6 +1163,223 @@ class SEOAutoFix_Broken_Url_Management
         } else {
             wp_send_json_error($result);
         }
+    }
+
+    /**
+     * AJAX: Create snapshot of current scan state
+     * Called when scan completes to enable undo functionality
+     */
+    public function ajax_create_snapshot()
+    {
+        error_log('[SNAPSHOT] ========== CREATE SNAPSHOT CALLED ==========');
+        
+        check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            error_log('[SNAPSHOT] Unauthorized user');
+            wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
+        }
+
+        $scan_id = isset($_POST['scan_id']) ? sanitize_text_field($_POST['scan_id']) : '';
+
+        if (empty($scan_id)) {
+            error_log('[SNAPSHOT] Missing scan ID');
+            wp_send_json_error(array('message' => __('Missing scan ID', 'seo-autofix-pro')));
+        }
+
+        error_log('[SNAPSHOT] Creating snapshot for scan: ' . $scan_id);
+
+        global $wpdb;
+        $table_results = $wpdb->prefix . 'seoautofix_broken_links_scan_results';
+        $table_snapshot = $wpdb->prefix . 'seoautofix_broken_links_snapshot';
+
+        // Get all unique pages with broken links in this scan
+        $pages = $wpdb->get_results($wpdb->prepare(
+            "SELECT DISTINCT found_on_page_id FROM {$table_results} WHERE scan_id = %s AND found_on_page_id > 0",
+            $scan_id
+        ), ARRAY_A);
+
+        if (empty($pages)) {
+            error_log('[SNAPSHOT] No pages found for scan');
+            wp_send_json_error(array('message' => __('No pages to snapshot', 'seo-autofix-pro')));
+        }
+
+        error_log('[SNAPSHOT] Found ' . count($pages) . ' unique pages');
+
+        // Store original content for each page
+        $snapshot_count = 0;
+        foreach ($pages as $page) {
+            $page_id = intval($page['found_on_page_id']);
+            $post = get_post($page_id);
+
+            if (!$post) {
+                error_log('[SNAPSHOT] Page ID ' . $page_id . ' not found, skipping');
+                continue;
+            }
+
+            // Check if snapshot already exists (prevent duplicates)
+            $existing = $wpdb->get_var($wpdb->prepare(
+                "SELECT id FROM {$table_snapshot} WHERE scan_id = %s AND page_id = %d",
+                $scan_id,
+                $page_id
+            ));
+
+            if ($existing) {
+                error_log('[SNAPSHOT] Snapshot already exists for page ' . $page_id);
+                continue;
+            }
+
+            // Insert snapshot
+            $inserted = $wpdb->insert(
+                $table_snapshot,
+                array(
+                    'scan_id' => $scan_id,
+                    'page_id' => $page_id,
+                    'original_content' => $post->post_content
+                ),
+                array('%s', '%d', '%s')
+            );
+
+            if ($inserted) {
+                $snapshot_count++;
+                error_log('[SNAPSHOT] Saved content for page ' . $page_id . ' (post: ' . $post->post_title . ')');
+            } else {
+                error_log('[SNAPSHOT] Failed to save snapshot for page ' . $page_id . ': ' . $wpdb->last_error);
+            }
+        }
+
+        error_log('[SNAPSHOT] Created ' . $snapshot_count . ' snapshots');
+
+        wp_send_json_success(array(
+            'message' => sprintf(__('Snapshot created for %d pages', 'seo-autofix-pro'), $snapshot_count),
+            'snapshot_count' => $snapshot_count
+        ));
+    }
+
+    /**
+     * AJAX: Undo all changes - restore from snapshot
+     */
+    public function ajax_undo_changes()
+    {
+        error_log('[UNDO] ========== UNDO CHANGES CALLED ==========');
+        
+        check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            error_log('[UNDO] Unauthorized user');
+            wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
+        }
+
+        $scan_id = isset($_POST['scan_id']) ? sanitize_text_field($_POST['scan_id']) : '';
+
+        if (empty($scan_id)) {
+            error_log('[UNDO] Missing scan ID');
+            wp_send_json_error(array('message' => __('Missing scan ID', 'seo-autofix-pro')));
+        }
+
+        error_log('[UNDO] Restoring from snapshot for scan: ' . $scan_id);
+
+        global $wpdb;
+        $table_snapshot = $wpdb->prefix . 'seoautofix_broken_links_snapshot';
+
+        // Get all snapshots for this scan
+        $snapshots = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$table_snapshot} WHERE scan_id = %s",
+            $scan_id
+        ), ARRAY_A);
+
+        if (empty($snapshots)) {
+            error_log('[UNDO] No snapshots found');
+            wp_send_json_error(array('message' => __('No snapshot found to restore', 'seo-autofix-pro')));
+        }
+
+        error_log('[UNDO] Found ' . count($snapshots) . ' snapshots to restore');
+
+        // Restore original content for each page
+        $restored_count = 0;
+        foreach ($snapshots as $snapshot) {
+            $page_id = intval($snapshot['page_id']);
+            $original_content = $snapshot['original_content'];
+
+            $updated = wp_update_post(array(
+                'ID' => $page_id,
+                'post_content' => $original_content
+            ), true);
+
+            if (is_wp_error($updated)) {
+                error_log('[UNDO] Failed to restore page ' . $page_id . ': ' . $updated->get_error_message());
+            } else {
+                $restored_count++;
+                error_log('[UNDO] Restored content for page ' . $page_id);
+            }
+        }
+        // Delete snapshots after restore
+        $deleted = $wpdb->delete($table_snapshot, array('scan_id' => $scan_id), array('%s'));
+        error_log('[UNDO] Deleted ' . $deleted . ' snapshot entries');
+
+        // ===== CRITICAL: Clean up database entries so links appear as broken again =====
+        $table_activity = $wpdb->prefix . 'seoautofix_broken_links_activity';
+        $table_scan_results = $wpdb->prefix . 'seoautofix_broken_links_scan_results';
+        
+        // Get the page IDs that were restored
+        $restored_page_ids = array_column($snapshots, 'page_id');
+        error_log('[UNDO] Cleaning up database entries for pages: ' . implode(', ', $restored_page_ids));
+        
+        // Delete activity log entries for this scan (all fixes/deletes done in this scan)
+        $activity_deleted = $wpdb->delete(
+            $table_activity,
+            array('scan_id' => $scan_id),
+            array('%s')
+        );
+        error_log('[UNDO] Deleted ' . $activity_deleted . ' activity log entries');
+        
+        // Delete scan results for restored pages so they'll be re-scanned
+        // This removes the "fixed" status from broken links entries
+        if (!empty($restored_page_ids)) {
+            $placeholders = implode(',', array_fill(0, count($restored_page_ids), '%d'));
+            $results_deleted = $wpdb->query($wpdb->prepare(
+                "DELETE FROM {$table_scan_results} WHERE scan_id = %s AND page_id IN ($placeholders)",
+                array_merge(array($scan_id), $restored_page_ids)
+            ));
+            error_log('[UNDO] Deleted ' . $results_deleted . ' scan result entries for restored pages');
+        }
+
+        wp_send_json_success(array(
+            'message' => sprintf(__('Successfully restored %d page(s) to original state', 'seo-autofix-pro'), $restored_count),
+            'restored_count' => $restored_count,
+            'activity_deleted' => $activity_deleted
+        ));
+    }
+
+    /**
+     * AJAX: Check if snapshot exists for current scan
+     */
+    public function ajax_check_snapshot()
+    {
+        check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
+        }
+
+        $scan_id = isset($_POST['scan_id']) ? sanitize_text_field($_POST['scan_id']) : '';
+
+        if (empty($scan_id)) {
+            wp_send_json_error(array('message' => __('Missing scan ID', 'seo-autofix-pro')));
+        }
+
+        global $wpdb;
+        $table_snapshot = $wpdb->prefix . 'seoautofix_broken_links_snapshot';
+
+        $count = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$table_snapshot} WHERE scan_id = %s",
+            $scan_id
+        ));
+
+        wp_send_json_success(array(
+            'has_snapshot' => ($count > 0),
+            'snapshot_count' => intval($count)
+        ));
     }
 }
 

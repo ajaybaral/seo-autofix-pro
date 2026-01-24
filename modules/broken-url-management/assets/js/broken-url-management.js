@@ -16,6 +16,12 @@
 
     // Initialize on document ready
     $(document).ready(function () {
+        console.log('=================================================');
+console.log('🔥 BROKEN URL MANAGEMENT JS - VERSION 2.0 - NEW CODE LOADED 🔥');
+console.log('🆕 Timestamp: 2026-01-24 23:22 - COMPREHENSIVE LOGGING 🆕');
+console.log('=================================================');
+        
+        // Check if we're on the broken URL management pagers();
         initializeEventListeners();
 
         // Check if there's a scan ID in URL (from "View Last Scan")
@@ -187,6 +193,7 @@
 
         // History & Export buttons
         $('#undo-changes-btn').on('click', undoChanges);
+        console.log('[UNDO INIT] Undo Changes button handler attached. Button exists:', $('#undo-changes-btn').length > 0);
         $('#export-report-btn').on('click', downloadReport); // Export ALL broken links
         $('#download-report-btn, #download-report-empty-btn').on('click', downloadActivityLog); // Download FIXED links
         $('#email-report-btn, #email-report-empty-btn').on('click', emailActivityLog); // Email FIXED links
@@ -228,10 +235,24 @@
         $('#scan-urls-tested').text('0');
         $('#scan-urls-total').text('0');
         $('#scan-broken-count').text('0');
+        
+        // Reset progress text to "Scanning..."
+        $('#scan-progress-text').text('Scanning...');
 
+        // Clear dynamic display tracking
+        window.displayedLinkIds = new Set();
+
+        // Hide table initially - will show when first broken link found
+        console.log('[SCAN START] Hiding table container and filters');
         $('#scan-progress-container').show();
-        $('#results-container').hide();
-        $('#empty-state').hide();
+        $('.seoautofix-table-container-new').hide();
+        $('.filter-section').hide();
+        
+        // Disable export button until results are available
+        $('#export-report-btn').prop('disabled', true).addClass('disabled');
+        console.log('[SCAN START] Export button disabled');
+        
+        console.log('[SCAN START] Table hidden - will show when broken links found');
 
         console.log('[SCAN DEBUG] Sending AJAX request to:', seoautofixBrokenUrls.ajaxUrl);
         console.log('[SCAN DEBUG] AJAX data:', {
@@ -273,6 +294,45 @@
     }
 
     /**
+     * Update progress bar UI with current scan stats
+     */
+    function updateProgressBar(data) {
+        try {
+            console.log('[UPDATE PROGRESS BAR] ✅ FUNCTION CALLED, Data:', data);
+            
+            // Update progress percentage and bar width
+            const progress = Math.round(data.progress || 0);
+            $('#scan-progress-fill').css('width', progress + '%');
+            $('#scan-progress-percentage').text(progress + '%');
+            
+            // Update URLs tested counts
+            const testedUrls = data.tested_urls || 0;
+            const totalUrls = data.total_urls || 0;
+            const brokenCount = data.broken_count || 0;
+            
+            console.log('[UPDATE PROGRESS BAR] Setting values:', {
+                testedUrls, totalUrls, brokenCount
+            });
+            
+            $('#scan-urls-tested').text(testedUrls);
+            $('#scan-urls-total').text(totalUrls);
+            $('#scan-broken-count').text(brokenCount);
+            
+            // Update text to show progress
+            $('#scan-progress-text').text('Scanning...');
+            
+            console.log('[UPDATE PROGRESS BAR] ✅ COMPLETE - Progress:', progress + '%', 'Tested:', testedUrls + '/' + totalUrls, 'Broken:', brokenCount);
+            
+            // Only show "Scan complete!" when actually completed
+            if (data.status === 'completed') {
+                $('#scan-progress-text').text(seoautofixBrokenUrls.strings.scanComplete || 'Scan complete!');
+            }
+        } catch (error) {
+            console.error('🔥🔥🔥 ERROR IN updateProgressBar:', error);
+        }
+    }
+
+    /**
      * Start monitoring scan progress and processing batches
      */
     function startProgressMonitoring() {
@@ -302,20 +362,53 @@
                 if (response.success) {
                     const data = response.data;
 
-                    // Update progress
-                    updateProgressBar({
-                        progress: data.progress || 0,
-                        tested_urls: data.pages_processed || 0,
-                        total_urls: data.total_pages || 0,
-                        broken_count: 0, // Will get from results
-                        status: data.completed ? 'completed' : 'in_progress'
+                    // Update progress BAR directly (bypass function to avoid cache issues)
+                    console.log('📊 UPDATING PROGRESS:', {
+                        progress: data.progress,
+                        pages: data.pages_processed + '/' + data.total_pages,
+                        links_tested: data.links_found,
+                        broken: data.stats ? data.stats.total : 0,
+                        completed: data.completed
                     });
+                    
+                    // Update progress bar percentage
+                    const progress = Math.round(data.progress || 0);
+                    $('#scan-progress-fill').css('width', progress + '%');
+                    $('#scan-progress-percentage').text(progress + '%');
+                    
+                    // Show LINKS tested (not pages)
+                    if (data.links_found !== undefined) {
+                        const linksTested = data.links_found || 0;
+                        // While scanning: show "X" for both tested and total
+                        // This will update as more links are found
+                        $('#scan-urls-tested').text(linksTested);
+                        $('#scan-urls-total').text(linksTested);
+                        console.log('✅ Updated links tested:', linksTested);
+                    }
+                    
+                    if (data.stats && data.stats.total !== undefined) {
+                        $('#scan-broken-count').text(data.stats.total);
+                        console.log('✅ Updated broken count:', data.stats.total);
+                    }
+                    
+                    $('#scan-progress-text').text('Scanning...');
+                    
+                    console.log('✅ PROGRESS UPDATED');
 
-                    // Don't load results during scanning to prevent flickering
-                    // Results will be loaded when scan completes
+                    // NEW: Update results and stats in real-time if broken links found
+                    if (data.broken_links && data.broken_links.length > 0) {
+                        console.log('[SCAN DEBUG] 🟢 Found', data.broken_links.length, 'broken links, calling updateDynamicResults NOW');
+                        console.log('[SCAN DEBUG] Broken links data:', data.broken_links);
+                        console.log('[SCAN DEBUG] Stats:', data.stats);
+                        updateDynamicResults(data.broken_links, data.stats);
+                        console.log('[SCAN DEBUG] ✅ updateDynamicResults completed');
+                    } else {
+                        console.log('[SCAN DEBUG] No broken links in this batch');
+                    }
 
                     if (data.completed) {
                         console.log('[SCAN DEBUG] Scan completed!');
+                        $('#scan-progress-text').text(seoautofixBrokenUrls.strings.scanComplete || 'Scan complete!');
                         onScanComplete();
                     } else {
                         // Process next batch after a short delay
@@ -359,6 +452,9 @@
 
         // Load final results first to prevent disappearing
         loadScanResults(currentScanId);
+
+        // Create snapshot for undo functionality
+        createSnapshot(currentScanId);
 
         // Then hide progress bar after a short delay
         setTimeout(function () {
@@ -671,6 +767,65 @@
         bottomContainer.append(paginationHtml);
 
         console.log('[UPDATE PAGINATION] Pagination buttons created');
+    }
+
+    /**
+     * Update results and stats dynamically during scanning
+     * Shows results in real-time as links are discovered
+     */
+    function updateDynamicResults(brokenLinks, stats) {
+        console.log('[DYNAMIC UPDATE] Updating with', brokenLinks.length, 'links');
+
+        // Show table container if hidden (correct selector!)
+        const $tableContainer = $('.seoautofix-table-container-new');
+        const $filterSection = $('.filter-section');
+        const isTableHidden = $tableContainer.is(':hidden');
+        
+        console.log('[DYNAMIC UPDATE] Table container found:', $tableContainer.length, 'hidden:', isTableHidden);
+        
+        if (isTableHidden) {
+            console.log('[DYNAMIC UPDATE] 🔥 SHOWING TABLE NOW 🔥');
+            $tableContainer.show();
+            $filterSection.show(); // Also show filters
+            
+            // Enable export button now that we have results
+            $('#export-report-btn').prop('disabled', false).removeClass('disabled');
+            console.log('[DYNAMIC UPDATE] Export button enabled');
+            
+            console.log('[DYNAMIC UPDATE] Table should now be visible');
+        } else {
+            console.log('[DYNAMIC UPDATE] Table already visible');
+        }
+
+        // Update stats
+        if (stats) {
+            console.log('[DYNAMIC UPDATE] Updating stats:', stats);
+            $('#header-broken-count').text(stats.total || 0);
+            updateFilterCounts({stats: stats});
+        }
+
+        // Track which links we've already displayed
+        if (!window.displayedLinkIds) {
+            window.displayedLinkIds = new Set();
+        }
+
+        // Add new rows for links we haven't shown yet
+        const $tbody = $('#results-table tbody');
+        let newRowsAdded = 0;
+
+        brokenLinks.forEach(link => {
+            if (!window.displayedLinkIds.has(link.id)) {
+                const $row = createResultRow(link);
+                $tbody.append($row); // Add to bottom (chronological order)
+                $row.hide().fadeIn(400); // Smooth appearance
+                window.displayedLinkIds.add(link.id);
+                newRowsAdded++;
+            }
+        });
+
+        if (newRowsAdded > 0) {
+            console.log('[DYNAMIC UPDATE] Added', newRowsAdded, 'new rows');
+        }
     }
 
     /**
@@ -1541,12 +1696,133 @@
     /**
      * Undo changes
      */
+    /**
+     * Create snapshot of current scan state for undo functionality
+     */
+    function createSnapshot(scanId) {
+        console.log('[SNAPSHOT] Creating snapshot for scan:', scanId);
+
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'POST',
+            data: {
+                action: 'seoautofix_broken_links_create_snapshot',
+                nonce: seoautofixBrokenUrls.nonce,
+                scan_id: scanId
+            },
+            success: function (response) {
+                console.log('[SNAPSHOT] Response:', response);
+
+                if (response.success) {
+                    console.log('[SNAPSHOT] Snapshot created:', response.data.snapshot_count, 'pages');
+                    // Enable undo button
+                    $('#undo-changes-btn').prop('disabled', false);
+                } else {
+                    console.error('[SNAPSHOT] Failed to create snapshot:', response.data.message);
+                }
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.error('[SNAPSHOT] Error creating snapshot:', textStatus, errorThrown);
+            }
+        });
+    }
+
+    /**
+     * Undo all changes - restore from snapshot
+     */
     function undoChanges() {
-        if (!confirm('Are you sure you want to undo recent changes?')) {
+        console.log('██████████████████████████████████████████████████████████');
+        console.log('🆕 NEW UNDO FUNCTION CALLED - SNAPSHOT SYSTEM - v2.0 🆕');
+        console.log('██████████████████████████████████████████████████████████');
+        console.log('[UNDO] ========== UNDO BUTTON CLICKED ==========');
+        console.log('[UNDO] Button element:', $('#undo-changes-btn')[0]);
+        console.log('[UNDO] Button disabled state:', $('#undo-changes-btn').prop('disabled'));
+        console.log('[UNDO] Current scan ID:', currentScanId);
+
+        if (!currentScanId) {
+            console.error('[UNDO] No currentScanId available!');
+            alert('No scan available to undo.');
             return;
         }
 
-        alert('Undo functionality will be implemented');
+        console.log('[UNDO] Showing confirmation dialog...');
+        if (!confirm('Are you sure you want to undo ALL changes? This will restore all pages to their original state before any fixes or deletions.')) {
+            console.log('[UNDO] User cancelled confirmation');
+            return;
+        }
+
+        console.log('[UNDO] User confirmed. Proceeding with restore...');
+        console.log('[UNDO] Restoring from snapshot for scan:', currentScanId);
+
+        // Show loading state
+        showNotification('Restoring original state...', 'info');
+        $('#undo-changes-btn').prop('disabled', true).text('Undoing...');
+        console.log('[UNDO] Button disabled and text changed to "Undoing..."');
+
+        console.log('[UNDO] Sending AJAX request...');
+        console.log('[UNDO] AJAX URL:', seoautofixBrokenUrls.ajaxUrl);
+        console.log('[UNDO] AJAX data:', {
+            action: 'seoautofix_broken_links_undo_changes',
+            nonce: seoautofixBrokenUrls.nonce,
+            scan_id: currentScanId
+        });
+
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'POST',
+            data: {
+                action: 'seoautofix_broken_links_undo_changes',
+                nonce: seoautofixBrokenUrls.nonce,
+                scan_id: currentScanId
+            },
+            success: function (response) {
+                console.log('[UNDO] ========== AJAX SUCCESS ==========');
+                console.log('[UNDO] Response:', response);
+                console.log('[UNDO] Response type:', typeof response);
+                console.log('[UNDO] Response.success:', response.success);
+                console.log('[UNDO] Response.data:', response.data);
+
+                if (response.success) {
+                    console.log('[UNDO] Undo successful!');
+                    
+                    // Show detailed success message
+                    const activityDeleted = response.data.activity_deleted || 0;
+                    let message = response.data.message || 'Changes undone successfully!';
+                    
+                    if (activityDeleted > 0) {
+                        message += `\n\n✓ ${activityDeleted} fix/delete action(s) removed from history`;
+                        message += '\n✓ "Download Fixed Report" is now empty';
+                    }
+                    
+                    showNotification(message, 'success');
+                    
+                    // Reload scan results to show restored links
+                    console.log('[UNDO] Reloading scan results...');
+                    loadScanResults(currentScanId);
+                    
+                    // Re-enable button now that undo is complete
+                    // User can make new changes and undo again if needed
+                    $('#undo-changes-btn').prop('disabled', false).text('Undo Changes');
+                    console.log('[UNDO] Button re-enabled and text reset to "Undo Changes"');
+                } else {
+                    console.error('[UNDO] Undo failed:', response.data.message);
+                    showNotification(response.data.message || 'Failed to undo changes', 'error');
+                    $('#undo-changes-btn').prop('disabled', false).text('Undo Changes');
+                    console.log('[UNDO] Button re-enabled due to failure');
+                }
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.error('[UNDO] ========== AJAX ERROR ==========');
+                console.error('[UNDO] jqXHR:', jqXHR);
+                console.error('[UNDO] Status:', jqXHR.status);
+                console.error('[UNDO] Response text:', jqXHR.responseText);
+                console.error('[UNDO] Text status:', textStatus);
+                console.error('[UNDO] Error thrown:', errorThrown);
+                showNotification('Error undoing changes: ' + textStatus, 'error');
+                $('#undo-changes-btn').prop('disabled', false).text('Undo Changes');
+                console.log('[UNDO] Button re-enabled due to error');
+            }
+        });
     }
 
     /**
@@ -1816,182 +2092,6 @@
                     responseText: jqXHR.responseText
                 });
                 alert('Error removing link: ' + textStatus);
-            }
-        });
-    }
-
-    /**
-     * Undo changes - Revert previously applied fixes
-     */
-    function undoChanges() {
-        console.log('[UNDO CHANGES] Button clicked');
-
-        if (!currentScanId) {
-            alert('No scan available. Please run a scan first.');
-            return;
-        }
-
-        // Fetch available fix sessions
-        $.ajax({
-            url: seoautofixBrokenUrls.ajaxUrl,
-            method: 'GET',
-            data: {
-                action: 'seoautofix_broken_links_get_fix_sessions',
-                nonce: seoautofixBrokenUrls.nonce,
-                scan_id: currentScanId
-            },
-            success: function (response) {
-                console.log('[UNDO CHANGES] Sessions response:', response);
-
-                if (response.success) {
-                    const sessions = response.data.sessions;
-
-                    if (sessions.length === 0) {
-                        alert('No fix sessions available to undo. Apply some fixes first.');
-                        return;
-                    }
-
-                    // Show sessions selection modal
-                    showUndoSessionsModal(sessions);
-                } else {
-                    alert(response.data.message || 'Failed to fetch fix sessions');
-                }
-            },
-            error: function (jqXHR, textStatus, errorThrown) {
-                console.error('[UNDO CHANGES] Error:', textStatus, errorThrown);
-                alert('Error fetching fix sessions: ' + textStatus);
-            }
-        });
-    }
-
-    /**
-     * Show undo sessions selection modal
-     */
-    function showUndoSessionsModal(sessions) {
-        // Remove existing modal if any
-        $('#undo-sessions-modal').remove();
-
-        // Build modal HTML
-        let modalHtml = `
-            <div id="undo-sessions-modal" class="seoautofix-modal">
-                <div class="seoautofix-modal-content">
-                    <div class="seoautofix-modal-header">
-                        <h2>Undo Applied Fixes</h2>
-                        <button class="seoautofix-modal-close">&times;</button>
-                    </div>
-                    <div class="seoautofix-modal-body">
-                        <p>Select a fix session to undo. This will revert all changes made in that session.</p>
-                        <div class="undo-sessions-list">
-        `;
-
-        sessions.forEach(function (session) {
-            const isReverted = parseInt(session.is_reverted) === 1;
-            const appliedDate = new Date(session.applied_at).toLocaleString();
-            const revertedDate = session.reverted_at ? new Date(session.reverted_at).toLocaleString() : '';
-
-            modalHtml += `
-                <div class="undo-session-item ${isReverted ? 'reverted' : ''}" data-session-id="${session.fix_session_id}">
-                    <div class="session-info">
-                        <strong>Session: ${session.fix_session_id.substring(0, 8)}...</strong>
-                        <div class="session-details">
-                            <span>📅 Applied: ${appliedDate}</span>
-                            <span>📄 Pages: ${session.pages_affected}</span>
-                            <span>🔧 Fixes: ${session.total_fixes}</span>
-                        </div>
-                        ${isReverted ? `<div class="session-status reverted">✓ Already Reverted on ${revertedDate}</div>` : ''}
-                    </div>
-                    ${!isReverted ? `<button class="button button-primary undo-session-btn" data-session-id="${session.fix_session_id}">Undo This Session</button>` : ''}
-                </div>
-            `;
-        });
-
-        modalHtml += `
-                        </div>
-                    </div>
-                    <div class="seoautofix-modal-footer">
-                        <button class="button seoautofix-modal-cancel">Cancel</button>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        // Append to body
-        $('body').append(modalHtml);
-
-        // Show modal
-        $('#undo-sessions-modal').fadeIn(200);
-
-        // Event listeners
-        $('#undo-sessions-modal .seoautofix-modal-close, #undo-sessions-modal .seoautofix-modal-cancel').on('click', function () {
-            $('#undo-sessions-modal').fadeOut(200, function () {
-                $(this).remove();
-            });
-        });
-
-        // Click outside to close
-        $('#undo-sessions-modal').on('click', function (e) {
-            if ($(e.target).is('#undo-sessions-modal')) {
-                $(this).fadeOut(200, function () {
-                    $(this).remove();
-                });
-            }
-        });
-
-        // Undo button click
-        $(document).on('click', '.undo-session-btn', function () {
-            const sessionId = $(this).data('session-id');
-            if (confirm('Are you sure you want to undo this fix session? This will revert all changes made in this session.')) {
-                performUndo(sessionId);
-            }
-        });
-    }
-
-    /**
-     * Perform undo operation
-     */
-    function performUndo(sessionId) {
-        console.log('[PERFORM UNDO] Session ID:', sessionId);
-
-        // Show loading
-        $('#undo-sessions-modal .seoautofix-modal-body').html('<div style="text-align: center; padding: 40px;"><span class="spinner is-active" style="float: none;"></span><p>Reverting changes...</p></div>');
-
-        $.ajax({
-            url: seoautofixBrokenUrls.ajaxUrl,
-            method: 'POST',
-            data: {
-                action: 'seoautofix_broken_links_revert_fixes',
-                nonce: seoautofixBrokenUrls.nonce,
-                fix_session_id: sessionId
-            },
-            success: function (response) {
-                console.log('[PERFORM UNDO] Response:', response);
-
-                if (response.success) {
-                    const data = response.data;
-                    alert(`Successfully reverted ${data.reverted_count} page(s) with ${data.total_pages} total changes.`);
-
-                    // Close modal
-                    $('#undo-sessions-modal').fadeOut(200, function () {
-                        $(this).remove();
-                    });
-
-                    // Reload results
-                    loadScanResults(currentScanId);
-                } else {
-                    alert(response.data.message || 'Failed to revert fixes');
-                    // Close modal
-                    $('#undo-sessions-modal').fadeOut(200, function () {
-                        $(this).remove();
-                    });
-                }
-            },
-            error: function (jqXHR, textStatus, errorThrown) {
-                console.error('[PERFORM UNDO] Error:', textStatus, errorThrown);
-                alert('Error reverting fixes: ' + textStatus);
-                // Close modal
-                $('#undo-sessions-modal').fadeOut(200, function () {
-                    $(this).remove();
-                });
             }
         });
     }
