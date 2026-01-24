@@ -67,21 +67,6 @@ $recent_scans = $db_manager->get_scans(10);
         </div>
     </div>
 
-    <!-- Download/Email Buttons (Always Visible) -->
-    <div class="history-export-section-header">
-        <button id="download-report-header-btn" class="button">
-            <span class="dashicons dashicons-download"></span>
-            <?php echo esc_html__('Download Fixed Report', 'seo-autofix-pro'); ?>
-            <span class="file-format">.csv</span>
-        </button>
-
-        <button id="email-report-header-btn" class="button">
-            <span class="dashicons dashicons-email"></span>
-            <?php echo esc_html__('Email Fixed Report', 'seo-autofix-pro'); ?>
-            <span class="email-icon">✉</span>
-        </button>
-    </div>
-
     <!-- Results Section -->
     <div id="results-container" style="display: none;">
         <!-- Filters and Search -->

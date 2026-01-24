@@ -381,4 +381,199 @@ class Export_Manager
 
         return $html;
     }
+
+    /**
+     * Export activity log to CSV - FIXED/DELETED links only
+     * 
+     * @param string $scan_id Scan ID
+     * @return bool Success
+     */
+    public function export_activity_log_csv($scan_id)
+    {
+        global $wpdb;
+        $table_activity = $wpdb->prefix . 'seoautofix_broken_links_activity';
+        
+        error_log('[EXPORT ACTIVITY LOG] Starting export for scan_id: ' . $scan_id);
+        error_log('[EXPORT ACTIVITY LOG] Table name: ' . $table_activity);
+        
+        // Get all activity for this scan
+        $query = $wpdb->prepare(
+            "SELECT * FROM {$table_activity} WHERE scan_id = %s ORDER BY created_at DESC",
+            $scan_id
+        );
+        
+        error_log('[EXPORT ACTIVITY LOG] Query: ' . $query);
+        
+        $activities = $wpdb->get_results($query, ARRAY_A);
+        
+        error_log('[EXPORT ACTIVITY LOG] Found ' . count($activities) . ' activity entries');
+        
+        if (!empty($activities)) {
+            error_log('[EXPORT ACTIVITY LOG] First entry: ' . print_r($activities[0], true));
+        }
+
+        if (empty($activities)) {
+            error_log('[EXPORT ACTIVITY LOG] No activities found, returning false');
+            return false;
+        }
+
+        // Set headers for CSV download
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="fixed-links-' . $scan_id . '-' . date('Y-m-d') . '.csv"');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+
+        $output = fopen('php://output', 'w');
+
+        // Add BOM for Excel UTF-8 support
+        fprintf($output, chr(0xEF) . chr(0xBB) . chr(0xBF));
+
+        // CSV Headers
+        fputcsv($output, array(
+            'Page Title',
+            'Page URL',
+            'Broken URL',
+            'Replacement URL',
+            'Action',
+            'Date/Time'
+        ));
+
+        // CSV Data
+        foreach ($activities as $row) {
+            fputcsv($output, array(
+                $row['page_title'],
+                $row['page_url'],
+                $row['broken_url'],
+                $row['replacement_url'] ?? 'N/A',
+                ucfirst($row['action_type']),
+                $row['created_at']
+            ));
+        }
+
+        fclose($output);
+        exit;
+    }
+
+    /**
+     * Email activity log as CSV attachment
+     * Automatically sends to WordPress admin email
+     * 
+     * @param string $scan_id Scan ID
+     * @return array Result
+     */
+    public function email_activity_log($scan_id)
+    {
+        global $wpdb;
+        $table_activity = $wpdb->prefix . 'seoautofix_broken_links_activity';
+        
+        error_log('[EMAIL ACTIVITY LOG] Starting for scan_id: ' . $scan_id);
+        
+        // Get all activity for this scan
+        $activities = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$table_activity} WHERE scan_id = %s ORDER BY created_at DESC",
+            $scan_id
+        ), ARRAY_A);
+
+        if (empty($activities)) {
+            error_log('[EMAIL ACTIVITY LOG] No activities found');
+            return array(
+                'success' => false,
+                'message' => __('No fixed links to export', 'seo-autofix-pro')
+            );
+        }
+
+        error_log('[EMAIL ACTIVITY LOG] Found ' . count($activities) . ' activities');
+
+        // Generate CSV content
+        $csv_content = '';
+        $csv_content .= chr(0xEF) . chr(0xBB) . chr(0xBF); // BOM
+
+        // Headers
+        $headers = array('Page Title', 'Page URL', 'Broken URL', 'Replacement URL', 'Action', 'Date/Time');
+        $csv_content .= '"' . implode('","', $headers) . '"' . "\n";
+
+        // Data
+        foreach ($activities as $row) {
+            $data = array(
+                $row['page_title'],
+                $row['page_url'],
+                $row['broken_url'],
+                $row['replacement_url'] ?? 'N/A',
+                ucfirst($row['action_type']),
+                $row['created_at']
+            );
+            $csv_content .= '"' . implode('","', array_map(function($d) { 
+                return str_replace('"', '""', $d ?: ''); 
+            }, $data)) . '"' . "\n";
+        }
+
+        // Get admin email automatically
+        $admin_email = get_option('admin_email');
+        error_log('[EMAIL ACTIVITY LOG] Sending to admin email: ' . $admin_email);
+
+        // Email subject
+        $subject = 'Broken Links Fixed Report - ' . get_bloginfo('name');
+
+        // Email message with nice template
+        $message = "Hi,\n\n";
+        $message .= "Attached is the broken links activity report for " . get_bloginfo('name') . ".\n\n";
+        $message .= "This report contains all the changes you made to broken links:\n";
+        $message .= "- Fixed links: Links that were auto-fixed\n";
+        $message .= "- Replaced links: Links you manually replaced\n";
+        $message .= "- Deleted links: Links you removed from content\n\n";
+        $message .= "Total actions performed: " . count($activities) . "\n\n";
+        $message .= "Scan ID: " . $scan_id . "\n";
+        $message .= "Generated on: " . date('Y-m-d H:i:s') . "\n\n";
+        $message .= "Thank you for using SEO AutoFix Pro!";
+
+        // Create temporary file for attachment
+        $upload_dir = wp_upload_dir();
+        $temp_file = $upload_dir['basedir'] . '/fixed-links-' . $scan_id . '-' . time() . '.csv';
+        
+        $written = file_put_contents($temp_file, $csv_content);
+        
+        if (!$written) {
+            error_log('[EMAIL ACTIVITY LOG] Failed to create temp file');
+            return array(
+                'success' => false,
+                'message' => __('Failed to create CSV file', 'seo-autofix-pro')
+            );
+        }
+
+        error_log('[EMAIL ACTIVITY LOG] Temp file created: ' . $temp_file);
+
+        // Send email
+        $sent = wp_mail($admin_email, $subject, $message, '', array($temp_file));
+
+        // Clean up temp file
+        if (file_exists($temp_file)) {
+            unlink($temp_file);
+            error_log('[EMAIL ACTIVITY LOG] Temp file deleted');
+        }
+
+        if ($sent) {
+            error_log('[EMAIL ACTIVITY LOG] Email sent successfully');
+            return array(
+                'success' => true,
+                'message' => sprintf(__('Report sent to %s', 'seo-autofix-pro'), $admin_email)
+            );
+        } else {
+            error_log('[EMAIL ACTIVITY LOG] Failed to send email');
+            
+            // Check if localhost
+            $is_localhost = (strpos($_SERVER['HTTP_HOST'], 'localhost') !== false || strpos($_SERVER['HTTP_HOST'], '127.0.0.1') !== false);
+            
+            if ($is_localhost) {
+                return array(
+                    'success' => false,
+                    'message' => __('Email failed: XAMPP/localhost has no mail server. Email will work on production server with proper mail configuration.', 'seo-autofix-pro')
+                );
+            } else {
+                return array(
+                    'success' => false,
+                    'message' => __('Failed to send email. Check WordPress mail configuration or use SMTP plugin.', 'seo-autofix-pro')
+                );
+            }
+        }
+    }
 }

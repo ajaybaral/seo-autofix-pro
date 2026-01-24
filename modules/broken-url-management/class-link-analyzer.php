@@ -35,11 +35,13 @@ class Link_Analyzer
      * Apply fixes for selected broken links
      * 
      * @param array $entry_ids Entry IDs to fix
+     * @param string $custom_url Optional custom URL to use for replacement
      * @return array Result with counts
      */
-    public function apply_fixes($entry_ids)
+    public function apply_fixes($entry_ids, $custom_url = '')
     {
         error_log('[APPLY_FIXES] Starting with entry IDs: ' . print_r($entry_ids, true));
+        error_log('[APPLY_FIXES] Custom URL provided: ' . $custom_url);
 
         $fixed_count = 0;
         $failed_count = 0;
@@ -75,26 +77,33 @@ class Link_Analyzer
                 continue;
             }
 
-            // Skip external links (require manual intervention)
-            if ($entry['link_type'] === 'external') {
-                error_log('[APPLY_FIXES] Skipping external link: ' . $entry['broken_url']);
-                $skipped_count++;
-                $messages[] = sprintf(
-                    __('⚠️ Skipped external link: %s (manual intervention required)', 'seo-autofix-pro'),
-                    esc_url($entry['broken_url'])
-                );
-                continue;
+            // Determine replacement URL priority: custom_url > user_modified_url > suggested_url
+            $replacement_url = '';
+            
+            if (!empty($custom_url)) {
+                $replacement_url = $custom_url;
+                error_log('[APPLY_FIXES] Using custom URL from parameter: ' . $replacement_url);
+            } elseif (!empty($entry['user_modified_url'])) {
+                $replacement_url = $entry['user_modified_url'];
+                error_log('[APPLY_FIXES] Using user_modified_url from database: ' . $replacement_url);
+            } elseif (!empty($entry['suggested_url'])) {
+                $replacement_url = $entry['suggested_url'];
+                error_log('[APPLY_FIXES] Using suggested_url from database: ' . $replacement_url);
             }
 
-            // Determine replacement URL (user modified or suggested)
-            $replacement_url = !empty($entry['user_modified_url'])
-                ? $entry['user_modified_url']
-                : $entry['suggested_url'];
-
-            error_log('[APPLY_FIXES] Replacement URL: ' . $replacement_url . ' (user_modified: ' . $entry['user_modified_url'] . ', suggested: ' . $entry['suggested_url'] . ')');
-
+            // If still no replacement URL and it's external, skip (only if no custom URL provided)
             if (empty($replacement_url)) {
-                error_log('[APPLY_FIXES] No replacement URL available');
+                if ($entry['link_type'] === 'external') {
+                    error_log('[APPLY_FIXES] Skipping external link with no replacement: ' . $entry['broken_url']);
+                    $skipped_count++;
+                    $messages[] = sprintf(
+                        __('⚠️ Skipped external link: %s (manual intervention required)', 'seo-autofix-pro'),
+                        esc_url($entry['broken_url'])
+                    );
+                    continue;
+                }
+                
+                error_log('[APPLY_FIXES] No replacement URL available for: ' . $entry['broken_url']);
                 $failed_count++;
                 $messages[] = sprintf(
                     __('❌ No replacement URL for: %s', 'seo-autofix-pro'),
@@ -118,6 +127,33 @@ class Link_Analyzer
                 $fixed_count++;
                 $mark_result = $this->db_manager->mark_as_fixed($entry_id);
                 error_log('[APPLY_FIXES] Mark as fixed result for ID ' . $entry_id . ': ' . ($mark_result ? 'SUCCESS' : 'FAILED'));
+
+                // Log activity for reporting
+                global $wpdb;
+                $table_activity = $wpdb->prefix . 'seoautofix_broken_links_activity';
+                
+                error_log('[ACTIVITY LOG] Attempting to log fix/replace activity for ID: ' . $entry_id);
+                error_log('[ACTIVITY LOG] Scan ID: ' . $entry['scan_id']);
+                error_log('[ACTIVITY LOG] Broken URL: ' . $entry['broken_url']);
+                error_log('[ACTIVITY LOG] Replacement URL: ' . $replacement_url);
+                error_log('[ACTIVITY LOG] Action type: ' . ($custom_url ? 'replaced' : 'fixed'));
+                
+                $insert_result = $wpdb->insert($table_activity, array(
+                    'scan_id' => $entry['scan_id'],
+                    'entry_id' => $entry_id,
+                    'broken_url' => $entry['broken_url'],
+                    'replacement_url' => $replacement_url,
+                    'action_type' => $custom_url ? 'replaced' : 'fixed',
+                    'page_url' => $entry['found_on_url'],
+                    'page_title' => $entry['found_on_page_title']
+                ), array('%s', '%d', '%s', '%s', '%s', '%s', '%s'));
+                
+                if ($insert_result === false) {
+                    error_log('[ACTIVITY LOG ERROR] Failed to insert activity log! wpdb error: ' . $wpdb->last_error);
+                    error_log('[ACTIVITY LOG ERROR] wpdb last_query: ' . $wpdb->last_query);
+                } else {
+                    error_log('[ACTIVITY LOG SUCCESS] Activity log entry created with ID: ' . $wpdb->insert_id);
+                }
 
                 $messages[] = sprintf(
                     __('✅ Fixed: %s → %s', 'seo-autofix-pro'),
