@@ -212,28 +212,92 @@ class Link_Analyzer
         error_log('[REPLACE_LINK] Got post. Title: ' . $post->post_title . ', Content length: ' . strlen($post->post_content));
 
         $content = $post->post_content;
-
-        // Replace the broken URL with the replacement URL
-        // Need to handle both href="" and src="" attributes
-        $patterns = array(
-            '/href=["\']' . preg_quote($broken_url, '/') . '["\']/i',
-            '/src=["\']' . preg_quote($broken_url, '/') . '["\']/i',
-        );
-
-        $replacements = array(
-            'href="' . esc_url($replacement_url) . '"',
-            'src="' . esc_url($replacement_url) . '"',
-        );
-
-        error_log('[REPLACE_LINK] Patterns: ' . print_r($patterns, true));
+        
+        // Normalize URLs - remove trailing slashes for comparison
+        $normalized_broken = untrailingslashit($broken_url);
+        $normalized_replacement = untrailingslashit($replacement_url);
+        
+        error_log('[REPLACE_LINK] Original broken URL: ' . $broken_url);
+        error_log('[REPLACE_LINK] Normalized broken URL: ' . $normalized_broken);
+        
+        // Multiple patterns to catch different URL formats in HTML
+        // This handles: trailing slashes, HTML entities, different quote styles, plain text
+        $patterns = array();
+        $replacements = array();
+        
+        // Pattern 1: Standard href with double quotes - exact match
+        $patterns[] = '/href="' . preg_quote($broken_url, '/') . '"/i';
+        $replacements[] = 'href="' . esc_url($replacement_url) . '"';
+        
+        // Pattern 2: Standard href with single quotes - exact match
+        $patterns[] = "/href='" . preg_quote($broken_url, '/') . "'/i";
+        $replacements[] = 'href="' . esc_url($replacement_url) . '"';
+        
+        // Pattern 3: Standard src with double quotes - exact match
+        $patterns[] = '/src="' . preg_quote($broken_url, '/') . '"/i';
+        $replacements[] = 'src="' . esc_url($replacement_url) . '"';
+        
+        // Pattern 4: Standard src with single quotes - exact match
+        $patterns[] = "/src='" . preg_quote($broken_url, '/') . "'/i";
+        $replacements[] = 'src="' . esc_url($replacement_url) . '"';
+        
+        // Pattern 5: href with optional trailing slash (normalized version)
+        $patterns[] = '/href="' . preg_quote($normalized_broken, '/') . '\/?"/i';
+        $replacements[] = 'href="' . esc_url($replacement_url) . '"';
+        
+        // Pattern 6: href with single quotes and optional trailing slash
+        $patterns[] = "/href='" . preg_quote($normalized_broken, '/') . '\/?' . "'/i";
+        $replacements[] = 'href="' . esc_url($replacement_url) . '"';
+        
+        // Pattern 7: src with optional trailing slash (normalized version)
+        $patterns[] = '/src="' . preg_quote($normalized_broken, '/') . '\/?"/i';
+        $replacements[] = 'src="' . esc_url($replacement_url) . '"';
+        
+        // Pattern 8: src with single quotes and optional trailing slash
+        $patterns[] = "/src='" . preg_quote($normalized_broken, '/') . '\/?' . "'/i";
+        $replacements[] = 'src="' . esc_url($replacement_url) . '"';
+        
+        // Pattern 9: HTML entity quotes (&quot;) - exact match
+        $patterns[] = '/href=&quot;' . preg_quote($broken_url, '/') . '&quot;/i';
+        $replacements[] = 'href=&quot;' . esc_url($replacement_url) . '&quot;';
+        
+        // Pattern 10: HTML entity quotes for src
+        $patterns[] = '/src=&quot;' . preg_quote($broken_url, '/') . '&quot;/i';
+        $replacements[] = 'src=&quot;' . esc_url($replacement_url) . '&quot;';
+        
+        // Pattern 11: HTML entity quotes with optional trailing slash
+        $patterns[] = '/href=&quot;' . preg_quote($normalized_broken, '/') . '\/?&quot;/i';
+        $replacements[] = 'href=&quot;' . esc_url($replacement_url) . '&quot;';
+        
+        // Pattern 12: Plain text URL (not in attributes) - be careful with this one
+        // Only match if not preceded by quote or equals
+        $patterns[] = '/(?<!["\'=>])' . preg_quote($broken_url, '/') . '(?!["\'])/i';
+        $replacements[] = esc_url($replacement_url);
+        
+        error_log('[REPLACE_LINK] Using ' . count($patterns) . ' patterns for flexible matching');
 
         $new_content = preg_replace($patterns, $replacements, $content);
 
         // Check if replacement was made
         if ($new_content === $content) {
-            // No changes made, link might not be in content
-            error_log('[REPLACE_LINK] No changes made - link not found in content');
-            return false;
+            // No changes made with regex, try simple string replacement as fallback
+            error_log('[REPLACE_LINK] Regex patterns did not match, trying simple string replace');
+            
+            // Try exact string replacement
+            $new_content = str_replace($broken_url, $replacement_url, $content);
+            
+            // If still no match, try without trailing slash
+            if ($new_content === $content && $broken_url !== $normalized_broken) {
+                error_log('[REPLACE_LINK] Trying normalized URL without trailing slash');
+                $new_content = str_replace($normalized_broken, $normalized_replacement, $content);
+            }
+            
+            // Final check
+            if ($new_content === $content) {
+                error_log('[REPLACE_LINK] No changes made - link not found in content in any format');
+                error_log('[REPLACE_LINK] Content preview: ' . substr($content, 0, 500));
+                return false;
+            }
         }
 
         error_log('[REPLACE_LINK] Content changed. Old length: ' . strlen($content) . ', New length: ' . strlen($new_content));

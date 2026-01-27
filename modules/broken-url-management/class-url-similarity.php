@@ -23,7 +23,7 @@ class URL_Similarity
      * Only suggest URLs with similarity score above this threshold
      * Otherwise, fallback to homepage
      */
-    const MIN_SCORE_THRESHOLD = 65;
+    const MIN_SCORE_THRESHOLD = 45; // Reduced from 65 to allow more suggestions
 
     /**
      * Scoring weights

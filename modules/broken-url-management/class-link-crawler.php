@@ -359,13 +359,6 @@ class Link_Crawler
                     $match = $this->url_similarity->find_closest_match($link, $valid_internal_urls);
                     $suggested_url = $match['url'];
                     $reason = $match['reason'];
-
-                    // Don't show homepage as suggestion (it's not useful)
-                    $home_url_clean = untrailingslashit(home_url());
-                    if (untrailingslashit($suggested_url) === $home_url_clean || untrailingslashit($suggested_url) === $home_url_clean . '/') {
-                        $suggested_url = null;
-                        $reason = __('No relevant page found. Please provide a custom link or redirect to home.', 'seo-autofix-pro');
-                    }
                 } else {
                     $reason = __('This link is not working, either delete it or provide a new link', 'seo-autofix-pro');
                 }
@@ -575,17 +568,23 @@ class Link_Crawler
         foreach ($anchors as $anchor) {
             $href = $anchor->getAttribute('href');
 
+            // Skip empty links and exact hash only
             if (empty($href) || $href === '#') {
                 continue;
             }
 
             // Skip mailto, tel, javascript, etc.
-            if (preg_match('/^(mailto|tel|javascript|#):/i', $href)) {
+            if (preg_match('/^(mailto|tel|javascript):/i', $href)) {
                 continue;
             }
 
+            //Handle anchor links - resolve relative to CURRENT PAGE being scanned, not home_url()
+            if (strpos($href, '#') === 0) {
+                // Anchor link like #content - append to the current page URL
+                $href = $url . $href;
+            }
             // Convert relative URLs to absolute
-            if (strpos($href, '/') === 0 && strpos($href, '//') !== 0) {
+            elseif (strpos($href, '/') === 0 && strpos($href, '//') !== 0) {
                 // Get only the scheme and host (without subdirectory path)
                 $parsed_home = parse_url(home_url());
                 $base = $parsed_home['scheme'] . '://' . $parsed_home['host'];
