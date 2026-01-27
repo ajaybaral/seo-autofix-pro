@@ -138,7 +138,7 @@
             // Populate the auto-fix panel
             $('#fix-page-name').text(resultData.found_on_page_title || 'Unknown Page');
             $('#fix-broken-url').text(resultData.broken_url);
-            $('#fix-error-badge').text(resultData.status_code + 'XX');
+            $('#fix-error-badge').text(String(resultData.status_code).charAt(0) + 'XX');
 
             if (resultData.suggested_url) {
                 // Show suggested URL section
