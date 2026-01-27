@@ -201,6 +201,18 @@ class Link_Analyzer
             return false;
         }
 
+        // Check if this is an Elementor page
+        $is_elementor = $this->is_elementor_page($post_id);
+        error_log('[REPLACE_LINK] Is Elementor page: ' . ($is_elementor ? 'YES' : 'NO'));
+
+        if ($is_elementor) {
+            error_log('[REPLACE_LINK] Detected Elementor page - routing to Elementor handler');
+            return $this->replace_link_in_elementor($post_id, $broken_url, $replacement_url);
+        }
+
+        // Regular WordPress page - continue with post_content replacement
+        error_log('[REPLACE_LINK] Regular WordPress page - using post_content replacement');
+
         // Get post content
         $post = get_post($post_id);
 
