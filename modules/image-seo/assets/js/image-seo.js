@@ -375,7 +375,7 @@ jQuery(document).ready(function ($) {
         // Always keep Export Changes button visible (it was shown after scan)
         // Enable/disable based on whether there are changes
         if (filterChanges.length > 0) {
-            $exportFilterCsvBtn.show().prop('disabled', false);
+            $exportFilterCsvBtn.show().prop('disabled', true);
         } else {
             $exportFilterCsvBtn.show().prop('disabled', true);
         }
@@ -912,6 +912,10 @@ jQuery(document).ready(function ($) {
                         renderResults(scannedImages);
                         updateStats(); // Recalculate from scannedImages array
 
+                        // ENSURE Export Changes button is visible after renderResults
+                        $exportFilterCsvBtn.show().prop('disabled', filterChanges.length === 0);
+                        console.log('EXPORT-CHANGES-DEBUG: Button re-shown after renderResults, disabled:', $exportFilterCsvBtn.prop('disabled'));
+
                         // RE-ENABLE RADIO BUTTONS after scan completes
                         $('input[name="image-filter"]').prop('disabled', false);
 
@@ -928,6 +932,7 @@ jQuery(document).ready(function ($) {
 
                         // SHOW Export Changes in CSV button (disabled until changes are made)
                         $exportFilterCsvBtn.show().prop('disabled', true);
+                        console.log('EXPORT-CHANGES-DEBUG: Button shown after scan completion, disabled:', $exportFilterCsvBtn.prop('disabled'));
 
                         $resultsTable.show();
 
