@@ -40,14 +40,6 @@ $recent_scans = $db_manager->get_scans(10);
         </div>
 
         <div class="seoautofix-header-actions">
-            <button id="undo-last-fix-btn" class="button button-secondary" disabled>
-                <span class="dashicons dashicons-undo"></span>
-                <?php echo esc_html__('Undo Last Fix', 'seo-autofix-pro'); ?>
-            </button>
-            <button id="fix-all-issues-btn" class="button button-secondary">
-                <span class="dashicons dashicons-yes-alt"></span>
-                <?php echo esc_html__('Fix All Issues', 'seo-autofix-pro'); ?>
-            </button>
             <button id="export-report-btn" class="button button-secondary">
                 <?php echo esc_html__('Export Report', 'seo-autofix-pro'); ?>
             </button>
@@ -215,6 +207,10 @@ $recent_scans = $db_manager->get_scans(10);
         <!-- Bulk Action Buttons -->
         <div class="bulk-actions-section">
             <div class="bulk-actions-left">
+                <button id="undo-last-fix-btn" class="button" disabled>
+                    <span class="dashicons dashicons-undo"></span>
+                    <?php echo esc_html__('Undo Last Fix', 'seo-autofix-pro'); ?>
+                </button>
                 <button id="remove-broken-links-btn" class="button">
                     <?php echo esc_html__('Remove Broken Links', 'seo-autofix-pro'); ?>
                 </button>
