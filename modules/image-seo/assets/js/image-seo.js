@@ -372,6 +372,14 @@ jQuery(document).ready(function ($) {
             currentFilterValue = filterValue;
         }
 
+        // Always keep Export Changes button visible (it was shown after scan)
+        // Enable/disable based on whether there are changes
+        if (filterChanges.length > 0) {
+            $exportFilterCsvBtn.show().prop('disabled', false);
+        } else {
+            $exportFilterCsvBtn.show().prop('disabled', true);
+        }
+
         currentPage = 1;
         renderResults(filtered, shouldGroup);
         console.log('NEW-RADIO-DEBUG: Showing', filtered.length, 'images, grouped:', shouldGroup);
