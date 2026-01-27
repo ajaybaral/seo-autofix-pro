@@ -75,8 +75,6 @@ $recent_scans = $db_manager->get_scans(10);
         </div>
     </div>
 
-
-
     <!-- Results Section -->
     <div id="results-container" style="display: none;">
         <!-- Filters and Search -->

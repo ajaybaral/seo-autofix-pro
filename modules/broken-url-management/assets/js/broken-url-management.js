@@ -22,6 +22,12 @@
 
     // Initialize on document ready
     $(document).ready(function () {
+        console.log('=================================================');
+        console.log('🔥 BROKEN URL MANAGEMENT JS - VERSION 2.0 - NEW CODE LOADED 🔥');
+        console.log('🆕 Timestamp: 2026-01-24 23:22 - COMPREHENSIVE LOGGING 🆕');
+        console.log('=================================================');
+
+        // Check if we're on the broken URL management pagers();
         initializeEventListeners();
 
         // Check if there's a scan ID in URL (from "View Last Scan")
@@ -195,8 +201,19 @@
 
         // History & Export buttons
         $('#undo-changes-btn').on('click', undoChanges);
-        $('#download-report-btn, #download-report-empty-btn, #download-report-header-btn').on('click', downloadReport);
-        $('#email-report-btn, #email-report-empty-btn, #email-report-header-btn').on('click', emailReport);
+        console.log('[UNDO INIT] Undo Changes button handler attached. Button exists:', $('#undo-changes-btn').length > 0);
+        $('#export-report-btn').on('click', downloadReport); // Export ALL broken links
+        $('#download-report-btn, #download-report-empty-btn').on('click', downloadActivityLog); // Download FIXED links
+        $('#email-report-btn, #email-report-empty-btn').on('click', emailActivityLog); // Email FIXED links
+    }
+
+    /**
+     * Update the header broken link count based on visible table rows
+     */
+    function updateHeaderBrokenCount() {
+        const visibleRows = $('.broken-links-table tbody tr:visible').not(':has(td[colspan])').length;
+        $('#header-broken-count').text(visibleRows);
+        console.log('[UPDATE HEADER COUNT] Updated broken link count to:', visibleRows);
     }
 
     /**
@@ -226,11 +243,24 @@
         $('#scan-urls-tested').text('0');
         $('#scan-urls-total').text('0');
         $('#scan-broken-count').text('0');
-        $('#scan-progress-text').text(seoautofixBrokenUrls.strings.scanning || 'Scanning...');
 
+        // Reset progress text to "Scanning..."
+        $('#scan-progress-text').text('Scanning...');
+
+        // Clear dynamic display tracking
+        window.displayedLinkIds = new Set();
+
+        // Hide table initially - will show when first broken link found
+        console.log('[SCAN START] Hiding table container and filters');
         $('#scan-progress-container').show();
-        $('#results-container').hide();
-        $('#empty-state').hide();
+        $('.seoautofix-table-container-new').hide();
+        $('.filter-section').hide();
+
+        // Disable export button until results are available
+        $('#export-report-btn').prop('disabled', true).addClass('disabled');
+        console.log('[SCAN START] Export button disabled');
+
+        console.log('[SCAN START] Table hidden - will show when broken links found');
 
         console.log('[SCAN DEBUG] Sending AJAX request to:', seoautofixBrokenUrls.ajaxUrl);
         console.log('[SCAN DEBUG] AJAX data:', {
@@ -272,6 +302,45 @@
     }
 
     /**
+     * Update progress bar UI with current scan stats
+     */
+    function updateProgressBar(data) {
+        try {
+            console.log('[UPDATE PROGRESS BAR] ✅ FUNCTION CALLED, Data:', data);
+
+            // Update progress percentage and bar width
+            const progress = Math.round(data.progress || 0);
+            $('#scan-progress-fill').css('width', progress + '%');
+            $('#scan-progress-percentage').text(progress + '%');
+
+            // Update URLs tested counts
+            const testedUrls = data.tested_urls || 0;
+            const totalUrls = data.total_urls || 0;
+            const brokenCount = data.broken_count || 0;
+
+            console.log('[UPDATE PROGRESS BAR] Setting values:', {
+                testedUrls, totalUrls, brokenCount
+            });
+
+            $('#scan-urls-tested').text(testedUrls);
+            $('#scan-urls-total').text(totalUrls);
+            $('#scan-broken-count').text(brokenCount);
+
+            // Update text to show progress
+            $('#scan-progress-text').text('Scanning...');
+
+            console.log('[UPDATE PROGRESS BAR] ✅ COMPLETE - Progress:', progress + '%', 'Tested:', testedUrls + '/' + totalUrls, 'Broken:', brokenCount);
+
+            // Only show "Scan complete!" when actually completed
+            if (data.status === 'completed') {
+                $('#scan-progress-text').text(seoautofixBrokenUrls.strings.scanComplete || 'Scan complete!');
+            }
+        } catch (error) {
+            console.error('🔥🔥🔥 ERROR IN updateProgressBar:', error);
+        }
+    }
+
+    /**
      * Start monitoring scan progress and processing batches
      */
     function startProgressMonitoring() {
@@ -301,20 +370,53 @@
                 if (response.success) {
                     const data = response.data;
 
-                    // Update progress
-                    updateProgressBar({
-                        progress: data.progress || 0,
-                        tested_urls: data.tested_urls || 0,
-                        total_urls: data.total_urls || 0,
-                        broken_count: data.broken_count || 0,
-                        status: data.completed ? 'completed' : 'in_progress'
+                    // Update progress BAR directly (bypass function to avoid cache issues)
+                    console.log('📊 UPDATING PROGRESS:', {
+                        progress: data.progress,
+                        pages: data.pages_processed + '/' + data.total_pages,
+                        links_tested: data.links_found,
+                        broken: data.stats ? data.stats.total : 0,
+                        completed: data.completed
                     });
 
-                    // Don't load results during scanning to prevent flickering
-                    // Results will be loaded when scan completes
+                    // Update progress bar percentage
+                    const progress = Math.round(data.progress || 0);
+                    $('#scan-progress-fill').css('width', progress + '%');
+                    $('#scan-progress-percentage').text(progress + '%');
+
+                    // Show LINKS tested (not pages)
+                    if (data.links_found !== undefined) {
+                        const linksTested = data.links_found || 0;
+                        // While scanning: show "X" for both tested and total
+                        // This will update as more links are found
+                        $('#scan-urls-tested').text(linksTested);
+                        $('#scan-urls-total').text(linksTested);
+                        console.log('✅ Updated links tested:', linksTested);
+                    }
+
+                    if (data.stats && data.stats.total !== undefined) {
+                        $('#scan-broken-count').text(data.stats.total);
+                        console.log('✅ Updated broken count:', data.stats.total);
+                    }
+
+                    $('#scan-progress-text').text('Scanning...');
+
+                    console.log('✅ PROGRESS UPDATED');
+
+                    // NEW: Update results and stats in real-time if broken links found
+                    if (data.broken_links && data.broken_links.length > 0) {
+                        console.log('[SCAN DEBUG] 🟢 Found', data.broken_links.length, 'broken links, calling updateDynamicResults NOW');
+                        console.log('[SCAN DEBUG] Broken links data:', data.broken_links);
+                        console.log('[SCAN DEBUG] Stats:', data.stats);
+                        updateDynamicResults(data.broken_links, data.stats);
+                        console.log('[SCAN DEBUG] ✅ updateDynamicResults completed');
+                    } else {
+                        console.log('[SCAN DEBUG] No broken links in this batch');
+                    }
 
                     if (data.completed) {
                         console.log('[SCAN DEBUG] Scan completed!');
+                        $('#scan-progress-text').text(seoautofixBrokenUrls.strings.scanComplete || 'Scan complete!');
                         onScanComplete();
                     } else {
                         // Process next batch after a short delay
@@ -358,6 +460,9 @@
 
         // Load final results first to prevent disappearing
         loadScanResults(currentScanId);
+
+        // Create snapshot for undo functionality
+        createSnapshot(currentScanId);
 
         // Then hide progress bar after a short delay
         setTimeout(function () {
@@ -530,16 +635,11 @@
         }
 
         // Get page title or use found_on_url
-        console.log('[CREATE ROW] Result data:', {
-            found_on_page_title: result.found_on_page_title,
-            found_on_url: result.found_on_url,
-            broken_url: result.broken_url,
-            link_type: result.link_type,
-            anchor_text: result.anchor_text
-        });
-        const pageTitle = result.found_on_page_title || extractPageName(result.found_on_url);
+        console.log('[CREATE ROW] Result data:', result);
 
-        const row = $('<tr></tr>');
+        // Create table row with data-id for animations
+        const row = $('<tr>').attr('data-id', result.id);
+        const pageTitle = result.found_on_page_title || extractPageName(result.found_on_url);
 
         if (isFixed) {
             row.addClass('status-fixed');
@@ -678,6 +778,65 @@
         bottomContainer.append(paginationHtml);
 
         console.log('[UPDATE PAGINATION] Pagination buttons created');
+    }
+
+    /**
+     * Update results and stats dynamically during scanning
+     * Shows results in real-time as links are discovered
+     */
+    function updateDynamicResults(brokenLinks, stats) {
+        console.log('[DYNAMIC UPDATE] Updating with', brokenLinks.length, 'links');
+
+        // Show table container if hidden (correct selector!)
+        const $tableContainer = $('.seoautofix-table-container-new');
+        const $filterSection = $('.filter-section');
+        const isTableHidden = $tableContainer.is(':hidden');
+
+        console.log('[DYNAMIC UPDATE] Table container found:', $tableContainer.length, 'hidden:', isTableHidden);
+
+        if (isTableHidden) {
+            console.log('[DYNAMIC UPDATE] 🔥 SHOWING TABLE NOW 🔥');
+            $tableContainer.show();
+            $filterSection.show(); // Also show filters
+
+            // Enable export button now that we have results
+            $('#export-report-btn').prop('disabled', false).removeClass('disabled');
+            console.log('[DYNAMIC UPDATE] Export button enabled');
+
+            console.log('[DYNAMIC UPDATE] Table should now be visible');
+        } else {
+            console.log('[DYNAMIC UPDATE] Table already visible');
+        }
+
+        // Update stats
+        if (stats) {
+            console.log('[DYNAMIC UPDATE] Updating stats:', stats);
+            $('#header-broken-count').text(stats.total || 0);
+            updateFilterCounts({ stats: stats });
+        }
+
+        // Track which links we've already displayed
+        if (!window.displayedLinkIds) {
+            window.displayedLinkIds = new Set();
+        }
+
+        // Add new rows for links we haven't shown yet
+        const $tbody = $('#results-table tbody');
+        let newRowsAdded = 0;
+
+        brokenLinks.forEach(link => {
+            if (!window.displayedLinkIds.has(link.id)) {
+                const $row = createResultRow(link);
+                $tbody.append($row); // Add to bottom (chronological order)
+                $row.hide().fadeIn(400); // Smooth appearance
+                window.displayedLinkIds.add(link.id);
+                newRowsAdded++;
+            }
+        });
+
+        if (newRowsAdded > 0) {
+            console.log('[DYNAMIC UPDATE] Added', newRowsAdded, 'new rows');
+        }
     }
 
     /**
@@ -1884,12 +2043,133 @@
     /**
      * Undo changes
      */
+    /**
+     * Create snapshot of current scan state for undo functionality
+     */
+    function createSnapshot(scanId) {
+        console.log('[SNAPSHOT] Creating snapshot for scan:', scanId);
+
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'POST',
+            data: {
+                action: 'seoautofix_broken_links_create_snapshot',
+                nonce: seoautofixBrokenUrls.nonce,
+                scan_id: scanId
+            },
+            success: function (response) {
+                console.log('[SNAPSHOT] Response:', response);
+
+                if (response.success) {
+                    console.log('[SNAPSHOT] Snapshot created:', response.data.snapshot_count, 'pages');
+                    // Enable undo button
+                    $('#undo-changes-btn').prop('disabled', false);
+                } else {
+                    console.error('[SNAPSHOT] Failed to create snapshot:', response.data.message);
+                }
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.error('[SNAPSHOT] Error creating snapshot:', textStatus, errorThrown);
+            }
+        });
+    }
+
+    /**
+     * Undo all changes - restore from snapshot
+     */
     function undoChanges() {
-        if (!confirm('Are you sure you want to undo recent changes?')) {
+        console.log('██████████████████████████████████████████████████████████');
+        console.log('🆕 NEW UNDO FUNCTION CALLED - SNAPSHOT SYSTEM - v2.0 🆕');
+        console.log('██████████████████████████████████████████████████████████');
+        console.log('[UNDO] ========== UNDO BUTTON CLICKED ==========');
+        console.log('[UNDO] Button element:', $('#undo-changes-btn')[0]);
+        console.log('[UNDO] Button disabled state:', $('#undo-changes-btn').prop('disabled'));
+        console.log('[UNDO] Current scan ID:', currentScanId);
+
+        if (!currentScanId) {
+            console.error('[UNDO] No currentScanId available!');
+            alert('No scan available to undo.');
             return;
         }
 
-        alert('Undo functionality will be implemented');
+        console.log('[UNDO] Showing confirmation dialog...');
+        if (!confirm('Are you sure you want to undo ALL changes? This will restore all pages to their original state before any fixes or deletions.')) {
+            console.log('[UNDO] User cancelled confirmation');
+            return;
+        }
+
+        console.log('[UNDO] User confirmed. Proceeding with restore...');
+        console.log('[UNDO] Restoring from snapshot for scan:', currentScanId);
+
+        // Show loading state
+        showNotification('Restoring original state...', 'info');
+        $('#undo-changes-btn').prop('disabled', true).text('Undoing...');
+        console.log('[UNDO] Button disabled and text changed to "Undoing..."');
+
+        console.log('[UNDO] Sending AJAX request...');
+        console.log('[UNDO] AJAX URL:', seoautofixBrokenUrls.ajaxUrl);
+        console.log('[UNDO] AJAX data:', {
+            action: 'seoautofix_broken_links_undo_changes',
+            nonce: seoautofixBrokenUrls.nonce,
+            scan_id: currentScanId
+        });
+
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'POST',
+            data: {
+                action: 'seoautofix_broken_links_undo_changes',
+                nonce: seoautofixBrokenUrls.nonce,
+                scan_id: currentScanId
+            },
+            success: function (response) {
+                console.log('[UNDO] ========== AJAX SUCCESS ==========');
+                console.log('[UNDO] Response:', response);
+                console.log('[UNDO] Response type:', typeof response);
+                console.log('[UNDO] Response.success:', response.success);
+                console.log('[UNDO] Response.data:', response.data);
+
+                if (response.success) {
+                    console.log('[UNDO] Undo successful!');
+
+                    // Show detailed success message
+                    const activityDeleted = response.data.activity_deleted || 0;
+                    let message = response.data.message || 'Changes undone successfully!';
+
+                    if (activityDeleted > 0) {
+                        message += `\n\n✓ ${activityDeleted} fix/delete action(s) removed from history`;
+                        message += '\n✓ "Download Fixed Report" is now empty';
+                    }
+
+                    showNotification(message, 'success');
+
+                    // Reload scan results to show restored links
+                    console.log('[UNDO] Reloading scan results...');
+                    loadScanResults(currentScanId);
+
+                    // Re-enable button now that undo is complete
+                    // User can make new changes and undo again if needed
+                    $('#undo-changes-btn').prop('disabled', false).text('Undo Changes');
+                    console.log('[UNDO] Button re-enabled and text reset to "Undo Changes"');
+                } else {
+                    console.error('[UNDO] Undo failed:', response.data.message);
+                    showNotification(response.data.message || 'Failed to undo changes', 'error');
+                    $('#undo-changes-btn').prop('disabled', false).text('Undo Changes');
+                    console.log('[UNDO] Button re-enabled due to failure');
+                }
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.error('[UNDO] ========== AJAX ERROR ==========');
+                console.error('[UNDO] jqXHR:', jqXHR);
+                console.error('[UNDO] Status:', jqXHR.status);
+                console.error('[UNDO] Response text:', jqXHR.responseText);
+                console.error('[UNDO] Text status:', textStatus);
+                console.error('[UNDO] Error thrown:', errorThrown);
+                showNotification('Error undoing changes: ' + textStatus, 'error');
+                $('#undo-changes-btn').prop('disabled', false).text('Undo Changes');
+                console.log('[UNDO] Button re-enabled due to error');
+            }
+        });
     }
 
     /**
@@ -1957,7 +2237,6 @@
     function applyCurrentFix() {
         console.log('[APPLY CURRENT FIX] Called');
         console.log('[APPLY CURRENT FIX] window.currentFixData:', window.currentFixData);
-        console.log('[APPLY CURRENT FIX] typeof applySelectedFixes:', typeof applySelectedFixes);
 
         if (!window.currentFixData) {
             console.log('[APPLY CURRENT FIX] No currentFixData, showing alert');
@@ -1987,64 +2266,123 @@
             }
         } else if (fixAction === 'home') {
             // Use WordPress home URL
-            replacementUrl = window.location.origin + '/wordpress/';
+            replacementUrl = seoautofixBrokenUrls.homeUrl || (window.location.origin + '/wordpress/');
             console.log('[APPLY CURRENT FIX] Using home URL:', replacementUrl);
         }
 
         console.log('[APPLY CURRENT FIX] Final replacement URL:', replacementUrl);
 
-        // Update the entry with the user-modified URL
         const entryId = window.currentFixData.id;
         console.log('[APPLY CURRENT FIX] Entry ID:', entryId);
 
-        // First, update the database with the user's custom URL choice
-        console.log('[APPLY CURRENT FIX] Sending update entry AJAX request');
+        // Apply the fix directly with the custom URL
+        console.log('[APPLY CURRENT FIX] Calling applyFixWithCustomUrl');
+        applyFixWithCustomUrl(entryId, replacementUrl);
+
+        // Hide the panel
+        $('#auto-fix-panel').slideUp();
+    }
+
+    /**
+     * Apply fix with custom URL
+     */
+    function applyFixWithCustomUrl(entryId, customUrl) {
+        console.log('[APPLY FIX WITH CUSTOM URL] Entry ID:', entryId, 'URL:', customUrl);
+
+        if (!customUrl) {
+            alert('No replacement URL provided');
+            return;
+        }
+
         $.ajax({
             url: seoautofixBrokenUrls.ajaxUrl,
             method: 'POST',
             data: {
-                action: 'seoautofix_broken_links_update_entry',
+                action: 'seoautofix_broken_links_apply_fixes',
                 nonce: seoautofixBrokenUrls.nonce,
-                id: entryId,
-                user_modified_url: replacementUrl
+                ids: [entryId],
+                custom_url: customUrl  // Pass the custom URL
             },
             success: function (response) {
-                console.log('[APPLY CURRENT FIX] Update entry response:', response);
+                console.log('[APPLY FIX WITH CUSTOM URL] Response:', response);
 
-                // Now apply the fix
-                console.log('[APPLY CURRENT FIX] Calling applySelectedFixes with ID:', [entryId]);
-                applySelectedFixes([entryId]);
+                if (response.success) {
+                    const fixed = response.data.fixed_count || 0;
+                    const failed = response.data.failed_count || 0;
 
-                // Hide the panel
-                $('#auto-fix-panel').slideUp();
+                    if (fixed > 0) {
+                        // Show blinking FIXED status
+                        const $row = $(`tr[data-id="${entryId}"]`);
+                        if ($row.length) {
+                            console.log('[APPLY FIX] Showing FIXED animation for entry:', entryId);
+
+                            // Replace row content with FIXED status
+                            const colspan = $row.find('td').length;
+                            $row.html(`<td colspan="${colspan}" class="row-status-fixed">✓ FIXED</td>`);
+
+                            // Remove row after 3 seconds
+                            setTimeout(() => {
+                                $row.fadeOut(300, function () {
+                                    $(this).remove();
+
+                                    // Update "No results" message if table is empty
+                                    if ($('.broken-links-table tbody tr').length === 0) {
+                                        $('.broken-links-table tbody').html(
+                                            '<tr><td colspan="5" style="text-align:center; padding: 30px;">No broken links found</td></tr>'
+                                        );
+                                    }
+                                });
+                            }, 3000);
+                        }
+                    }
+
+                    // Show summary message
+                    let message = '';
+                    if (fixed > 0) {
+                        message = '✅ Fixed: ' + fixed;
+                    }
+                    if (failed > 0) {
+                        message += (message ? '\\n' : '') + '❌ Failed: ' + failed;
+                    }
+                    if (response.data.messages && response.data.messages.length > 0) {
+                        message += '\\n\\nMessages:\\n' + response.data.messages.join('\\n');
+                    }
+
+                    if (message) {
+                        alert(message);
+                    }
+                } else {
+                    alert('Error: ' + (response.data.message || 'Failed to apply fix'));
+                }
             },
             error: function (jqXHR, textStatus, errorThrown) {
-                console.log('[APPLY CURRENT FIX] Error updating entry:', textStatus, errorThrown);
-                // Still try to apply the fix even if update fails
-                console.log('[APPLY CURRENT FIX] Still calling applySelectedFixes despite error');
-                applySelectedFixes([entryId]);
-                $('#auto-fix-panel').slideUp();
+                console.error('[APPLY FIX WITH CUSTOM URL] Error:', textStatus, errorThrown);
+                alert('Error applying fix: ' + textStatus);
             }
         });
     }
 
     /**
-     * Delete broken link
+     * Delete broken link from individual Fix modal - Removes link from WordPress content
      */
     function deleteBrokenLink() {
         console.log('[DELETE BROKEN LINK] Called');
+        console.log('[DELETE BROKEN LINK] currentFixData:', window.currentFixData);
 
         if (!window.currentFixData) {
             alert('Error: No fix data available');
             return;
         }
 
-        if (!confirm('Are you sure you want to delete this broken link entry?')) {
+        if (!confirm('This will REMOVE the broken link from your WordPress content.\n\nFor links: Keeps the text, removes the <a> tag\nFor images: Removes the entire <img> tag\n\nContinue?')) {
+            console.log('[DELETE BROKEN LINK] User cancelled');
             return;
         }
 
         const entryId = window.currentFixData.id;
+        console.log('[DELETE BROKEN LINK] Removing link from content for entry ID:', entryId);
 
+        // Call backend to remove link from WordPress content
         $.ajax({
             url: seoautofixBrokenUrls.ajaxUrl,
             method: 'POST',
@@ -2054,20 +2392,1754 @@
                 id: entryId
             },
             success: function (response) {
-                console.log('[DELETE BROKEN LINK] Response:', response);
+                console.log('[DELETE BROKEN LINK] Backend response:', response);
 
                 if (response.success) {
-                    alert('Broken link entry deleted successfully');
+                    console.log('[DELETE BROKEN LINK] Successfully removed link from content');
+
+                    // Hide the panel
                     $('#auto-fix-panel').slideUp();
-                    loadScanResults(currentScanId);
+
+                    // Show blinking DELETED status
+                    const $row = $(`tr[data-id="${entryId}"]`);
+                    if ($row.length) {
+                        console.log('[DELETE] Showing DELETED animation for entry:', entryId);
+
+                        // Replace row content with DELETED status
+                        const colspan = $row.find('td').length;
+                        $row.html(`<td colspan="${colspan}" class="row-status-deleted">✗ DELETED</td>`);
+
+                        // Remove row after 2 seconds
+                        setTimeout(() => {
+                            $row.fadeOut(300, function () {
+                                $(this).remove();
+
+                                // Update header count
+                                updateHeaderBrokenCount();
+
+                                // Update "No results" message if table is empty
+                                if ($('.broken-links-table tbody tr').length === 0) {
+                                    $('.broken-links-table tbody').html(
+                                        '<tr><td colspan="5" style="text-align:center; padding: 30px;">No broken links found</td></tr>'
+                                    );
+                                }
+                            });
+                        }, 2000);
+                    }
                 } else {
-                    alert(response.data.message || 'Failed to delete entry');
+                    console.error('[DELETE BROKEN LINK] Delete failed:', response.data);
+                    alert('Error: ' + (response.data.message || 'Failed to remove link from content'));
                 }
             },
             error: function (jqXHR, textStatus, errorThrown) {
-                console.log('[DELETE BROKEN LINK] Error:', textStatus, errorThrown);
-                alert('Error deleting entry: ' + textStatus);
+                console.error('[DELETE BROKEN LINK] AJAX error:', {
+                    status: jqXHR.status,
+                    statusText: textStatus,
+                    error: errorThrown,
+                    responseText: jqXHR.responseText
+                });
+                alert('Error removing link: ' + textStatus);
             }
+        });
+    }
+
+    /**
+     * Download report - Export broken links to CSV
+     */
+    function downloadReport() {
+        console.log('[DOWNLOAD REPORT] Button clicked');
+
+        if (!currentScanId) {
+            alert('No scan available. Please run a scan first.');
+            return;
+        }
+
+        // Build download URL
+        const downloadUrl = seoautofixBrokenUrls.ajaxUrl +
+            '?action=seoautofix_broken_links_export_csv' +
+            '&nonce=' + encodeURIComponent(seoautofixBrokenUrls.nonce) +
+            '&scan_id=' + encodeURIComponent(currentScanId) +
+            '&filter=all';
+
+        console.log('[DOWNLOAD REPORT] Download URL:', downloadUrl);
+
+        // Create temporary anchor element to trigger download
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = 'broken-links-report.csv';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        // Show success notification
+        showNotification('CSV report download started', 'success');
+    }
+
+    /**
+     * Download activity log - FIXED/DELETED links only
+     */
+    function downloadActivityLog() {
+        console.log('[DOWNLOAD ACTIVITY LOG] ========== BUTTON CLICKED ==========');
+        console.log('[DOWNLOAD ACTIVITY LOG] currentScanId:', currentScanId);
+
+        if (!currentScanId) {
+            console.error('[DOWNLOAD ACTIVITY LOG] No currentScanId available');
+            alert('No scan available. Please run a scan first.');
+            return;
+        }
+
+        // Build download URL
+        const downloadUrl = seoautofixBrokenUrls.ajaxUrl +
+            '?action=seoautofix_broken_links_export_activity_log' +
+            '&nonce=' + encodeURIComponent(seoautofixBrokenUrls.nonce) +
+            '&scan_id=' + encodeURIComponent(currentScanId);
+
+        console.log('[DOWNLOAD ACTIVITY LOG] Download URL:', downloadUrl);
+        console.log('[DOWNLOAD ACTIVITY LOG] Ajax URL:', seoautofixBrokenUrls.ajaxUrl);
+        console.log('[DOWNLOAD ACTIVITY LOG] Nonce:', seoautofixBrokenUrls.nonce);
+
+        // Create temporary anchor element to trigger download
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = 'fixed-links-report.csv';
+        document.body.appendChild(link);
+
+        console.log('[DOWNLOAD ACTIVITY LOG] Triggering download...');
+        link.click();
+
+        document.body.removeChild(link);
+        console.log('[DOWNLOAD ACTIVITY LOG] Download initiated');
+
+        // Show success notification
+        showNotification('Fixed links report download started', 'success');
+    }
+
+    /**
+     * Email activity log - FIXED/DELETED links only
+     * Automatically sends to WordPress admin email
+     */
+    function emailActivityLog() {
+        console.log('[EMAIL ACTIVITY LOG] ========== BUTTON CLICKED ==========');
+        console.log('[EMAIL ACTIVITY LOG] currentScanId:', currentScanId);
+
+        if (!currentScanId) {
+            console.error('[EMAIL ACTIVITY LOG] No currentScanId available');
+            alert('No scan available. Please run a scan first.');
+            return;
+        }
+
+        console.log('[EMAIL ACTIVITY LOG] Sending email to WordPress admin...');
+
+        // Show loading state
+        showNotification('Sending email to admin...', 'info');
+
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'POST',
+            data: {
+                action: 'seoautofix_broken_links_email_activity_log',
+                nonce: seoautofixBrokenUrls.nonce,
+                scan_id: currentScanId
+            },
+            success: function (response) {
+                console.log('[EMAIL ACTIVITY LOG] Response:', response);
+
+                if (response.success) {
+                    showNotification(response.data.message || 'Email sent successfully to admin!', 'success');
+                } else {
+                    showNotification(response.data.message || 'Failed to send email', 'error');
+                }
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.error('[EMAIL ACTIVITY LOG] Error:', textStatus, errorThrown);
+                showNotification('Error sending email: ' + textStatus, 'error');
+            }
+        });
+    }
+
+    /**
+     * Email report - Send report via email
+     */
+    function emailReport() {
+        console.log('[EMAIL REPORT] Button clicked');
+
+        if (!currentScanId) {
+            alert('No scan available. Please run a scan first.');
+            return;
+        }
+
+        // Show email input modal
+        showEmailReportModal();
+    }
+
+    /**
+     * Show email report modal
+     */
+    function showEmailReportModal() {
+        // Remove existing modal if any
+        $('#email-report-modal').remove();
+
+        // Get admin email as default
+        const adminEmail = seoautofixBrokenUrls.adminEmail || '';
+
+        // Build modal HTML
+        const modalHtml = `
+            <div id="email-report-modal" class="seoautofix-modal">
+                <div class="seoautofix-modal-content">
+                    <div class="seoautofix-modal-header">
+                        <h2>Email Broken Links Report</h2>
+                        <button class="seoautofix-modal-close">&times;</button>
+                    </div>
+                    <div class="seoautofix-modal-body">
+                        <p>Enter the email address where you want to receive the broken links report.</p>
+                        <div class="email-input-group">
+                            <label for="report-email-input">Email Address:</label>
+                            <input type="email" id="report-email-input" class="regular-text" 
+                                   placeholder="your@email.com" value="${adminEmail}" required />
+                        </div>
+                        <div class="email-format-group">
+                            <label>
+                                <input type="radio" name="email-format" value="summary" checked />
+                                Summary only (HTML email with statistics)
+                            </label>
+                            <label>
+                                <input type="radio" name="email-format" value="csv" />
+                                Full report with CSV attachment
+                            </label>
+                        </div>
+                        <div id="email-error-message" class="error-message" style="display: none; color: #dc3232; margin-top: 10px;"></div>
+                    </div>
+                    <div class="seoautofix-modal-footer">
+                        <button class="button seoautofix-modal-cancel">Cancel</button>
+                        <button class="button button-primary" id="send-email-report-btn">Send Report</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Append to body
+        $('body').append(modalHtml);
+
+        // Show modal
+        $('#email-report-modal').fadeIn(200);
+
+        // Focus on email input
+        $('#report-email-input').focus();
+
+        // Event listeners
+        $('#email-report-modal .seoautofix-modal-close, #email-report-modal .seoautofix-modal-cancel').on('click', function () {
+            $('#email-report-modal').fadeOut(200, function () {
+                $(this).remove();
+            });
+        });
+
+        // Click outside to close
+        $('#email-report-modal').on('click', function (e) {
+            if ($(e.target).is('#email-report-modal')) {
+                $(this).fadeOut(200, function () {
+                    $(this).remove();
+                });
+            }
+        });
+
+        // Send button click
+        $('#send-email-report-btn').on('click', function () {
+            const email = $('#report-email-input').val().trim();
+            const format = $('input[name="email-format"]:checked').val();
+
+            // Validate email
+            if (!email) {
+                $('#email-error-message').text('Please enter an email address').show();
+                return;
+            }
+
+            // Basic email validation
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(email)) {
+                $('#email-error-message').text('Please enter a valid email address').show();
+                return;
+            }
+
+            // Hide error message
+            $('#email-error-message').hide();
+
+            // Disable button and show loading
+            $(this).prop('disabled', true).text('Sending...');
+
+            // Send email
+            sendEmailReport(email, format);
+        });
+
+        // Allow Enter key to submit
+        $('#report-email-input').on('keypress', function (e) {
+            if (e.which === 13) {
+                $('#send-email-report-btn').click();
+            }
+        });
+    }
+
+    /**
+     * Send email report via AJAX
+     */
+    function sendEmailReport(email, format) {
+        console.log('[SEND EMAIL] Email:', email, 'Format:', format);
+
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'POST',
+            data: {
+                action: 'seoautofix_broken_links_email_report',
+                nonce: seoautofixBrokenUrls.nonce,
+                scan_id: currentScanId,
+                email: email,
+                format: format
+            },
+            success: function (response) {
+                console.log('[SEND EMAIL] Response:', response);
+
+                if (response.success) {
+                    alert(response.data.message || `Report sent successfully to ${email}`);
+
+                    // Close modal
+                    $('#email-report-modal').fadeOut(200, function () {
+                        $(this).remove();
+                    });
+                } else {
+                    $('#email-error-message').text(response.data.message || 'Failed to send email').show();
+                    $('#send-email-report-btn').prop('disabled', false).text('Send Report');
+                }
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.error('[SEND EMAIL] Error:', textStatus, errorThrown);
+                $('#email-error-message').text('Error sending email: ' + textStatus).show();
+                $('#send-email-report-btn').prop('disabled', false).text('Send Report');
+            }
+        });
+    }
+
+    /**
+     * Show notification message
+     */
+    function showNotification(message, type) {
+        // Remove existing notification if any
+        $('.seoautofix-notification').remove();
+
+        const notificationClass = type === 'success' ? 'notice-success' : 'notice-error';
+        const notificationHtml = `
+            <div class="seoautofix-notification notice ${notificationClass} is-dismissible" style="position: fixed; top: 32px; right: 20px; z-index: 10000; max-width: 400px;">
+                <p>${message}</p>
+                <button type="button" class="notice-dismiss">
+                    <span class="screen-reader-text">Dismiss this notice.</span>
+                </button>
+            </div>
+        `;
+
+        $('body').append(notificationHtml);
+
+        // Auto dismiss after 3 seconds
+        setTimeout(function () {
+            $('.seoautofix-notification').fadeOut(300, function () {
+                $(this).remove();
+            });
+        }, 3000);
+
+        // Manual dismiss
+        $('.seoautofix-notification .notice-dismiss').on('click', function () {
+            $(this).parent().fadeOut(300, function () {
+                $(this).remove();
+            });
+        });
+    }
+
+    /**
+     * Remove Broken Links - Bulk delete all broken links
+     */
+    function removeBrokenLinks() {
+        console.log('[REMOVE BROKEN LINKS] Button clicked');
+
+        if (!currentScanId) {
+            alert('No scan available. Please run a scan first.');
+            return;
+        }
+
+        // Fetch all unfixed broken links
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'GET',
+            data: {
+                action: 'seoautofix_broken_links_get_results',
+                nonce: seoautofixBrokenUrls.nonce,
+                scan_id: currentScanId,
+                page: 1,
+                per_page: 99999 // Get all results
+            },
+            success: function (response) {
+                if (response.success) {
+                    const allLinks = response.data.results || [];
+                    const unfixedLinks = allLinks.filter(link => !link.is_fixed || link.is_fixed == 0);
+
+                    if (unfixedLinks.length === 0) {
+                        alert('No broken links to remove. All links are already fixed or there are no broken links.');
+                        return;
+                    }
+
+                    // Show confirmation
+                    const confirmed = confirm(
+                        `This will remove ${unfixedLinks.length} broken link(s) from your content.\n\n` +
+                        `The anchor text will remain, but the <a> tags will be deleted.\n\n` +
+                        `This action can be undone later. Continue?`
+                    );
+
+                    if (confirmed) {
+                        performBulkRemove(unfixedLinks);
+                    }
+                } else {
+                    alert(response.data.message || 'Failed to fetch broken links');
+                }
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.error('[REMOVE BROKEN LINKS] Error:', textStatus, errorThrown);
+                alert('Error fetching broken links: ' + textStatus);
+            }
+        });
+    }
+
+    /**
+     * Perform bulk remove operation
+     */
+    function performBulkRemove(links) {
+        console.log('[PERFORM BULK REMOVE] Removing', links.length, 'links');
+
+        // Show progress modal
+        showBulkProgressModal('Removing Broken Links', links.length);
+
+        // Group links by page to create fix plan
+        const entryIds = links.map(link => link.id);
+
+        // Generate fix plan
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'POST',
+            data: {
+                action: 'seoautofix_broken_links_generate_fix_plan',
+                nonce: seoautofixBrokenUrls.nonce,
+                entry_ids: entryIds
+            },
+            success: function (response) {
+                console.log('[BULK REMOVE] Fix plan response:', response);
+
+                if (response.success) {
+                    const planId = response.data.plan_id;
+
+                    // Now apply the fix plan with delete action
+                    applyBulkFixPlan(planId, entryIds, 'delete', 'Removed');
+                } else {
+                    closeBulkProgressModal();
+                    alert(response.data.message || 'Failed to generate fix plan');
+                }
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.error('[BULK REMOVE] Error:', textStatus, errorThrown);
+                closeBulkProgressModal();
+                alert('Error creating fix plan: ' + textStatus);
+            }
+        });
+    }
+
+    /**
+     * Replace Broken Links - Bulk replace with suggested URLs
+     */
+    function replaceBrokenLinks() {
+        console.log('[REPLACE BROKEN LINKS] Button clicked');
+
+        if (!currentScanId) {
+            alert('No scan available. Please run a scan first.');
+            return;
+        }
+
+        // Fetch all unfixed broken links
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'GET',
+            data: {
+                action: 'seoautofix_broken_links_get_results',
+                nonce: seoautofixBrokenUrls.nonce,
+                scan_id: currentScanId,
+                page: 1,
+                per_page: 99999
+            },
+            success: function (response) {
+                if (response.success) {
+                    const allLinks = response.data.results || [];
+                    const unfixedLinks = allLinks.filter(link => !link.is_fixed || link.is_fixed == 0);
+
+                    if (unfixedLinks.length === 0) {
+                        alert('No broken links to replace.');
+                        return;
+                    }
+
+                    // Categorize into THREE groups
+                    const withSuggestion = unfixedLinks.filter(link =>
+                        link.link_type === 'internal' && link.suggested_url && link.suggested_url.trim() !== ''
+                    );
+                    const internalNoSuggestion = unfixedLinks.filter(link =>
+                        link.link_type === 'internal' && (!link.suggested_url || link.suggested_url.trim() === '')
+                    );
+                    const external = unfixedLinks.filter(link =>
+                        link.link_type === 'external'
+                    );
+
+                    if (withSuggestion.length === 0 && internalNoSuggestion.length === 0 && external.length === 0) {
+                        alert('No broken links found.');
+                        return;
+                    }
+
+                    // Show preview modal with three categories
+                    showReplacePreviewModal(withSuggestion, internalNoSuggestion, external);
+                } else {
+                    alert(response.data.message || 'Failed to fetch broken links');
+                }
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.error('[REPLACE BROKEN LINKS] Error:', textStatus, errorThrown);
+                alert('Error fetching broken links: ' + textStatus);
+            }
+        });
+    }
+
+    /**
+     * Show replace preview modal with three categories
+     */
+    function showReplacePreviewModal(withSuggestion, internalNoSuggestion, external) {
+        // Remove existing modal
+        $('#bulk-replace-modal').remove();
+
+        // Get home URL for internal links without suggestion
+        const homeUrl = seoautofixBrokenUrls.homeUrl || window.location.origin;
+
+        let modalHtml = `
+            <div id="bulk-replace-modal" class="seoautofix-modal">
+                <div class="seoautofix-modal-content" style="width: 900px; max-width: 95%;">
+                    <div class="seoautofix-modal-header">
+                        <h2>Replace Broken Links - Select Categories</h2>
+                        <button class="seoautofix-modal-close">&times;</button>
+                    </div>
+                    <div class="seoautofix-modal-body" style="text-align: center;">
+                        <p style="margin-bottom: 25px; font-size: 14px; color: #646970;">
+                            Select which categories of broken links you want to replace:
+                        </p>
+        `;
+
+        // Category 1: Links with Suggestions
+        if (withSuggestion.length > 0) {
+            modalHtml += `
+                <div class="replace-category">
+                    <div class="category-header">
+                        <label class="category-checkbox-label">
+                            <input type="checkbox" class="category-checkbox" id="category-suggested" checked data-category="suggested" />
+                            <strong>Links with Suggested Replacements</strong>
+                            <span class="category-count">(${withSuggestion.length} link${withSuggestion.length > 1 ? 's' : ''})</span>
+                        </label>
+                        <div class="category-description">Will replace broken URLs with suggested URLs (click to edit)</div>
+                    </div>
+                    <div class="category-preview">
+            `;
+
+            withSuggestion.slice(0, 5).forEach(link => {
+                modalHtml += `
+                    <div class="preview-item-compact" data-link-id="${link.id}">
+                        <div class="preview-url-old">${escapeHtml(link.broken_url)}</div>
+                        <div class="preview-arrow-compact">→</div>
+                        <div class="preview-url-new editable" 
+                             contenteditable="true" 
+                             data-original-url="${escapeHtml(link.suggested_url)}"
+                             data-category="suggested"
+                             spellcheck="false">${escapeHtml(link.suggested_url)}</div>
+                        <button class="reset-url-btn" title="Reset to original URL" aria-label="Reset URL">↺</button>
+                    </div>
+                `;
+            });
+
+            if (withSuggestion.length > 5) {
+                modalHtml += `<div class="preview-more-compact">... and ${withSuggestion.length - 5} more</div>`;
+            }
+
+            modalHtml += `
+                    </div>
+                </div>
+            `;
+        }
+
+        // Category 2: Internal Links Without Suggestion
+        if (internalNoSuggestion.length > 0) {
+            modalHtml += `
+                <div class="replace-category">
+                    <div class="category-header">
+                        <label class="category-checkbox-label">
+                            <input type="checkbox" class="category-checkbox" id="category-internal-no-suggestion" checked data-category="internal-no-suggestion" />
+                            <strong>Internal Links Without Suggestions</strong>
+                            <span class="category-count">(${internalNoSuggestion.length} link${internalNoSuggestion.length > 1 ? 's' : ''})</span>
+                        </label>
+                        <div class="category-description">Will replace with Home Page: <code>${escapeHtml(homeUrl)}</code> (click to edit)</div>
+                    </div>
+                    <div class="category-preview">
+            `;
+
+            internalNoSuggestion.slice(0, 5).forEach(link => {
+                modalHtml += `
+                    <div class="preview-item-compact" data-link-id="${link.id}">
+                        <div class="preview-url-old">${escapeHtml(link.broken_url)}</div>
+                        <div class="preview-arrow-compact">→</div>
+                        <div class="preview-url-new editable" 
+                             contenteditable="true" 
+                             data-original-url="${escapeHtml(homeUrl)}"
+                             data-category="internal-no-suggestion"
+                             spellcheck="false">${escapeHtml(homeUrl)}</div>
+                        <button class="reset-url-btn" title="Reset to Home URL" aria-label="Reset URL">↺</button>
+                    </div>
+                `;
+            });
+
+            if (internalNoSuggestion.length > 5) {
+                modalHtml += `<div class="preview-more-compact">... and ${internalNoSuggestion.length - 5} more</div>`;
+            }
+
+            modalHtml += `
+                    </div>
+                </div>
+            `;
+        }
+
+        // Category 3: External Links
+        if (external.length > 0) {
+            modalHtml += `
+                <div class="replace-category">
+                    <div class="category-header">
+                        <label class="category-checkbox-label">
+                            <input type="checkbox" class="category-checkbox" id="category-external" data-category="external" />
+                            <strong>External Links</strong>
+                            <span class="category-count">(${external.length} link${external.length > 1 ? 's' : ''})</span>
+                        </label>
+                        <div class="category-description">Will replace with Home Page URL (click to edit)</div>
+                    </div>
+                    <div class="category-preview">
+            `;
+
+            external.slice(0, 5).forEach(link => {
+                modalHtml += `
+                    <div class="preview-item-compact" data-link-id="${link.id}">
+                        <div class="preview-url-old">${escapeHtml(link.broken_url)}</div>
+                        <div class="preview-arrow-compact">→</div>
+                        <div class="preview-url-new editable" 
+                             contenteditable="true" 
+                             data-original-url="${escapeHtml(homeUrl)}"
+                             data-category="external"
+                             spellcheck="false">${escapeHtml(homeUrl)}</div>
+                        <button class="reset-url-btn" title="Reset to Home URL" aria-label="Reset URL">↺</button>
+                    </div>
+                `;
+            });
+
+            if (external.length > 5) {
+                modalHtml += `<div class="preview-more-compact">... and ${external.length - 5} more</div>`;
+            }
+
+            modalHtml += `
+                    </div>
+                </div>
+            `;
+        }
+
+        modalHtml += `
+                    </div>
+                    <div class="seoautofix-modal-footer">
+                        <button class="button seoautofix-modal-cancel">Cancel</button>
+                        <button class="button button-primary" id="confirm-bulk-replace-v2">Apply Selected Changes</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        $('body').append(modalHtml);
+        setTimeout(() => $('#bulk-replace-modal').addClass('show'), 10);
+
+        // Setup inline editing functionality
+        setupInlineEditing();
+
+        // Event listeners
+        $('#bulk-replace-modal .seoautofix-modal-close, #bulk-replace-modal .seoautofix-modal-cancel').on('click', function () {
+            $('#bulk-replace-modal').removeClass('show');
+            setTimeout(() => $('#bulk-replace-modal').remove(), 200);
+        });
+
+        $('#confirm-bulk-replace-v2').on('click', function () {
+            console.log('[CONFIRM REPLACE V2] Button clicked');
+
+            // Collect edited URLs from DOM first
+            const editedURLs = collectEditedURLs();
+            console.log('[CONFIRM REPLACE V2] Edited URLs collected:', editedURLs);
+
+            // Get selected categories
+            const selectedCategories = [];
+            const linksToProcess = [];
+
+            console.log('[CONFIRM REPLACE V2] Category checkboxes state:', {
+                suggested: $('#category-suggested').is(':checked'),
+                internalNoSuggestion: $('#category-internal-no-suggestion').is(':checked'),
+                external: $('#category-external').is(':checked')
+            });
+
+            if ($('#category-suggested').is(':checked')) {
+                selectedCategories.push('suggested');
+                console.log('[CONFIRM REPLACE V2] Processing suggested category, links:', withSuggestion.length);
+                // Add links with their suggested URLs (or edited URLs)
+                withSuggestion.forEach(link => {
+                    const editedUrl = editedURLs[link.id];
+                    const processedLink = {
+                        ...link,
+                        replace_action: 'suggested',
+                        new_url: editedUrl || link.suggested_url
+                    };
+                    linksToProcess.push(processedLink);
+                    console.log('[CONFIRM REPLACE V2] Added suggested link:', {
+                        id: link.id,
+                        broken_url: link.broken_url,
+                        new_url: processedLink.new_url,
+                        edited: !!editedUrl
+                    });
+                });
+            }
+
+            if ($('#category-internal-no-suggestion').is(':checked')) {
+                selectedCategories.push('internal-no-suggestion');
+                console.log('[CONFIRM REPLACE V2] Processing internal-no-suggestion category, links:', internalNoSuggestion.length);
+                // Add internal links with home URL (or edited URL)
+                internalNoSuggestion.forEach(link => {
+                    const editedUrl = editedURLs[link.id];
+                    const processedLink = {
+                        ...link,
+                        replace_action: 'home',
+                        new_url: editedUrl || homeUrl
+                    };
+                    linksToProcess.push(processedLink);
+                    console.log('[CONFIRM REPLACE V2] Added internal-no-suggestion link:', {
+                        id: link.id,
+                        broken_url: link.broken_url,
+                        new_url: processedLink.new_url,
+                        edited: !!editedUrl
+                    });
+                });
+            }
+
+            if ($('#category-external').is(':checked')) {
+                selectedCategories.push('external');
+                console.log('[CONFIRM REPLACE V2] Processing external category, links:', external.length);
+                // Add external links for home URL replacement (or edited URL)
+                external.forEach(link => {
+                    const editedUrl = editedURLs[link.id];
+                    const processedLink = {
+                        ...link,
+                        replace_action: 'home',
+                        new_url: editedUrl || homeUrl
+                    };
+                    linksToProcess.push(processedLink);
+                    console.log('[CONFIRM REPLACE V2] Added external link:', {
+                        id: link.id,
+                        broken_url: link.broken_url,
+                        new_url: processedLink.new_url,
+                        edited: !!editedUrl
+                    });
+                });
+            }
+
+            console.log('[CONFIRM REPLACE V2] Selected categories:', selectedCategories);
+            console.log('[CONFIRM REPLACE V2] Total links to process:', linksToProcess.length);
+            console.log('[CONFIRM REPLACE V2] Links summary:', linksToProcess.map(l => ({
+                id: l.id,
+                action: l.replace_action,
+                broken: l.broken_url,
+                new: l.new_url
+            })));
+
+            if (linksToProcess.length === 0) {
+                console.warn('[CONFIRM REPLACE V2] No links to process!');
+                alert('Please select at least one category to process.');
+                return;
+            }
+
+            $('#bulk-replace-modal').removeClass('show');
+            setTimeout(() => $('#bulk-replace-modal').remove(), 200);
+
+            console.log('[CONFIRM REPLACE V2] Calling performBulkReplaceV2 with', linksToProcess.length, 'links');
+            performBulkReplaceV2(linksToProcess);
+        });
+    }
+
+    /**
+     * Setup inline editing for URL fields
+     */
+    function setupInlineEditing() {
+        const $modal = $('#bulk-replace-modal');
+
+        // Handle focus on editable URLs - add visual indicator
+        $modal.on('focus', '.preview-url-new.editable', function () {
+            $(this).addClass('editing');
+        });
+
+        // Handle blur - remove editing indicator
+        $modal.on('blur', '.preview-url-new.editable', function () {
+            $(this).removeClass('editing');
+            const $this = $(this);
+            const originalUrl = $this.data('original-url');
+            const currentUrl = $this.text().trim();
+
+            // Mark as modified if changed
+            if (currentUrl !== originalUrl) {
+                $this.addClass('modified');
+            } else {
+                $this.removeClass('modified');
+            }
+        });
+
+        // Handle input - mark as modified while typing
+        $modal.on('input', '.preview-url-new.editable', function () {
+            const $this = $(this);
+            const originalUrl = $this.data('original-url');
+            const currentUrl = $this.text().trim();
+
+            if (currentUrl !== originalUrl) {
+                $this.addClass('modified');
+            } else {
+                $this.removeClass('modified');
+            }
+        });
+
+        // Handle reset button click
+        $modal.on('click', '.reset-url-btn', function (e) {
+            e.preventDefault();
+            const $btn = $(this);
+            const $item = $btn.closest('.preview-item-compact');
+            const $urlField = $item.find('.preview-url-new.editable');
+            const originalUrl = $urlField.data('original-url');
+
+            // Reset to original URL
+            $urlField.text(originalUrl);
+            $urlField.removeClass('modified editing');
+        });
+
+        // Prevent line breaks in contenteditable
+        $modal.on('keydown', '.preview-url-new.editable', function (e) {
+            if (e.keyCode === 13) { // Enter key
+                e.preventDefault();
+                $(this).blur(); // Close editing
+            }
+        });
+    }
+
+    /**
+     * Collect edited URLs from the DOM
+     * Returns an object mapping link IDs to edited URLs
+     */
+    function collectEditedURLs() {
+        const editedURLs = {};
+
+        $('#bulk-replace-modal .preview-item-compact').each(function () {
+            const $item = $(this);
+            const linkId = $item.data('link-id');
+            const $urlField = $item.find('.preview-url-new.editable');
+
+            if ($urlField.length > 0) {
+                const editedUrl = $urlField.text().trim();
+                const originalUrl = $urlField.data('original-url');
+
+                // Only store if modified
+                if (editedUrl && editedUrl !== originalUrl) {
+                    editedURLs[linkId] = editedUrl;
+                }
+            }
+        });
+
+        console.log('[COLLECT EDITED URLS] Found', Object.keys(editedURLs).length, 'edited URLs:', editedURLs);
+        return editedURLs;
+    }
+
+    /**
+     * Perform bulk replace operation (V2 with multi-action support)
+     */
+    function performBulkReplaceV2(links) {
+        console.log('[PERFORM BULK REPLACE V2] ===== START =====');
+        console.log('[PERFORM BULK REPLACE V2] Replacing', links.length, 'links');
+        console.log('[PERFORM BULK REPLACE V2] Links with actions:', links);
+
+        showBulkProgressModal('Replacing Broken Links', links.length);
+
+        // Build a customized fix plan based on replacement actions
+        const fixPlanData = links.map(link => {
+            const baseEntry = {
+                entry_id: link.id,
+                page_id: link.page_id,
+                broken_url: link.broken_url
+            };
+
+            switch (link.replace_action) {
+                case 'suggested':
+                    return {
+                        ...baseEntry,
+                        action: 'replace',
+                        new_url: link.new_url || link.suggested_url
+                    };
+                case 'home':
+                    return {
+                        ...baseEntry,
+                        action: 'replace',
+                        new_url: link.new_url // Home URL passed from modal
+                    };
+                case 'delete':
+                    return {
+                        ...baseEntry,
+                        action: 'delete',
+                        new_url: ''
+                    };
+                default:
+                    console.warn('[BULK REPLACE V2] Unknown action:', link.replace_action, 'for link', link.id);
+                    return null;
+            }
+        }).filter(entry => entry !== null);
+
+        console.log('[BULK REPLACE V2] Generated fix plan data:', fixPlanData);
+        console.log('[BULK REPLACE V2] Sending to backend:', {
+            action: 'seoautofix_broken_links_generate_fix_plan',
+            entry_ids: links.map(l => l.id),
+            custom_plan_length: fixPlanData.length
+        });
+
+        // Generate fix plan with custom actions
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'POST',
+            data: {
+                action: 'seoautofix_broken_links_generate_fix_plan',
+                nonce: seoautofixBrokenUrls.nonce,
+                entry_ids: links.map(l => l.id),
+                custom_plan: JSON.stringify(fixPlanData) // Pass our custom plan
+            },
+            success: function (response) {
+                console.log('[BULK REPLACE V2] Generate plan response:', response);
+
+                if (response.success) {
+                    const planId = response.data.plan_id;
+                    console.log('[BULK REPLACE V2] Plan generated successfully, ID:', planId);
+                    console.log('[BULK REPLACE V2] Applying fix plan...');
+
+                    // Apply the fix plan
+                    $.ajax({
+                        url: seoautofixBrokenUrls.ajaxUrl,
+                        method: 'POST',
+                        data: {
+                            action: 'seoautofix_broken_links_apply_fix_plan',
+                            nonce: seoautofixBrokenUrls.nonce,
+                            plan_id: planId
+                        },
+                        success: function (applyResponse) {
+                            console.log('[BULK REPLACE V2] Apply plan response:', applyResponse);
+                            closeBulkProgressModal();
+
+                            if (applyResponse.success) {
+                                const results = applyResponse.data.results || {};
+                                const successCount = results.success || 0;
+                                const failedCount = results.failed || 0;
+
+                                console.log('[BULK REPLACE V2] Apply results:', {
+                                    success: successCount,
+                                    failed: failedCount,
+                                    fullResults: results
+                                });
+
+                                let message = `Successfully processed ${successCount} link(s).`;
+                                if (failedCount > 0) {
+                                    message += `\n${failedCount} link(s) failed to process.`;
+                                }
+
+                                alert(message);
+
+                                // Refresh the page to show updated results
+                                if (successCount > 0) {
+                                    console.log('[BULK REPLACE V2] Reloading page to show results');
+                                    location.reload();
+                                } else {
+                                    console.warn('[BULK REPLACE V2] No links were successfully processed');
+                                }
+                            } else {
+                                console.error('[BULK REPLACE V2] Apply failed:', applyResponse.data);
+                                alert(applyResponse.data.message || 'Failed to apply fixes');
+                            }
+                        },
+                        error: function (jqXHR, textStatus, errorThrown) {
+                            console.error('[BULK REPLACE V2] Apply AJAX error:', {
+                                status: jqXHR.status,
+                                statusText: textStatus,
+                                error: errorThrown,
+                                responseText: jqXHR.responseText
+                            });
+                            closeBulkProgressModal();
+                            alert('Error applying fixes: ' + textStatus);
+                        }
+                    });
+                } else {
+                    console.error('[BULK REPLACE V2] Generate plan failed:', response.data);
+                    closeBulkProgressModal();
+                    alert(response.data.message || 'Failed to generate fix plan');
+                }
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.error('[BULK REPLACE V2] Generate AJAX error:', {
+                    status: jqXHR.status,
+                    statusText: textStatus,
+                    error: errorThrown,
+                    responseText: jqXHR.responseText
+                });
+                closeBulkProgressModal();
+                alert('Error creating fix plan: ' + textStatus);
+            }
+        });
+    }
+
+    /**
+     * Fix All Issues - Comprehensive fixing with replace AND delete options
+     */
+    function fixAllIssues() {
+        console.log('[FIX ALL ISSUES] Button clicked');
+
+        if (!currentScanId) {
+            alert('No scan available. Please run a scan first.');
+            return;
+        }
+
+        // Fetch all unfixed broken links (same as Replace)
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'GET',
+            data: {
+                action: 'seoautofix_broken_links_get_results',
+                nonce: seoautofixBrokenUrls.nonce,
+                scan_id: currentScanId,
+                page: 1,
+                per_page: 99999
+            },
+            success: function (response) {
+                if (response.success) {
+                    const allLinks = response.data.results || [];
+                    const unfixedLinks = allLinks.filter(link => !link.is_fixed || link.is_fixed == 0);
+
+                    if (unfixedLinks.length === 0) {
+                        alert('No broken links to fix. All issues have been resolved!');
+                        return;
+                    }
+
+                    // Categorize into THREE groups (same as Replace)
+                    const withSuggestion = unfixedLinks.filter(link =>
+                        link.link_type === 'internal' && link.suggested_url && link.suggested_url.trim() !== ''
+                    );
+                    const internalNoSuggestion = unfixedLinks.filter(link =>
+                        link.link_type === 'internal' && (!link.suggested_url || link.suggested_url.trim() === '')
+                    );
+                    const external = unfixedLinks.filter(link =>
+                        link.link_type === 'external'
+                    );
+
+                    if (unfixedLinks.length === 0) {
+                        alert('No broken links found.');
+                        return;
+                    }
+
+                    const homeUrl = seoautofixBrokenUrls.homeUrl || window.location.origin;
+
+                    // Show Fix All modal with delete options
+                    showFixAllPreviewModal(withSuggestion, internalNoSuggestion, external, homeUrl);
+                } else {
+                    alert(response.data.message || 'Failed to fetch broken links');
+                }
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.error('[FIX ALL ISSUES] Error:', textStatus, errorThrown);
+                alert('Error fetching broken links: ' + textStatus);
+            }
+        });
+    }
+
+    /**
+     * Show Fix All preview modal - Enhanced with delete options
+     */
+    function showFixAllPreviewModal(withSuggestion, internalNoSuggestion, external, homeUrl) {
+        console.log('[FIX ALL PREVIEW] Opening modal');
+
+        $('#fix-all-modal').remove();
+
+        const totalLinks = withSuggestion.length + internalNoSuggestion.length + external.length;
+
+        let modalHtml = `
+            <div id="fix-all-modal" class="seoautofix-modal">
+                <div class="seoautofix-modal-content" style="max-width: 900px;">
+                    <div class="seoautofix-modal-header">
+                        <h2>Fix All Issues - Select Actions</h2>
+                        <button class="seoautofix-modal-close">&times;</button>
+                    </div>
+                    <div class="seoautofix-modal-body" style="max-height: 600px; overflow-y: auto;">
+                        <div class="bulk-action-summary">
+                            <p><strong>${totalLinks} broken link(s)</strong> found. Select which to replace or delete:</p>
+                        </div>
+        `;
+
+        // Category 1: Links with Suggestions
+        if (withSuggestion.length > 0) {
+            modalHtml += `
+                <div class="replace-category">
+                    <div class="category-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <label class="category-checkbox-label" style="flex: 1;">
+                            <input type="checkbox" class="category-checkbox" id="fix-category-suggested" checked data-category="suggested" data-action="replace" />
+                            <strong>Links with Suggested Replacements</strong>
+                            <span class="category-count">(${withSuggestion.length} link${withSuggestion.length > 1 ? 's' : ''})</span>
+                        </label>
+                        <button class="category-delete-btn" data-category="suggested" style="margin-left: 10px; padding: 6px 12px; background: #fff; color: #dc3232; border: 1px solid #dc3232; border-radius: 4px; cursor: pointer; font-weight: 500;">
+                            Delete All
+                        </button>
+                    </div>
+                    <div class="category-description">Will replace with suggested URLs (click to edit) or delete all</div>
+                    <div class="category-preview">
+            `;
+
+            withSuggestion.slice(0, 10).forEach(link => {
+                modalHtml += `
+                    <div class="preview-item-compact" data-link-id="${link.id}" style="display: flex; align-items: center; gap: 10px;">
+                        <div class="preview-url-old" style="flex: 1;">${escapeHtml(link.broken_url)}</div>
+                        <div class="preview-arrow-compact">→</div>
+                        <div class="preview-url-new editable" 
+                             contenteditable="true" 
+                             data-original-url="${escapeHtml(link.suggested_url)}"
+                             data-category="suggested"
+                             spellcheck="false" style="flex: 1;">${escapeHtml(link.suggested_url)}</div>
+                        <button class="reset-url-btn" title="Reset to original URL">↺</button>
+                        <button class="delete-link-btn" data-link-id="${link.id}" title="Delete this link" style="background: #fff; color: #dc3232; border: 1px solid #dc3232; padding: 4px 8px; border-radius: 3px; cursor: pointer;">×</button>
+                    </div>
+                `;
+            });
+
+            if (withSuggestion.length > 10) {
+                modalHtml += `<div class="preview-more-compact">... and ${withSuggestion.length - 10} more</div>`;
+            }
+
+            modalHtml += `
+                    </div>
+                </div>
+            `;
+        }
+
+        // Category 2: Internal Without Suggestions
+        if (internalNoSuggestion.length > 0) {
+            modalHtml += `
+                <div class="replace-category">
+                    <div class="category-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <label class="category-checkbox-label" style="flex: 1;">
+                            <input type="checkbox" class="category-checkbox" id="fix-category-internal-no-suggestion" checked data-category="internal-no-suggestion" data-action="replace" />
+                            <strong>Internal Links Without Suggestions</strong>
+                            <span class="category-count">(${internalNoSuggestion.length} link${internalNoSuggestion.length > 1 ? 's' : ''})</span>
+                        </label>
+                        <button class="category-delete-btn" data-category="internal-no-suggestion" style="margin-left: 10px; padding: 6px 12px; background: #fff; color: #dc3232; border: 1px solid #dc3232; border-radius: 4px; cursor: pointer; font-weight: 500;">
+                            Delete All
+                        </button>
+                    </div>
+                    <div class="category-description">Will replace with Home Page: <code>${escapeHtml(homeUrl)}</code> (click to edit) or delete all</div>
+                    <div class="category-preview">
+            `;
+
+            internalNoSuggestion.slice(0, 10).forEach(link => {
+                modalHtml += `
+                    <div class="preview-item-compact" data-link-id="${link.id}" style="display: flex; align-items: center; gap: 10px;">
+                        <div class="preview-url-old" style="flex: 1;">${escapeHtml(link.broken_url)}</div>
+                        <div class="preview-arrow-compact">→</div>
+                        <div class="preview-url-new editable" 
+                             contenteditable="true" 
+                             data-original-url="${escapeHtml(homeUrl)}"
+                             data-category="internal-no-suggestion"
+                             spellcheck="false" style="flex: 1;">${escapeHtml(homeUrl)}</div>
+                        <button class="reset-url-btn" title="Reset to Home URL">↺</button>
+                        <button class="delete-link-btn" data-link-id="${link.id}" title="Delete this link" style="background: #fff; color: #dc3232; border: 1px solid #dc3232; padding: 4px 8px; border-radius: 3px; cursor: pointer;">×</button>
+                    </div>
+                `;
+            });
+
+            if (internalNoSuggestion.length > 10) {
+                modalHtml += `<div class="preview-more-compact">... and ${internalNoSuggestion.length - 10} more</div>`;
+            }
+
+            modalHtml += `
+                    </div>
+                </div>
+            `;
+        }
+
+        // Category 3: External Links
+        if (external.length > 0) {
+            modalHtml += `
+                <div class="replace-category">
+                    <div class="category-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <label class="category-checkbox-label" style="flex: 1;">
+                            <input type="checkbox" class="category-checkbox" id="fix-category-external" data-category="external" data-action="replace" />
+                            <strong>External Links</strong>
+                            <span class="category-count">(${external.length} link${external.length > 1 ? 's' : ''})</span>
+                        </label>
+                        <button class="category-delete-btn" data-category="external" style="margin-left: 10px; padding: 6px 12px; background: #fff; color: #dc3232; border: 1px solid #dc3232; border-radius: 4px; cursor: pointer; font-weight: 500;">
+                            Delete All
+                        </button>
+                    </div>
+                    <div class="category-description">Will replace with Home Page URL (click to edit) or delete all</div>
+                    <div class="category-preview">
+            `;
+
+            external.slice(0, 10).forEach(link => {
+                modalHtml += `
+                    <div class="preview-item-compact" data-link-id="${link.id}" style="display: flex; align-items: center; gap: 10px;">
+                        <div class="preview-url-old" style="flex: 1;">${escapeHtml(link.broken_url)}</div>
+                        <div class="preview-arrow-compact">→</div>
+                        <div class="preview-url-new editable" 
+                             contenteditable="true" 
+                             data-original-url="${escapeHtml(homeUrl)}"
+                             data-category="external"
+                             spellcheck="false" style="flex: 1;">${escapeHtml(homeUrl)}</div>
+                        <button class="reset-url-btn" title="Reset to Home URL">↺</button>
+                        <button class="delete-link-btn" data-link-id="${link.id}" title="Delete this link" style="background: #fff; color: #dc3232; border: 1px solid #dc3232; padding: 4px 8px; border-radius: 3px; cursor: pointer;">×</button>
+                    </div>
+                `;
+            });
+
+            if (external.length > 10) {
+                modalHtml += `<div class="preview-more-compact">... and ${external.length - 10} more</div>`;
+            }
+
+            modalHtml += `
+                    </div>
+                </div>
+            `;
+        }
+
+        modalHtml += `
+                    </div>
+                    <div class="seoautofix-modal-footer">
+                        <button class="button seoautofix-modal-cancel">Cancel</button>
+                        <button class="button button-primary" id="confirm-fix-all-v2">Apply Selected Actions</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        $('body').append(modalHtml);
+        setTimeout(() => $('#fix-all-modal').addClass('show'), 10);
+
+        // Setup inline editing
+        setupInlineEditingForModal('#fix-all-modal');
+
+        // Event listeners
+        $('#fix-all-modal .seoautofix-modal-close, #fix-all-modal .seoautofix-modal-cancel').on('click', function () {
+            $('#fix-all-modal').removeClass('show');
+            setTimeout(() => $('#fix-all-modal').remove(), 200);
+        });
+
+        // Category Delete buttons
+        $('#fix-all-modal .category-delete-btn').on('click', function (e) {
+            e.preventDefault();
+            const category = $(this).data('category');
+            console.log('[FIX ALL - CATEGORY DELETE] Delete All clicked for category:', category);
+
+            // Get all links in this category
+            let linksToDelete = [];
+            if (category === 'suggested') {
+                linksToDelete = withSuggestion;
+            } else if (category === 'internal-no-suggestion') {
+                linksToDelete = internalNoSuggestion;
+            } else if (category === 'external') {
+                linksToDelete = external;
+            }
+
+            if (linksToDelete.length === 0) {
+                alert('No links to delete in this category');
+                return;
+            }
+
+            if (!confirm(`This will PERMANENTLY DELETE ${linksToDelete.length} broken link(s) from your WordPress content.\\n\\nFor links: Keeps the text, removes the <a> tag\\nFor images: Removes the entire <img> tag\\n\\nContinue?`)) {
+                console.log('[FIX ALL - CATEGORY DELETE] User cancelled');
+                return;
+            }
+
+            // Delete each link one by one
+            let successCount = 0;
+            let failCount = 0;
+
+            const deleteNextLink = (index) => {
+                if (index >= linksToDelete.length) {
+                    // All done
+                    console.log('[FIX ALL - CATEGORY DELETE] Completed. Success:', successCount, 'Failed:', failCount);
+
+                    // Update header count
+                    updateHeaderBrokenCount();
+
+                    // Close modal and reload results
+                    $('#fix-all-modal').removeClass('show');
+                    setTimeout(() => {
+                        $('#fix-all-modal').remove();
+                        if (currentScanId) {
+                            loadScanResults(currentScanId);
+                        }
+                    }, 200);
+
+                    if (successCount > 0) {
+                        alert(`Successfully deleted ${successCount} link(s) from content${failCount > 0 ? '. Failed: ' + failCount : ''}`);
+                    }
+                    return;
+                }
+
+                const link = linksToDelete[index];
+                console.log(`[FIX ALL - CATEGORY DELETE] Deleting link ${index + 1}/${linksToDelete.length}, ID:`, link.id);
+
+                // Call backend to remove from content
+                $.ajax({
+                    url: seoautofixBrokenUrls.ajaxUrl,
+                    method: 'POST',
+                    data: {
+                        action: 'seoautofix_broken_links_delete_entry',
+                        nonce: seoautofixBrokenUrls.nonce,
+                        id: link.id
+                    },
+                    success: function (response) {
+                        if (response.success) {
+                            successCount++;
+                            console.log('[FIX ALL - CATEGORY DELETE] Successfully deleted ID:', link.id);
+
+                            // Show DELETED animation on main table
+                            const $row = $(`tr[data-id="${link.id}"]`);
+                            if ($row.length) {
+                                const colspan = $row.find('td').length;
+                                $row.html(`<td colspan="${colspan}" class="row-status-deleted">✗ DELETED</td>`);
+
+                                setTimeout(() => {
+                                    $row.fadeOut(300, function () {
+                                        $(this).remove();
+                                        updateHeaderBrokenCount(); // Update count after row removed
+                                    });
+                                }, 2000);
+                            }
+                        } else {
+                            failCount++;
+                            console.error('[FIX ALL - CATEGORY DELETE] Failed to delete ID:', link.id, response.data);
+                        }
+
+                        // Delete next link
+                        deleteNextLink(index + 1);
+                    },
+                    error: function (jqXHR, textStatus, errorThrown) {
+                        failCount++;
+                        console.error('[FIX ALL - CATEGORY DELETE] AJAX error for ID:', link.id, {
+                            status: jqXHR.status,
+                            statusText: textStatus,
+                            error: errorThrown
+                        });
+
+                        // Continue with next link even if this failed
+                        deleteNextLink(index + 1);
+                    }
+                });
+            };
+
+            // Start deleting from first link
+            deleteNextLink(0);
+        });
+
+        // Individual delete buttons - Call backend to actually delete
+        $('#fix-all-modal .delete-link-btn').on('click', function (e) {
+            e.preventDefault();
+            const linkId = $(this).data('link-id');
+            const $item = $(this).closest('.preview-item-compact');
+
+            console.log('[FIX ALL - INDIVIDUAL DELETE] Button clicked for link ID:', linkId);
+
+            if (!confirm('This will PERMANENTLY DELETE this broken link from your WordPress content.\\n\\nFor links: Keeps the text, removes the <a> tag\\nFor images: Removes the entire <img> tag\\n\\nContinue?')) {
+                console.log('[FIX ALL - INDIVIDUAL DELETE] User cancelled');
+                return;
+            }
+
+            console.log('[FIX ALL - INDIVIDUAL DELETE] Calling backend to delete ID:', linkId);
+
+            // Call backend to remove from content
+            $.ajax({
+                url: seoautofixBrokenUrls.ajaxUrl,
+                method: 'POST',
+                data: {
+                    action: 'seoautofix_broken_links_delete_entry',
+                    nonce: seoautofixBrokenUrls.nonce,
+                    id: linkId
+                },
+                success: function (response) {
+                    console.log('[FIX ALL - INDIVIDUAL DELETE] Backend response:', response);
+
+                    if (response.success) {
+                        console.log('[FIX ALL - INDIVIDUAL DELETE] Successfully deleted from content');
+
+                        // Show DELETED animation on main table
+                        const $row = $(`tr[data-id="${linkId}"]`);
+                        if ($row.length) {
+                            const colspan = $row.find('td').length;
+                            $row.html(`<td colspan="${colspan}" class="row-status-deleted">✗ DELETED</td>`);
+
+                            setTimeout(() => {
+                                $row.fadeOut(300, function () {
+                                    $(this).remove();
+
+                                    // Update header count
+                                    updateHeaderBrokenCount();
+
+                                    // Update "No results" message if table is empty
+                                    if ($('.broken-links-table tbody tr').length === 0) {
+                                        $('.broken-links-table tbody').html(
+                                            '<tr><td colspan="5" style="text-align:center; padding: 30px;">No broken links found</td></tr>'
+                                        );
+                                    }
+                                });
+                            }, 2000);
+                        }
+
+                        // Remove from UI modal
+                        $item.fadeOut(200, function () {
+                            $(this).remove();
+
+                            // Check if this was the last item in the modal
+                            const remainingItems = $('#fix-all-modal .preview-item-compact:visible').length;
+                            console.log('[FIX ALL - INDIVIDUAL DELETE] Remaining items in modal:', remainingItems);
+
+                            if (remainingItems === 0) {
+                                console.log('[FIX ALL - INDIVIDUAL DELETE] No items left, closing modal');
+                                $('#fix-all-modal').removeClass('show');
+                                setTimeout(() => {
+                                    $('#fix-all-modal').remove();
+                                }, 200);
+                            }
+                        });
+                    } else {
+                        console.error('[FIX ALL - INDIVIDUAL DELETE] Delete failed:', response.data);
+                        alert('Error: ' + (response.data.message || 'Failed to delete'));
+                    }
+                },
+                error: function (jqXHR, textStatus, errorThrown) {
+                    console.error('[FIX ALL - INDIVIDUAL DELETE] AJAX error:', {
+                        status: jqXHR.status,
+                        statusText: textStatus,
+                        error: errorThrown,
+                        responseText: jqXHR.responseText
+                    });
+                    alert('Error deleting link: ' + textStatus);
+                }
+            });
+        });
+
+        // Confirm button
+        $('#confirm-fix-all-v2').on('click', function () {
+            handleFixAllConfirm(withSuggestion, internalNoSuggestion, external, homeUrl);
+        });
+    }
+
+    /**
+     * Setup inline editing for any modal
+     */
+    function setupInlineEditingForModal(modalSelector) {
+        const $modal = $(modalSelector);
+
+        $modal.on('focus', '.preview-url-new.editable', function () {
+            $(this).addClass('editing');
+        });
+
+        $modal.on('blur', '.preview-url-new.editable', function () {
+            $(this).removeClass('editing');
+            const $this = $(this);
+            const originalUrl = $this.data('original-url');
+            const currentUrl = $this.text().trim();
+
+            if (currentUrl !== originalUrl) {
+                $this.addClass('modified');
+            } else {
+                $this.removeClass('modified');
+            }
+        });
+
+        $modal.on('input', '.preview-url-new.editable', function () {
+            const $this = $(this);
+            const originalUrl = $this.data('original-url');
+            const currentUrl = $this.text().trim();
+
+            if (currentUrl !== originalUrl) {
+                $this.addClass('modified');
+            } else {
+                $this.removeClass('modified');
+            }
+        });
+
+        $modal.on('click', '.reset-url-btn', function (e) {
+            e.preventDefault();
+            const $btn = $(this);
+            const $item = $btn.closest('.preview-item-compact');
+            const $urlField = $item.find('.preview-url-new.editable');
+            const originalUrl = $urlField.data('original-url');
+
+            $urlField.text(originalUrl);
+            $urlField.removeClass('modified editing');
+        });
+
+        $modal.on('keydown', '.preview-url-new.editable', function (e) {
+            if (e.keyCode === 13) {
+                e.preventDefault();
+                $(this).blur();
+            }
+        });
+    }
+
+    /**
+     * Handle category delete button  
+     */
+    function handleCategoryDelete(category, withSuggestion, internalNoSuggestion, external) {
+        let categoryData = [];
+        let categoryName = '';
+
+        if (category === 'suggested') {
+            categoryData = withSuggestion;
+            categoryName = 'Links with Suggestions';
+        } else if (category === 'internal-no-suggestion') {
+            categoryData = internalNoSuggestion;
+            categoryName = 'Internal Links Without Suggestions';
+        } else if (category === 'external') {
+            categoryData = external;
+            categoryName = 'External Links';
+        }
+
+        console.log('[CATEGORY DELETE] Category:', category, 'Count:', categoryData.length);
+
+        if (!confirm(`Permanently delete all ${categoryData.length} links in "${categoryName}" from the database?`)) {
+            console.log('[CATEGORY DELETE] User cancelled');
+            return;
+        }
+
+        const linkIds = categoryData.map(l => l.id);
+        console.log('[CATEGORY DELETE] Deleting link IDs:', linkIds);
+
+        performBulkDelete(linkIds, true); // Pass true to indicate we should reload after delete
+
+        // Close modal after initiating delete
+        $('#fix-all-modal').removeClass('show');
+        setTimeout(() => $('#fix-all-modal').remove(), 200);
+    }
+
+    /**
+     * Handle Fix All confirm button
+     */
+    function handleFixAllConfirm(withSuggestion, internalNoSuggestion, external, homeUrl) {
+        console.log('[FIX ALL CONFIRM] Processing actions');
+
+        const editedURLs = collectEditedURLsFrom('#fix-all-modal');
+        const linksToProcess = [];
+        const linksToDelete = [];
+
+        // Get visible items (non-deleted by individual delete button)
+        $('#fix-all-modal .preview-item-compact:visible').each(function () {
+            const linkId = $(this).data('link-id');
+            const category = $(this).find('.preview-url-new').data('category');
+            const categoryCheckbox = $(`#fix-category-${category}`);
+
+            if (categoryCheckbox.is(':checked')) {
+                // This link should be processed (replace action)
+                const originalLink = [...withSuggestion, ...internalNoSuggestion, ...external].find(l => l.id == linkId);
+                if (originalLink) {
+                    const editedUrl = editedURLs[linkId];
+                    let newUrl = '';
+
+                    if (editedUrl) {
+                        newUrl = editedUrl;
+                    } else if (category === 'suggested') {
+                        newUrl = originalLink.suggested_url;
+                    } else {
+                        newUrl = homeUrl;
+                    }
+
+                    linksToProcess.push({
+                        ...originalLink,
+                        replace_action: category === 'suggested' ? 'suggested' : 'home',
+                        new_url: newUrl
+                    });
+                }
+            }
+        });
+
+        if (linksToProcess.length === 0) {
+            alert('No actions selected. Please check at least one category.');
+            return;
+        }
+
+        $('#fix-all-modal').removeClass('show');
+        setTimeout(() => $('#fix-all-modal').remove(), 200);
+
+        performBulkReplaceV2(linksToProcess);
+    }
+
+    /**
+     * Collect edited URLs from specific modal
+     */
+    function collectEditedURLsFrom(modalSelector) {
+        const editedURLs = {};
+
+        $(`${modalSelector} .preview-item-compact:visible`).each(function () {
+            const $item = $(this);
+            const linkId = $item.data('link-id');
+            const $urlField = $item.find('.preview-url-new.editable');
+
+            if ($urlField.length > 0) {
+                const editedUrl = $urlField.text().trim();
+                const originalUrl = $urlField.data('original-url');
+
+                if (editedUrl && editedUrl !== originalUrl) {
+                    editedURLs[linkId] = editedUrl;
+                }
+            }
+        });
+
+        return editedURLs;
+    }
+
+    /**
+     * Perform bulk delete
+     */
+    function performBulkDelete(linkIds, shouldReload = true) {
+        console.log('[BULK DELETE] ===== START =====');
+        console.log('[BULK DELETE] Deleting', linkIds.length, 'links');
+        console.log('[BULK DELETE] Link IDs:', linkIds);
+        console.log('[BULK DELETE] Should reload after:', shouldReload);
+
+        if (linkIds.length === 0) {
+            alert('No links to delete');
+            return;
+        }
+
+        showBulkProgressModal('Deleting Links', linkIds.length);
+
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'POST',
+            data: {
+                action: 'seoautofix_broken_links_bulk_delete',
+                nonce: seoautofixBrokenUrls.nonce,
+                ids: linkIds
+            },
+            success: function (response) {
+                console.log('[BULK DELETE] Backend response:', response);
+                closeBulkProgressModal();
+
+                if (response.success) {
+                    const deletedCount = response.data.deleted_count || linkIds.length;
+                    console.log('[BULK DELETE] Successfully deleted:', deletedCount, 'links');
+                    alert(`Successfully deleted ${deletedCount} link(s) from database`);
+
+                    // Always reload results to show updated state
+                    if (currentScanId) {
+                        console.log('[BULK DELETE] Reloading results for scan:', currentScanId);
+                        loadScanResults(currentScanId);
+                    } else {
+                        console.warn('[BULK DELETE] No currentScanId, cannot reload results');
+                    }
+                } else {
+                    console.error('[BULK DELETE] Delete failed:', response.data);
+                    alert('Error: ' + (response.data.message || 'Failed to delete links'));
+                }
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.error('[BULK DELETE] AJAX error:', {
+                    status: jqXHR.status,
+                    statusText: textStatus,
+                    error: errorThrown,
+                    responseText: jqXHR.responseText
+                });
+                closeBulkProgressModal();
+                alert('Error deleting links: ' + textStatus);
+            }
+        });
+    }
+
+    /**
+     * Apply bulk fix plan
+     */
+    function applyBulkFixPlan(planId, entryIds, action, actionVerb) {
+        console.log('[APPLY BULK FIX] Plan ID:', planId, 'Action:', action);
+
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'POST',
+            data: {
+                action: 'seoautofix_broken_links_apply_fix_plan',
+                nonce: seoautofixBrokenUrls.nonce,
+                plan_id: planId,
+                selected_entry_ids: entryIds
+            },
+            success: function (response) {
+                console.log('[APPLY BULK FIX] Response:', response);
+
+                closeBulkProgressModal();
+
+                if (response.success) {
+                    const data = response.data;
+                    alert(
+                        `✅ Success!\n\n` +
+                        `${actionVerb} ${data.links_fixed || entryIds.length} link(s) on ${data.pages_modified || 0} page(s).\n\n` +
+                        `You can undo this action using the "Undo Changes" button if needed.`
+                    );
+
+                    // Refresh results table
+                    loadScanResults(currentScanId);
+                } else {
+                    alert(response.data.message || `Failed to ${action} links`);
+                }
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.error('[APPLY BULK FIX] Error:', textStatus, errorThrown);
+                closeBulkProgressModal();
+                alert(`Error applying fixes: ${textStatus}`);
+            }
+        });
+    }
+
+    /**
+     * Show bulk progress modal
+     */
+    function showBulkProgressModal(title, count) {
+        $('#bulk-progress-modal').remove();
+
+        const modalHtml = `
+            <div id="bulk-progress-modal" class="seoautofix-modal">
+                <div class="seoautofix-modal-content" style="width: 500px;">
+                    <div class="seoautofix-modal-header">
+                        <h2>${title}</h2>
+                    </div>
+                    <div class="seoautofix-modal-body" style="text-align: center; padding: 40px;">
+                        <div class="spinner is-active" style="float: none; margin: 0 auto 20px;"></div>
+                        <p style="font-size: 16px; margin-bottom: 10px;">Processing ${count} link(s)...</p>
+                        <p style="font-size: 13px; color: #666;">Please wait, this may take a moment.</p>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        $('body').append(modalHtml);
+        $('#bulk-progress-modal').fadeIn(200);
+    }
+
+    /**
+     * Close bulk progress modal
+     */
+    function closeBulkProgressModal() {
+        $('#bulk-progress-modal').fadeOut(200, function () {
+            $(this).remove();
         });
     }
 
