@@ -138,7 +138,7 @@
             // Populate the auto-fix panel
             $('#fix-page-name').text(resultData.found_on_page_title || 'Unknown Page');
             $('#fix-broken-url').text(resultData.broken_url);
-            $('#fix-error-badge').text((String(resultData.status_code).charAt(0)));
+            $('#fix-error-badge').text((String(resultData.status_code).charAt(0) + "XX"));
 
             if (resultData.suggested_url) {
                 // Show suggested URL section
@@ -561,6 +561,10 @@
         // Show download/email buttons when results are available
         $('.history-export-section-header').show();
 
+        // Enable export button when results are available
+        $('#export-report-btn').prop('disabled', false).removeClass('disabled');
+        console.log('[DISPLAY RESULTS] Export button enabled - results loaded');
+
         // Clear table
         $('#results-table-body').empty();
 
@@ -666,6 +670,10 @@
         row.html(
             '<td class="column-page">' +
             '<strong>' + escapeHtml(pageTitle) + '</strong>' +
+            '<br>' +
+            '<a href="' + escapeHtml(result.found_on_url) + '" class="page-url-link" target="_blank" style="font-size: 0.9em; color: #666;">' +
+            escapeHtml(result.found_on_url) +
+            '</a>' +
             '</td>' +
             '<td class="column-broken-link">' +
             '<div class="link-type">' + linkTypeDisplay + '</div>' +

@@ -641,6 +641,19 @@ class SEOAutoFix_Broken_Url_Management
             return false;
         }
 
+        // Check if this is an Elementor page
+        $link_analyzer = new Link_Analyzer();
+        $is_elementor = $link_analyzer->is_elementor_page($post_id);
+        error_log('[REMOVE_LINK] Is Elementor page: ' . ($is_elementor ? 'YES' : 'NO'));
+
+        if ($is_elementor) {
+            error_log('[REMOVE_LINK] Detected Elementor page - routing to Elementor handler');
+            return $link_analyzer->remove_link_from_elementor($post_id, $broken_url);
+        }
+
+        // Regular WordPress page - continue with post_content removal
+        error_log('[REMOVE_LINK] Regular WordPress page - using post_content removal');
+
         // Get post content
         $post = get_post($post_id);
         if (!$post) {

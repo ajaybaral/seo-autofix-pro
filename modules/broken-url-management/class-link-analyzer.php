@@ -422,7 +422,7 @@ class Link_Analyzer
      * @param int $post_id Post ID  
      * @return bool True if Elementor page
      */
-    private function is_elementor_page($post_id)
+    public function is_elementor_page($post_id)
     {
         return get_post_meta($post_id, '_elementor_edit_mode', true) === 'builder';
     }
@@ -433,7 +433,7 @@ class Link_Analyzer
      * @param int $post_id Post ID
      * @return array|false Elementor data array or false
      */
-    private function get_elementor_data($post_id)
+    public function get_elementor_data($post_id)
     {
         $data = get_post_meta($post_id, '_elementor_data', true);
 
@@ -556,7 +556,7 @@ class Link_Analyzer
      * @param array $data Modified Elementor data
      * @return bool True on success
      */
-    private function save_elementor_data($post_id, $data)
+    public function save_elementor_data($post_id, $data)
     {
         error_log('[ELEMENTOR] Saving modified data for post ID: ' . $post_id);
 
@@ -589,5 +589,107 @@ class Link_Analyzer
 
         error_log('[ELEMENTOR] Successfully saved and cleared cache');
         return true;
+    }
+
+    /**
+     * Remove link from Elementor page (Option A: keep content, remove link)
+     * 
+     * @param int $post_id Post ID
+     * @param string $broken_url URL to remove
+     * @return bool True on success
+     */
+    public function remove_link_from_elementor($post_id, $broken_url)
+    {
+        error_log('[ELEMENTOR DELETE] Starting link removal for post ID: ' . $post_id);
+        error_log('[ELEMENTOR DELETE] Broken URL: ' . $broken_url);
+
+        // Get Elementor data
+        $data = $this->get_elementor_data($post_id);
+
+        if ($data === false) {
+            error_log('[ELEMENTOR DELETE] Failed to get Elementor data');
+            return false;
+        }
+
+        // Track if any removal was made
+        $removed = false;
+
+        // Recursively remove URLs in the data structure
+        $modified_data = $this->remove_url_from_elementor_data_recursive($data, $broken_url, $removed);
+
+        if (!$removed) {
+            error_log('[ELEMENTOR DELETE] No removals made - URL not found in Elementor data');
+            return false;
+        }
+
+        // Save the modified data
+        return $this->save_elementor_data($post_id, $modified_data);
+    }
+
+    /**
+     * Recursively remove URLs from Elementor data structure
+     * Option A: Keep content (text, buttons, images), just remove/clear the broken URL
+     * 
+     * @param mixed $data Current data element
+     * @param string $broken_url URL to remove
+     * @param bool &$removed Reference to track if removal occurred
+     * @return mixed Modified data
+     */
+    private function remove_url_from_elementor_data_recursive($data, $broken_url, &$removed)
+    {
+        // Handle arrays
+        if (is_array($data)) {
+            foreach ($data as $key => $value) {
+                // Check specific Elementor fields that commonly contain URLs
+                if ($key === 'url' && is_string($value)) {
+                    // Direct URL field - clear it if it matches
+                    if ($this->urls_match($value, $broken_url)) {
+                        error_log('[ELEMENTOR DELETE] Found and clearing URL in field: ' . $key . ' = ' . $value);
+                        $data[$key] = ''; // Clear the URL but keep the field
+                        $removed = true;
+                    }
+                } elseif ($key === 'link' && is_array($value) && isset($value['url'])) {
+                    // Link object with URL property - clear the url but keep the link structure
+                    if ($this->urls_match($value['url'], $broken_url)) {
+                        error_log('[ELEMENTOR DELETE] Found and clearing URL in link.url: ' . $value['url']);
+                        $data[$key]['url'] = ''; // Clear URL
+                        $data[$key]['is_external'] = ''; // Clear external flag
+                        $data[$key]['nofollow'] = ''; // Clear nofollow
+                        $removed = true;
+                    }
+                } elseif (in_array($key, ['text', 'editor', 'html', 'code', 'title']) && is_string($value)) {
+                    // Text/HTML fields that might contain links in HTML format
+                    // Remove <a> tags but keep anchor text
+                    if (stripos($value, $broken_url) !== false) {
+                        error_log('[ELEMENTOR DELETE] Found URL in text field: ' . $key);
+                        
+                        // Pattern to match <a href="broken_url">text</a> and replace with just text
+                        $patterns = array(
+                            '/<a\s+[^>]*href=["\']' . preg_quote($broken_url, '/') . '["\'][^>]*>(.*?)<\/a>/is',
+                            '/<a\s+[^>]*href=["\']' . preg_quote(untrailingslashit($broken_url), '/') . '\/?' . '["\'][^>]*>(.*?)<\/a>/is',
+                        );
+                        
+                        $new_value = $value;
+                        foreach ($patterns as $pattern) {
+                            $new_value = preg_replace($pattern, '$1', $new_value);
+                        }
+                        
+                        // Also handle plain URL replacement if it's just text
+                        $new_value = str_replace($broken_url, '', $new_value);
+                        
+                        if ($new_value !== $value) {
+                            $data[$key] = $new_value;
+                            $removed = true;
+                            error_log('[ELEMENTOR DELETE] Removed link from text field, kept anchor text');
+                        }
+                    }
+                } else {
+                    // Recursively process nested structures
+                    $data[$key] = $this->remove_url_from_elementor_data_recursive($value, $broken_url, $removed);
+                }
+            }
+        }
+
+        return $data;
     }
 }

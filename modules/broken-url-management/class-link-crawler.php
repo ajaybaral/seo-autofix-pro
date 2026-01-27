@@ -352,17 +352,6 @@ class Link_Crawler
                 $is_internal = $this->url_similarity->is_internal_url($link);
                 $link_type = $is_internal ? 'internal' : 'external';
 
-                $suggested_url = null;
-                $reason = '';
-
-                if ($is_internal) {
-                    $match = $this->url_similarity->find_closest_match($link, $valid_internal_urls);
-                    $suggested_url = $match['url'];
-                    $reason = $match['reason'];
-                } else {
-                    $reason = __('This link is not working, either delete it or provide a new link', 'seo-autofix-pro');
-                }
-
                 // Add entry for each page where link was found
                 foreach ($found_on_pages as $page_data) {
                     // Handle both old format (string) and new format (array)
@@ -378,6 +367,30 @@ class Link_Crawler
                         $found_on_page_title = '';
                         $anchor_text = '';
                         $location = 'content';
+                    }
+
+                    // Generate suggestion - filter out the current page to avoid suggesting itself
+                    $suggested_url = null;
+                    $reason = '';
+
+                    if ($is_internal) {
+                        // Filter out the page where this broken link was found
+                        // Don't suggest "skill-managment" when the broken link is ON "skill-managment"
+                        $filtered_urls = array_filter($valid_internal_urls, function ($url) use ($found_on_url) {
+                            // Normalize URLs for comparison (remove trailing slashes)
+                            return untrailingslashit($url) !== untrailingslashit($found_on_url);
+                        });
+
+                        error_log('[CRAWLER] Finding suggestion for broken link: ' . $link . ' (found on: ' . $found_on_url . ')');
+                        error_log('[CRAWLER] Valid URLs count: ' . count($valid_internal_urls) . ', Filtered URLs count: ' . count($filtered_urls));
+
+                        $match = $this->url_similarity->find_closest_match($link, $filtered_urls);
+                        $suggested_url = $match['url'];
+                        $reason = $match['reason'];
+
+                        error_log('[CRAWLER] Suggested URL: ' . $suggested_url . ' (score: ' . ($match['score'] ?? 0) . ')');
+                    } else {
+                        $reason = __('This link is not working, either delete it or provide a new link', 'seo-autofix-pro');
                     }
 
                     $this->db_manager->add_broken_link($scan_id, array(

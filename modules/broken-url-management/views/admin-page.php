@@ -40,11 +40,11 @@ $recent_scans = $db_manager->get_scans(10);
         </div>
 
         <div class="seoautofix-header-actions">
-            <button id="export-report-btn" class="button button-secondary">
+            <button id="export-report-btn" class="button button-secondary" disabled>
                 <?php echo esc_html__('Export Report', 'seo-autofix-pro'); ?>
             </button>
             <button id="start-auto-fix-btn" class="button button-primary">
-                <?php echo esc_html__('Start Auto Fix', 'seo-autofix-pro'); ?>
+                <?php echo esc_html__('Start Scan', 'seo-autofix-pro'); ?>
             </button>
         </div>
     </div>

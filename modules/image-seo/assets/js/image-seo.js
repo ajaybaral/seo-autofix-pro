@@ -373,11 +373,13 @@ jQuery(document).ready(function ($) {
         }
 
         // Always keep Export Changes button visible (it was shown after scan)
-        // Enable/disable based on whether there are changes
+        // Enable ONLY when there are changes to export
         if (filterChanges.length > 0) {
-            $exportFilterCsvBtn.show().prop('disabled', true);
+            $exportFilterCsvBtn.show().prop('disabled', false).removeClass('disabled');
+            console.log('EXPORT-BTN: Enabled - ' + filterChanges.length + ' changes tracked');
         } else {
-            $exportFilterCsvBtn.show().prop('disabled', true);
+            $exportFilterCsvBtn.show().prop('disabled', true).addClass('disabled');
+            console.log('EXPORT-BTN: Disabled - no changes tracked');
         }
 
         currentPage = 1;
@@ -704,8 +706,10 @@ jQuery(document).ready(function ($) {
         exportToCSV();
     });
 
-    // Stat box filters
-
+    // ===== STAT CARDS ARE NOW NON-CLICKABLE (display-only) =====
+    // Removed click handler per user request - stats cards should not filter results
+    // They are informational only: Total Images, Missing Alt Text, With Alt Text
+    /*
     $('.stat-card').on('click', function () {
         const $card = $(this);
         const statId = $card.find('.stat-number').attr('id');
@@ -730,6 +734,7 @@ jQuery(document).ready(function ($) {
         currentFilter = filterType;
         filterResults(filterType);
     });
+    */
 
     /**
      * Scan all images (UX-IMPROVEMENT: No filtering, loads ALL images)
