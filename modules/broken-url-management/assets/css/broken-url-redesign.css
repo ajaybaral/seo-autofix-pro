@@ -352,6 +352,11 @@
     color: #991b1b;
 }
 
+.status-badge.error-connection {
+    background: #f3f4f6;
+    color: #4b5563;
+}
+
 .column-action {
     width: 20%;
     text-align: center;
@@ -464,6 +469,11 @@
 .error-badge.error-5xx {
     background: #fee2e2;
     color: #991b1b;
+}
+
+.error-badge.error-connection {
+    background: #f3f4f6;
+    color: #4b5563;
 }
 
 .fix-options {
@@ -887,7 +897,9 @@
 .link-type-badge.badge-external {
     background: #fef3c7;
     color: #92400e;
-}/**
+}
+
+/**
  * Broken URL Management - Redesigned UI Styles
  * Matching the new design mockup
  */

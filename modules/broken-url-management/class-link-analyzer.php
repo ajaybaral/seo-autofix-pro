@@ -79,7 +79,7 @@ class Link_Analyzer
 
             // Determine replacement URL priority: custom_url > user_modified_url > suggested_url
             $replacement_url = '';
-            
+
             if (!empty($custom_url)) {
                 $replacement_url = $custom_url;
                 error_log('[APPLY_FIXES] Using custom URL from parameter: ' . $replacement_url);
@@ -102,7 +102,7 @@ class Link_Analyzer
                     );
                     continue;
                 }
-                
+
                 error_log('[APPLY_FIXES] No replacement URL available for: ' . $entry['broken_url']);
                 $failed_count++;
                 $messages[] = sprintf(
@@ -131,13 +131,13 @@ class Link_Analyzer
                 // Log activity for reporting
                 global $wpdb;
                 $table_activity = $wpdb->prefix . 'seoautofix_broken_links_activity';
-                
+
                 error_log('[ACTIVITY LOG] Attempting to log fix/replace activity for ID: ' . $entry_id);
                 error_log('[ACTIVITY LOG] Scan ID: ' . $entry['scan_id']);
                 error_log('[ACTIVITY LOG] Broken URL: ' . $entry['broken_url']);
                 error_log('[ACTIVITY LOG] Replacement URL: ' . $replacement_url);
                 error_log('[ACTIVITY LOG] Action type: ' . ($custom_url ? 'replaced' : 'fixed'));
-                
+
                 $insert_result = $wpdb->insert($table_activity, array(
                     'scan_id' => $entry['scan_id'],
                     'entry_id' => $entry_id,
@@ -147,7 +147,7 @@ class Link_Analyzer
                     'page_url' => $entry['found_on_url'],
                     'page_title' => $entry['found_on_page_title']
                 ), array('%s', '%d', '%s', '%s', '%s', '%s', '%s'));
-                
+
                 if ($insert_result === false) {
                     error_log('[ACTIVITY LOG ERROR] Failed to insert activity log! wpdb error: ' . $wpdb->last_error);
                     error_log('[ACTIVITY LOG ERROR] wpdb last_query: ' . $wpdb->last_query);
@@ -212,68 +212,68 @@ class Link_Analyzer
         error_log('[REPLACE_LINK] Got post. Title: ' . $post->post_title . ', Content length: ' . strlen($post->post_content));
 
         $content = $post->post_content;
-        
+
         // Normalize URLs - remove trailing slashes for comparison
         $normalized_broken = untrailingslashit($broken_url);
         $normalized_replacement = untrailingslashit($replacement_url);
-        
+
         error_log('[REPLACE_LINK] Original broken URL: ' . $broken_url);
         error_log('[REPLACE_LINK] Normalized broken URL: ' . $normalized_broken);
-        
+
         // Multiple patterns to catch different URL formats in HTML
         // This handles: trailing slashes, HTML entities, different quote styles, plain text
         $patterns = array();
         $replacements = array();
-        
+
         // Pattern 1: Standard href with double quotes - exact match
         $patterns[] = '/href="' . preg_quote($broken_url, '/') . '"/i';
         $replacements[] = 'href="' . esc_url($replacement_url) . '"';
-        
+
         // Pattern 2: Standard href with single quotes - exact match
         $patterns[] = "/href='" . preg_quote($broken_url, '/') . "'/i";
         $replacements[] = 'href="' . esc_url($replacement_url) . '"';
-        
+
         // Pattern 3: Standard src with double quotes - exact match
         $patterns[] = '/src="' . preg_quote($broken_url, '/') . '"/i';
         $replacements[] = 'src="' . esc_url($replacement_url) . '"';
-        
+
         // Pattern 4: Standard src with single quotes - exact match
         $patterns[] = "/src='" . preg_quote($broken_url, '/') . "'/i";
         $replacements[] = 'src="' . esc_url($replacement_url) . '"';
-        
+
         // Pattern 5: href with optional trailing slash (normalized version)
         $patterns[] = '/href="' . preg_quote($normalized_broken, '/') . '\/?"/i';
         $replacements[] = 'href="' . esc_url($replacement_url) . '"';
-        
+
         // Pattern 6: href with single quotes and optional trailing slash
         $patterns[] = "/href='" . preg_quote($normalized_broken, '/') . '\/?' . "'/i";
         $replacements[] = 'href="' . esc_url($replacement_url) . '"';
-        
+
         // Pattern 7: src with optional trailing slash (normalized version)
         $patterns[] = '/src="' . preg_quote($normalized_broken, '/') . '\/?"/i';
         $replacements[] = 'src="' . esc_url($replacement_url) . '"';
-        
+
         // Pattern 8: src with single quotes and optional trailing slash
         $patterns[] = "/src='" . preg_quote($normalized_broken, '/') . '\/?' . "'/i";
         $replacements[] = 'src="' . esc_url($replacement_url) . '"';
-        
+
         // Pattern 9: HTML entity quotes (&quot;) - exact match
         $patterns[] = '/href=&quot;' . preg_quote($broken_url, '/') . '&quot;/i';
         $replacements[] = 'href=&quot;' . esc_url($replacement_url) . '&quot;';
-        
+
         // Pattern 10: HTML entity quotes for src
         $patterns[] = '/src=&quot;' . preg_quote($broken_url, '/') . '&quot;/i';
         $replacements[] = 'src=&quot;' . esc_url($replacement_url) . '&quot;';
-        
+
         // Pattern 11: HTML entity quotes with optional trailing slash
         $patterns[] = '/href=&quot;' . preg_quote($normalized_broken, '/') . '\/?&quot;/i';
         $replacements[] = 'href=&quot;' . esc_url($replacement_url) . '&quot;';
-        
+
         // Pattern 12: Plain text URL (not in attributes) - be careful with this one
         // Only match if not preceded by quote or equals
         $patterns[] = '/(?<!["\'=>])' . preg_quote($broken_url, '/') . '(?!["\'])/i';
         $replacements[] = esc_url($replacement_url);
-        
+
         error_log('[REPLACE_LINK] Using ' . count($patterns) . ' patterns for flexible matching');
 
         $new_content = preg_replace($patterns, $replacements, $content);
@@ -282,16 +282,16 @@ class Link_Analyzer
         if ($new_content === $content) {
             // No changes made with regex, try simple string replacement as fallback
             error_log('[REPLACE_LINK] Regex patterns did not match, trying simple string replace');
-            
+
             // Try exact string replacement
             $new_content = str_replace($broken_url, $replacement_url, $content);
-            
+
             // If still no match, try without trailing slash
             if ($new_content === $content && $broken_url !== $normalized_broken) {
                 error_log('[REPLACE_LINK] Trying normalized URL without trailing slash');
                 $new_content = str_replace($normalized_broken, $normalized_replacement, $content);
             }
-            
+
             // Final check
             if ($new_content === $content) {
                 error_log('[REPLACE_LINK] No changes made - link not found in content in any format');
@@ -402,5 +402,180 @@ class Link_Analyzer
         $stats['pending'] = $stats['total_broken'] - $stats['fixed'];
 
         return $stats;
+    }
+
+    /**
+     * Check if a post is built with Elementor
+     * 
+     * @param int $post_id Post ID  
+     * @return bool True if Elementor page
+     */
+    private function is_elementor_page($post_id)
+    {
+        return get_post_meta($post_id, '_elementor_edit_mode', true) === 'builder';
+    }
+
+    /**
+     * Get Elementor data for a post
+     * 
+     * @param int $post_id Post ID
+     * @return array|false Elementor data array or false
+     */
+    private function get_elementor_data($post_id)
+    {
+        $data = get_post_meta($post_id, '_elementor_data', true);
+
+        if (empty($data)) {
+            error_log('[ELEMENTOR] No _elementor_data found for post ID: ' . $post_id);
+            return false;
+        }
+
+        $decoded = json_decode($data, true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            error_log('[ELEMENTOR] JSON decode error: ' . json_last_error_msg());
+            return false;
+        }
+
+        return $decoded;
+    }
+
+    /**
+     * Replace link in Elementor page
+     * 
+     * @param int $post_id Post ID
+     * @param string $broken_url URL to replace
+     * @param string $replacement_url New URL
+     * @return bool True on success
+     */
+    private function replace_link_in_elementor($post_id, $broken_url, $replacement_url)
+    {
+        error_log('[ELEMENTOR] Starting replacement for post ID: ' . $post_id);
+        error_log('[ELEMENTOR] Broken URL: ' . $broken_url);
+        error_log('[ELEMENTOR] Replacement URL: ' . $replacement_url);
+
+        // Get Elementor data
+        $data = $this->get_elementor_data($post_id);
+
+        if ($data === false) {
+            error_log('[ELEMENTOR] Failed to get Elementor data');
+            return false;
+        }
+
+        // Track if any replacement was made
+        $replaced = false;
+
+        // Recursively replace URLs in the data structure
+        $modified_data = $this->replace_url_in_elementor_data_recursive($data, $broken_url, $replacement_url, $replaced);
+
+        if (!$replaced) {
+            error_log('[ELEMENTOR] No replacements made - URL not found in Elementor data');
+            return false;
+        }
+
+        // Save the modified data
+        return $this->save_elementor_data($post_id, $modified_data);
+    }
+
+    /**
+     * Recursively replace URLs in Elementor data structure
+     * 
+     * @param mixed $data Current data element
+     * @param string $broken_url URL to replace
+     * @param string $replacement_url New URL
+     * @param bool &$replaced Reference to track if replacement occurred
+     * @return mixed Modified data
+     */
+    private function replace_url_in_elementor_data_recursive($data, $broken_url, $replacement_url, &$replaced)
+    {
+        // Handle arrays
+        if (is_array($data)) {
+            foreach ($data as $key => $value) {
+                // Check specific Elementor fields that commonly contain URLs
+                if ($key === 'url' && is_string($value)) {
+                    // Direct URL field
+                    if ($this->urls_match($value, $broken_url)) {
+                        error_log('[ELEMENTOR] Found URL in field: ' . $key . ' = ' . $value);
+                        $data[$key] = $replacement_url;
+                        $replaced = true;
+                    }
+                } elseif ($key === 'link' && is_array($value) && isset($value['url'])) {
+                    // Link object with URL property
+                    if ($this->urls_match($value['url'], $broken_url)) {
+                        error_log('[ELEMENTOR] Found URL in link.url: ' . $value['url']);
+                        $data[$key]['url'] = $replacement_url;
+                        $replaced = true;
+                    }
+                } elseif (in_array($key, ['text', 'editor', 'html', 'code', 'title']) && is_string($value)) {
+                    // Text/HTML fields that might contain links
+                    if (stripos($value, $broken_url) !== false) {
+                        error_log('[ELEMENTOR] Found URL in text field: ' . $key);
+                        $data[$key] = str_replace($broken_url, $replacement_url, $value);
+                        $replaced = true;
+                    }
+                } else {
+                    // Recursively process nested structures
+                    $data[$key] = $this->replace_url_in_elementor_data_recursive($value, $broken_url, $replacement_url, $replaced);
+                }
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * Check if two URLs match (handles trailing slashes)
+     * 
+     * @param string $url1 First URL
+     * @param string $url2 Second URL
+     * @return bool True if URLs match
+     */
+    private function urls_match($url1, $url2)
+    {
+        $normalized1 = untrailingslashit($url1);
+        $normalized2 = untrailingslashit($url2);
+        return $normalized1 === $normalized2;
+    }
+
+    /**
+     * Save Elementor data and clear cache
+     * 
+     * @param int $post_id Post ID
+     * @param array $data Modified Elementor data
+     * @return bool True on success
+     */
+    private function save_elementor_data($post_id, $data)
+    {
+        error_log('[ELEMENTOR] Saving modified data for post ID: ' . $post_id);
+
+        // Encode data
+        $json = wp_json_encode($data);
+
+        if ($json === false) {
+            error_log('[ELEMENTOR] Failed to encode data to JSON');
+            return false;
+        }
+
+        // Update post meta
+        $result = update_post_meta($post_id, '_elementor_data', wp_slash($json));
+
+        if ($result === false) {
+            error_log('[ELEMENTOR] Failed to update post meta');
+            return false;
+        }
+
+        // Clear Elementor cache
+        if (class_exists('\\Elementor\\Plugin')) {
+            try {
+                error_log('[ELEMENTOR] Clearing Elementor cache');
+                \Elementor\Plugin::$instance->files_manager->clear_cache();
+            } catch (\Exception $e) {
+                error_log('[ELEMENTOR] Cache clear error: ' . $e->getMessage());
+                // Don't fail if cache clear fails
+            }
+        }
+
+        error_log('[ELEMENTOR] Successfully saved and cleared cache');
+        return true;
     }
 }

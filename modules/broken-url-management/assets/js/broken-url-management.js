@@ -609,8 +609,15 @@
     function createResultRow(result, serialNumber) {
         const isFixed = result.is_fixed == 1;
         const statusCode = parseInt(result.status_code) || 0;
-        const errorType = result.error_type || (statusCode >= 500 ? '5xx' : '4xx');
-        const errorClass = errorType === '5xx' ? 'error-5xx' : 'error-4xx';
+        // Handle status code 0 (connection failures) separately
+        let errorType, errorClass;
+        if (statusCode === 0) {
+            errorType = result.error_type || 'Connection';
+            errorClass = 'error-connection'; // Use connection error styling
+        } else {
+            errorType = result.error_type || (statusCode >= 500 ? '5xx' : '4xx');
+            errorClass = errorType === '5xx' ? 'error-5xx' : 'error-4xx';
+        }
 
         // Determine link type display (Anchor Text vs Naked Link)
         let linkTypeDisplay = '';
@@ -673,7 +680,7 @@
             '</span>' +
             '</td>' +
             '<td class="column-status">' +
-            '<span class="status-text">' + statusCode + ' Error</span> ' +
+            '<span class="status-text">' + (statusCode === 0 ? 'Connection Failed' : statusCode + ' Error') + '</span> ' +
             '<span class="status-badge ' + errorClass + '">' + errorType + '</span>' +
             '</td>' +
             '<td class="column-action">' +
