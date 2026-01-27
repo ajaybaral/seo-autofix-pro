@@ -248,8 +248,8 @@ class URL_Similarity
     private function get_homepage_fallback()
     {
         return array(
-            'url' => null, // No suggested URL - let UI show redirect to home as option
-            'reason' => __('No relevant page found. Please provide a custom link or redirect to home.', 'seo-autofix-pro'),
+            'url' => home_url('/'), // Suggest homepage when no relevant page found
+            'reason' => __('No highly relevant page found. Suggesting homepage as fallback.', 'seo-autofix-pro'),
             'score' => 0
         );
     }

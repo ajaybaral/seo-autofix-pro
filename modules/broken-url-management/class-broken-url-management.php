@@ -1229,20 +1229,35 @@ class SEOAutoFix_Broken_Url_Management
                 continue;
             }
 
+            // For Elementor pages, store both post_content AND _elementor_data meta
+            $is_elementor = get_post_meta($page_id, '_elementor_edit_mode', true) === 'builder';
+            $original_content = $post->post_content;
+
+            if ($is_elementor) {
+                $elementor_data = get_post_meta($page_id, '_elementor_data', true);
+                error_log('[SNAPSHOT] Page ' . $page_id . ' is Elementor page, storing _elementor_data as well');
+                // Store Elementor data as JSON in a special format
+                $original_content = json_encode(array(
+                    'is_elementor' => true,
+                    'post_content' => $post->post_content,
+                    'elementor_data' => $elementor_data
+                ));
+            }
+
             // Insert snapshot
             $inserted = $wpdb->insert(
                 $table_snapshot,
                 array(
                     'scan_id' => $scan_id,
                     'page_id' => $page_id,
-                    'original_content' => $post->post_content
+                    'original_content' => $original_content
                 ),
                 array('%s', '%d', '%s')
             );
 
             if ($inserted) {
                 $snapshot_count++;
-                error_log('[SNAPSHOT] Saved content for page ' . $page_id . ' (post: ' . $post->post_title . ')');
+                error_log('[SNAPSHOT] Saved content for page ' . $page_id . ' (post: ' . $post->post_title . ', Elementor: ' . ($is_elementor ? 'yes' : 'no') . ')');
             } else {
                 error_log('[SNAPSHOT] Failed to save snapshot for page ' . $page_id . ': ' . $wpdb->last_error);
             }
@@ -1301,16 +1316,46 @@ class SEOAutoFix_Broken_Url_Management
             $page_id = intval($snapshot['page_id']);
             $original_content = $snapshot['original_content'];
 
-            $updated = wp_update_post(array(
-                'ID' => $page_id,
-                'post_content' => $original_content
-            ), true);
+            // Check if this is an Elementor snapshot (stored as JSON)
+            $snapshot_data = json_decode($original_content, true);
 
-            if (is_wp_error($updated)) {
-                error_log('[UNDO] Failed to restore page ' . $page_id . ': ' . $updated->get_error_message());
+            if ($snapshot_data && isset($snapshot_data['is_elementor']) && $snapshot_data['is_elementor']) {
+                // Elementor page - restore both post_content and _elementor_data
+                error_log('[UNDO] Restoring Elementor page ' . $page_id);
+
+                $updated = wp_update_post(array(
+                    'ID' => $page_id,
+                    'post_content' => $snapshot_data['post_content']
+                ), true);
+
+                if (!is_wp_error($updated)) {
+                    // Restore Elementor data
+                    update_post_meta($page_id, '_elementor_data', wp_slash($snapshot_data['elementor_data']));
+
+                    // Clear Elementor cache
+                    if (class_exists('\Elementor\Plugin')) {
+                        \Elementor\Plugin::$instance->files_manager->clear_cache();
+                        error_log('[UNDO] Cleared Elementor cache for page ' . $page_id);
+                    }
+
+                    $restored_count++;
+                    error_log('[UNDO] Restored Elementor content for page ' . $page_id);
+                } else {
+                    error_log('[UNDO] Failed to restore Elementor page ' . $page_id . ': ' . $updated->get_error_message());
+                }
             } else {
-                $restored_count++;
-                error_log('[UNDO] Restored content for page ' . $page_id);
+                // Regular WordPress page - restore post_content only
+                $updated = wp_update_post(array(
+                    'ID' => $page_id,
+                    'post_content' => $original_content
+                ), true);
+
+                if (is_wp_error($updated)) {
+                    error_log('[UNDO] Failed to restore page ' . $page_id . ': ' . $updated->get_error_message());
+                } else {
+                    $restored_count++;
+                    error_log('[UNDO] Restored content for page ' . $page_id);
+                }
             }
         }
         // Delete snapshots after restore
@@ -1323,7 +1368,7 @@ class SEOAutoFix_Broken_Url_Management
 
         // Get the page IDs that were restored
         $restored_page_ids = array_column($snapshots, 'page_id');
-        error_log('[UNDO] Cleaning up database entries for pages: ' . implode(', ', $restored_page_ids));
+        error_log('[UNDO] Cleaning up database entries for pages: ' . implode(',', $restored_page_ids));
 
         // Delete activity log entries for this scan (all fixes/deletes done in this scan)
         $activity_deleted = $wpdb->delete(
@@ -1333,15 +1378,15 @@ class SEOAutoFix_Broken_Url_Management
         );
         error_log('[UNDO] Deleted ' . $activity_deleted . ' activity log entries');
 
-        // Delete scan results for restored pages so they'll be re-scanned
-        // This removes the "fixed" status from broken links entries
+        // Mark broken links as unfixed instead of deleting them
+        // This way they'll appear again in the results with the Fix button
         if (!empty($restored_page_ids)) {
             $placeholders = implode(',', array_fill(0, count($restored_page_ids), '%d'));
-            $results_deleted = $wpdb->query($wpdb->prepare(
-                "DELETE FROM {$table_scan_results} WHERE scan_id = %s AND page_id IN ($placeholders)",
+            $results_updated = $wpdb->query($wpdb->prepare(
+                "UPDATE {$table_scan_results} SET is_fixed = 0 WHERE scan_id = %s AND found_on_page_id IN ($placeholders)",
                 array_merge(array($scan_id), $restored_page_ids)
             ));
-            error_log('[UNDO] Deleted ' . $results_deleted . ' scan result entries for restored pages');
+            error_log('[UNDO] Marked ' . $results_updated . ' entries as unfixed for restored pages');
         }
 
         wp_send_json_success(array(

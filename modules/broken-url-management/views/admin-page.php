@@ -207,10 +207,6 @@ $recent_scans = $db_manager->get_scans(10);
         <!-- Bulk Action Buttons -->
         <div class="bulk-actions-section">
             <div class="bulk-actions-left">
-                <button id="undo-last-fix-btn" class="button" disabled>
-                    <span class="dashicons dashicons-undo"></span>
-                    <?php echo esc_html__('Undo Last Fix', 'seo-autofix-pro'); ?>
-                </button>
                 <button id="remove-broken-links-btn" class="button">
                     <?php echo esc_html__('Remove Broken Links', 'seo-autofix-pro'); ?>
                 </button>
