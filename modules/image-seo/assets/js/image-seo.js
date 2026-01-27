@@ -366,14 +366,10 @@ jQuery(document).ready(function ($) {
             });
         }
 
-        // Filter-Scoped CSV: Clear changes when switching filters
+        // Filter-Scoped CSV: DON'T clear changes when switching filters - track ALL changes globally
         if (currentFilterValue !== filterValue) {
-            console.log('FILTER-CSV: Filter changed from', currentFilterValue, 'to', filterValue, '- clearing', filterChanges.length, 'tracked changes');
-            filterChanges = [];
+            console.log('FILTER-CSV: Filter changed from', currentFilterValue, 'to', filterValue, '- keeping', filterChanges.length, 'tracked changes');
             currentFilterValue = filterValue;
-
-            // Show the export button (disabled until changes are made)
-            $exportFilterCsvBtn.show().prop('disabled', true);
         }
 
         currentPage = 1;
@@ -921,6 +917,10 @@ jQuery(document).ready(function ($) {
 
                         // SHOW Export CSV button after scan completes
                         $('#export-csv-btn').show();
+
+                        // SHOW Export Changes in CSV button (disabled until changes are made)
+                        $exportFilterCsvBtn.show().prop('disabled', true);
+
                         $resultsTable.show();
 
                         console.log('SCAN-DEBUG: Showing filter controls, stats, and results after scan');
@@ -1967,6 +1967,21 @@ jQuery(document).ready(function ($) {
 
                     // Show toast
                     showToast(`Alt text applied `, 'success');
+
+                    // TRACK CHANGE for Export Changes CSV
+                    const imageData = scannedImages.find(img => img.id == attachmentId);
+                    if (imageData) {
+                        filterChanges.push({
+                            attachment_id: attachmentId,
+                            alt_text: altText,
+                            filename: imageData.filename || '',
+                            url: imageData.url || ''
+                        });
+                        console.log('FILTER-CSV: Tracked change for image', attachmentId, '- Total changes:', filterChanges.length);
+
+                        // Enable the Export Changes button
+                        $exportFilterCsvBtn.prop('disabled', false);
+                    }
 
                     // Re-enable button
                     $btn.prop('disabled', false).text('Apply');

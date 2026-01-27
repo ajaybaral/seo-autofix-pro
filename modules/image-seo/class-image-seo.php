@@ -412,11 +412,26 @@ class SEOAutoFix_Image_SEO
 
 
 
+
             // Generate new suggestion via AI
             $context = $this->usage_tracker->get_image_usage($attachment_id);
             $alt_text = $this->alt_generator->generate_alt_text($attachment_id, $context);
 
+            // FALLBACK: If AI returns an error message or can't analyze the image, default to "Blank Image"
+            $error_patterns = ['sorry', 'cannot', 'can\'t', 'unable', 'please provide', 'provide a detailed'];
+            $is_error_response = false;
 
+            foreach ($error_patterns as $pattern) {
+                if (stripos($alt_text, $pattern) !== false) {
+                    $is_error_response = true;
+                    break;
+                }
+            }
+
+            // If AI failed to generate meaningful alt text, use default
+            if ($is_error_response || empty(trim($alt_text))) {
+                $alt_text = 'Blank Image';
+            }
 
             // Get current alt text and issue type for audit
             $current_alt = get_post_meta($attachment_id, '_wp_attachment_image_alt', true);
