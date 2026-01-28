@@ -769,7 +769,9 @@ jQuery(document).ready(function ($) {
         $('.imageseo-pagination').hide();
         console.log('SCAN-DEBUG: Hidden filter controls and pagination during scan');
 
-        $statsSection.hide();
+        // FIX: Show stats section immediately so it can update in real-time
+        $statsSection.show();
+        console.log('SCAN-DEBUG: Stats section shown for real-time updates');
         $filtersSection.hide();
 
         // Reset active filter when new scan starts
@@ -835,6 +837,12 @@ jQuery(document).ready(function ($) {
                     const progress = Math.min(100, (offset + 50) / 500 * 100);
                     $progressFill.css('width', progress + '%');
                     console.log('Progress:', progress + '%');
+
+                    // FIX: Update stats in real-time after each batch
+                    if (scannedImages.length > 0) {
+                        updateStats();
+                        console.log('STATS-REALTIME: Updated stats after batch, total images:', scannedImages.length);
+                    }
 
                     // Continue scanning if there are more
                     if (response.data.hasMore) {
@@ -1127,8 +1135,8 @@ jQuery(document).ready(function ($) {
             const group = groups[groupKey];
             console.log('GROUPING-DEBUG: [Frontend] Rendering group:', groupKey, '- Title:', group.title, '- Images:', group.images.length);
 
-            // Add heading row
-            addHeadingRow(group.title, group.type);
+            // Add heading row with URL and title
+            addHeadingRow(group.title, group.url, group.type);
 
             // Add image rows for this group
             group.images.forEach((image) => {
@@ -1164,11 +1172,12 @@ jQuery(document).ready(function ($) {
                 if (!groups[groupKey]) {
                     groups[groupKey] = {
                         title: detail.title,
+                        url: detail.url || '',  // Capture URL for heading display
                         type: detail.type,
                         post_id: detail.post_id,
                         images: []
                     };
-                    console.log('GROUPING-DEBUG: [Frontend] Created new group:', groupKey, '- Title:', detail.title);
+                    console.log('GROUPING-DEBUG: [Frontend] Created new group:', groupKey, '- Title:', detail.title, '- URL:', detail.url);
                 }
 
                 groups[groupKey].images.push(image);
@@ -1181,18 +1190,25 @@ jQuery(document).ready(function ($) {
 
     /**
      * Add a heading row for a post/page group
+     * @param {string} title - Page/post title 
+     * @param {string} url - Page/post URL
+     * @param {string} type - 'post' or 'page'
      */
-    function addHeadingRow(title, type) {
-        console.log('GROUPING-DEBUG: [Frontend] Adding heading row - Title:', title, 'Type:', type);
-
+    function addHeadingRow(title, url, type) {
+        console.log('GROUPING-DEBUG: [Frontend] Adding heading row - Title:', title, 'URL:', url, 'Type:', type);
 
         const typeLabel = type === 'post' ? 'Post' : 'Page';
         const cssClass = type === 'post' ? 'post-type' : 'page-type';
 
+        // Build heading with URL as main text and title as subtitle
         const $headingRow = $(`
             <tr class="post-page-heading ${cssClass}">
                 <td colspan="5">
-                    <h3> ${typeLabel}: ${title}</h3>
+                    <div class="page-header-content">
+                        <div class="page-type-label">${typeLabel}</div>
+                        <a href="${url}" target="_blank" class="page-url">${url}</a>
+                        <div class="page-title">${title}</div>
+                    </div>
                 </td>
             </tr>
         `);

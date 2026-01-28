@@ -39,12 +39,8 @@
     border-radius: 6px;
     padding: 18px 16px;
     text-align: center;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    transition: box-shadow 0.2s ease;
-}
-
-.stat-card:hover {
-    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    /* Removed hover transition and effects - stat cards are now display-only */
 }
 
 .stat-card.stat-parent {
@@ -100,26 +96,8 @@
     color: #fff !important;
 }
 
-/* UX-IMPROVEMENT: Active state for main clickable stat cards */
-.stat-card.clickable {
-    cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.stat-card.clickable:hover {
-    transform: translateY(-2px);
-}
-
-.stat-card.clickable.active {
-    background: #2271b1;
-    border-color: #135e96;
-    box-shadow: 0 4px 12px rgba(34, 113, 177, 0.3);
-}
-
-.stat-card.clickable.active .stat-number,
-.stat-card.clickable.active .stat-label {
-    color: #fff !important;
-}
+/* REMOVED: Main stat cards are no longer clickable */
+/* The 3 main cards (Total, With Alt, Without Alt) are display-only */
 
 .stat-card.stat-success {
     border-color: #00a32a;
@@ -190,8 +168,13 @@
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
 }
 
 @keyframes slideDown {
@@ -199,6 +182,7 @@
         opacity: 0;
         transform: translateY(-30px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -577,7 +561,7 @@
     right: 20px;
     background: #fff;
     border-left: 4px solid #00a32a;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     padding: 16px 20px;
     border-radius: 4px;
     display: flex;
@@ -623,21 +607,21 @@
     .imageseo-stats {
         grid-template-columns: 1fr 1fr;
     }
-    
+
     .imageseo-filters {
         flex-direction: column;
         gap: 15px;
     }
-    
+
     .filter-left,
     .filter-right {
         width: 100%;
     }
-    
+
     .filter-right button {
         width: 100%;
     }
-    
+
     .imageseo-toast {
         right: 10px;
         left: 10px;
@@ -645,27 +629,8 @@
     }
 }
 
-/* Clickable stat cards */
-.stat-card {
-    cursor: pointer;
-    transition: all 0.2s ease transform 0.2s ease;
-}
-
-.stat-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-}
-
-.stat-card.filter-active {
-    border-color: #2271b1;
-    border-width: 2px;
-    box-shadow: 0 0 0 1px #2271b1;
-}
-
-
-.stat-card.filter-active .stat-number {
-    color: #2271b1;
-}
+/* REMOVED: Main stat cards are display-only, no longer clickable */
+/* No hover effects, cursor changes, or active/filter states */
 
 /* Post/Page Heading Rows */
 .post-page-heading {
@@ -678,14 +643,40 @@
     padding: 12px 16px !important;
 }
 
-.post-page-heading h3 {
-    margin: 0;
-    font-size: 14px;
-    color: #2271b1;
-    font-weight: 600;
+/* New page header content structure */
+.page-header-content {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.page-type-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: #2271b1;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.page-url {
+    font-size: 15px;
+    font-weight: 600;
+    color: #2271b1;
+    text-decoration: none;
+    display: inline-block;
+    transition: color 0.2s ease;
+}
+
+.page-url:hover {
+    color: #135e96;
+    text-decoration: underline;
+}
+
+.page-title {
+    font-size: 12px;
+    color: #646970;
+    font-weight: 400;
+    margin-top: 2px;
 }
 
 .post-page-heading.page-type {
@@ -693,12 +684,16 @@
     border-left-color: #00a32a;
 }
 
-.post-page-heading.page-type h3 {
+.post-page-heading.page-type .page-type-label {
+    color: #00a32a;
+}
+
+.post-page-heading.page-type .page-url {
     color: #00a32a;
 }
 
 /* Images within grouped sections */
-.post-page-heading + .result-row {
+.post-page-heading+.result-row {
     border-top: none;
 }
 
@@ -722,7 +717,8 @@
 .stat-card.clickable,
 .stat-subcard.clickable {
     cursor: default !important;
-    pointer-events: none !important; /* CRITICAL: Completely disable clicks */
+    pointer-events: none !important;
+    /* CRITICAL: Completely disable clicks */
 }
 
 .stat-card.clickable:hover,

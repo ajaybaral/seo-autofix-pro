@@ -18,8 +18,9 @@ if (!defined('ABSPATH')) {
 /**
  * Image Analyzer Class
  */
-class Image_Analyzer {
-    
+class Image_Analyzer
+{
+
     /**
      * Generic alt text patterns
      */
@@ -33,7 +34,7 @@ class Image_Analyzer {
         '/^img[0-9]+$/',
         '/^image[0-9]+$/',
     );
-    
+
     /**
      * Scan all images in media library
      *
@@ -43,33 +44,34 @@ class Image_Analyzer {
      * @param string $status_filter Filter by status: 'blank' (default) or 'optimal'
      * @return array Array of images
      */
-    public function scan_all_images($batch_size = 50, $offset = 0, $usage_tracker = null, $status_filter = 'blank') {
+    public function scan_all_images($batch_size = 50, $offset = 0, $usage_tracker = null, $status_filter = 'blank')
+    {
         global $wpdb;
         $history_table = $wpdb->prefix . 'seoautofix_image_history';
-        
 
 
 
 
 
 
-        
+
+
         $valid_statuses = array('blank', 'optimal');
         if (!in_array($status_filter, $valid_statuses)) {
 
             $status_filter = 'blank';
         }
-        
 
 
 
-        
-        
+
+
+
         // UX-IMPROVEMENT: Scan ALL images (no filtering)
         // Frontend will handle filtering via stat card clicks
         // This ensures user sees all 167 images and can filter by clicking stats
 
-        
+
         $sql = $wpdb->prepare(
             "SELECT attachment_id, issue_type, status 
              FROM {$history_table} 
@@ -87,17 +89,17 @@ class Image_Analyzer {
             $batch_size,
             $offset
         );
-        
-
-        
 
 
-        
+
+
+
+
         $results_data = $wpdb->get_results($sql);
-        
 
 
-        
+
+
         if (count($results_data) > 0) {
 
 
@@ -113,30 +115,30 @@ class Image_Analyzer {
 
         }
 
-        
+
         $results = array();
-        
+
         foreach ($results_data as $row) {
             $attachment_id = $row->attachment_id;
             $metadata = $this->get_image_metadata($attachment_id);
             $issues = $this->detect_issues($attachment_id);
-            
+
             // Get usage data if tracker is provided
             $usage_data = array('used_in_posts' => 0, 'used_in_pages' => 0);
             $usage_details = array();
-            
+
             if ($usage_tracker) {
 
                 $usage = $usage_tracker->get_image_usage($attachment_id);
 
-                
+
                 // Count posts vs pages from the 'pages' array
                 $post_count = 0;
                 $page_count = 0;
-                
+
                 if (isset($usage['pages']) && is_array($usage['pages'])) {
 
-                    
+
                     foreach ($usage['pages'] as $page_data) {
                         if (isset($page_data['type'])) {
                             // Add to usage details for frontend grouping
@@ -146,7 +148,7 @@ class Image_Analyzer {
                                 'type' => $page_data['type'],
                                 'url' => isset($page_data['url']) ? $page_data['url'] : ''
                             );
-                            
+
                             // Count by type
                             // Posts = 'post', Pages = 'page' + any custom post type (elementor_library, etc.)
                             if ($page_data['type'] === 'post') {
@@ -157,18 +159,18 @@ class Image_Analyzer {
                             }
                         }
                     }
-                    
+
 
                 }
-                
+
                 $usage_data = array(
                     'used_in_posts' => $post_count,
                     'used_in_pages' => $page_count
                 );
-                
+
 
             }
-            
+
             $results[] = array(
                 'id' => $attachment_id,
                 'thumbnail' => wp_get_attachment_image_url($attachment_id, 'thumbnail'),
@@ -183,37 +185,39 @@ class Image_Analyzer {
                 'usage_details' => $usage_details  // NEW: Full post/page details for grouping
             );
         }
-        
 
 
 
 
-        
+
+
         if (count($results) > 0) {
-            $result_ids = array_map(function($r) { return $r['id']; }, $results);
+            $result_ids = array_map(function ($r) {
+                return $r['id']; }, $results);
 
 
         } else {
 
         }
 
-        
+
         return $results;
     }
-    
+
     /**
      * Detect issues for a specific image
      *
      * @param int $attachment_id The attachment ID
      * @return array Array of detected issues
      */
-    public function detect_issues($attachment_id) {
+    public function detect_issues($attachment_id)
+    {
         $alt_text = get_post_meta($attachment_id, '_wp_attachment_image_alt', true);
         $issues = array();
-        
 
 
-        
+
+
         // Check for empty alt text
         if (empty($alt_text)) {
             $issues[] = 'empty';
@@ -227,7 +231,7 @@ class Image_Analyzer {
         // Check length
         else {
             $length = strlen($alt_text);
-            
+
             if ($length < 10) {
                 $issues[] = 'too_short';
 
@@ -236,23 +240,23 @@ class Image_Analyzer {
 
             }
         }
-        
+
         // CRITICAL: Check SEO score - must be > 75 to be considered optimized
         if (!empty($alt_text)) {
             require_once IMAGESEO_MODULE_DIR . 'class-seo-scorer.php';
             require_once IMAGESEO_MODULE_DIR . 'class-api-manager.php';
             require_once IMAGESEO_MODULE_DIR . 'class-image-usage-tracker.php';
-            
+
             $api_manager = new API_Manager();
             $seo_scorer = new SEO_Scorer($api_manager);
             $usage_tracker = new Image_Usage_Tracker();
-            
+
             $context = $usage_tracker->get_image_usage($attachment_id);
             $score_data = $seo_scorer->score_alt_text($alt_text, $context);
             $score = $score_data['score'];
-            
 
-            
+
+
             // SCORE MUST BE > 75 (not >= 75, but strictly greater than 75)
             if ($score <= 75) {
                 $issues[] = 'low_score';
@@ -261,22 +265,23 @@ class Image_Analyzer {
 
             }
         }
-        
 
 
-        
+
+
         return $issues;
     }
-    
+
     /**
      * Check if alt text is generic
      *
      * @param string $alt_text The alt text to check
      * @return bool Whether the alt text is generic
      */
-    public function is_generic_alt($alt_text) {
+    public function is_generic_alt($alt_text)
+    {
         $alt_text_lower = strtolower(trim($alt_text));
-        
+
         foreach ($this->generic_patterns as $pattern) {
             // Check if pattern is regex
             if (strpos($pattern, '/') === 0) {
@@ -289,19 +294,20 @@ class Image_Analyzer {
                 return true;
             }
         }
-        
+
         return false;
     }
-    
+
     /**
      * Get image metadata
      *
      * @param int $attachment_id The attachment ID
      * @return array Image metadata
      */
-    public function get_image_metadata($attachment_id) {
+    public function get_image_metadata($attachment_id)
+    {
         $post = get_post($attachment_id);
-        
+
         return array(
             'title' => $post->post_title,
             'description' => $post->post_content,
@@ -310,7 +316,7 @@ class Image_Analyzer {
             'filename' => basename(get_attached_file($attachment_id))
         );
     }
-    
+
     /**
      * Classify issue type (primary issue)
      *
@@ -318,59 +324,62 @@ class Image_Analyzer {
      * @param string $alt_text The alt text
      * @return string Issue classification
      */
-    public function classify_issue($attachment_id, $alt_text) {
+    public function classify_issue($attachment_id, $alt_text)
+    {
         if (empty($alt_text)) {
             return 'empty';
         }
-        
+
         if ($this->is_generic_alt($alt_text)) {
             return 'generic';
         }
-        
+
         $length = strlen($alt_text);
-        
+
         if ($length < 10) {
             return 'too_short';
         }
-        
+
         if ($length > 60) {
             return 'too_long';
         }
-        
+
         return 'none';
     }
-    
+
     /**
      * Get total image count
      *
      * @return int Total number of images
      */
-    public function get_total_images() {
+    public function get_total_images()
+    {
         $args = array(
             'post_type' => 'attachment',
             'post_mime_type' => 'image',
-            'post_status' => 'inherit',
+            'post_status' => 'any',  // Changed from 'inherit' to 'any' to count ALL images
             'posts_per_page' => -1,
             'fields' => 'ids'
         );
-        
+
         $images = get_posts($args);
         return count($images);
     }
-    
+
     /**
      * Get statistics
      *
      * @return array Statistics array
      */
-    public function get_statistics() {
+    public function get_statistics()
+    {
         $all_images = get_posts(array(
             'post_type' => 'attachment',
             'post_mime_type' => 'image',
             'post_status' => 'inherit',
             'posts_per_page' => -1
         ));
-        
+
         $stats = array(
             'total' => count($all_images),
             'empty' => 0,
@@ -379,13 +388,13 @@ class Image_Analyzer {
             'too_long' => 0,
             'optimized' => 0
         );
-        
+
         // Debug counters
         $debug_samples = array('empty' => array(), 'optimized' => array());
-        
+
         foreach ($all_images as $image) {
             $issues = $this->detect_issues($image->ID);
-            
+
             if (empty($issues)) {
                 $stats['optimized']++;
                 // Sample first 3 optimized images for debugging
@@ -406,7 +415,7 @@ class Image_Analyzer {
                 }
             }
         }
-        
+
         // Log for debugging
 
 
@@ -414,7 +423,7 @@ class Image_Analyzer {
 
 
 
-        
+
         return $stats;
     }
 }

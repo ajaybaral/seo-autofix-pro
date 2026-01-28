@@ -417,8 +417,8 @@ class SEOAutoFix_Image_SEO
             $context = $this->usage_tracker->get_image_usage($attachment_id);
             $alt_text = $this->alt_generator->generate_alt_text($attachment_id, $context);
 
-            // FALLBACK: If AI returns an error message or can't analyze the image, default to "Blank Image"
-            $error_patterns = ['sorry', 'cannot', 'can\'t', 'unable', 'please provide', 'provide a detailed'];
+            // FALLBACK: If AI returns an error message or can't analyze the image
+            $error_patterns = ['sorry', 'cannot', 'can\'t', 'unable', 'please provide', 'provide a detailed', 'i cannot'];
             $is_error_response = false;
 
             foreach ($error_patterns as $pattern) {
@@ -428,9 +428,44 @@ class SEOAutoFix_Image_SEO
                 }
             }
 
-            // If AI failed to generate meaningful alt text, use default
+            // If AI failed, generate alt text from available metadata instead of 'Blank Image'
             if ($is_error_response || empty(trim($alt_text))) {
-                $alt_text = 'Blank Image';
+                $post = get_post($attachment_id);
+                $title = $post->post_title;
+                $description = $post->post_content;
+                $caption = $post->post_excerpt;
+                $filename = basename(get_attached_file($attachment_id));
+
+                // Remove file extension and clean filename
+                $filename_clean = preg_replace('/\.(jpg|jpeg|png|gif|webp|svg)$/i', '', $filename);
+                $filename_clean = str_replace(['-', '_'], ' ', $filename_clean);
+
+                // Priority 1: Use title if meaningful (not auto-generated)
+                if (!empty($title) && strlen($title) > 3 && !preg_match('/^(image|img|photo|picture)[\s\-_0-9]*$/i', $title)) {
+                    $alt_text = ucfirst(trim($title));
+                }
+                // Priority 2: Use description if available
+                elseif (!empty($description) && strlen($description) > 3) {
+                    $alt_text = ucfirst(trim(wp_strip_all_tags($description)));
+                    // Limit to first sentence or 100 chars
+                    $first_sentence = preg_split('/[.!?]\s/', $alt_text, 2);
+                    $alt_text = isset($first_sentence[0]) ? trim($first_sentence[0]) : $alt_text;
+                    if (strlen($alt_text) > 100) {
+                        $alt_text = substr($alt_text, 0, 97) . '...';
+                    }
+                }
+                // Priority 3: Use caption if available
+                elseif (!empty($caption) && strlen($caption) > 3) {
+                    $alt_text = ucfirst(trim($caption));
+                }
+                // Priority 4: Use cleaned filename
+                elseif (!empty($filename_clean) && strlen($filename_clean) > 3) {
+                    $alt_text = ucfirst(trim($filename_clean));
+                }
+                // Last Resort: Only now use 'Blank Image' when truly no metadata exists
+                else {
+                    $alt_text = 'Blank Image';
+                }
             }
 
             // Get current alt text and issue type for audit
@@ -815,11 +850,11 @@ class SEOAutoFix_Image_SEO
         $action_records = $wpdb->get_var("SELECT COUNT(*) FROM $table_name WHERE status IN ('generate', 'optimized', 'skipped')");
 
 
-        // Get ALL images from media library
+        // Get ALL images from media library (INCLUDING all statuses: inherit, private, trash, etc.)
         $all_images = get_posts(array(
             'post_type' => 'attachment',
             'post_mime_type' => 'image',
-            'post_status' => 'inherit',
+            'post_status' => 'any',  // Changed from 'inherit' to 'any' to catch ALL images
             'posts_per_page' => -1
         ));
 
@@ -1635,6 +1670,7 @@ class SEOAutoFix_Image_SEO
             $attachments = get_posts(array(
                 'post_type' => 'attachment',
                 'post_mime_type' => 'image',
+                'post_status' => 'any',  // Changed from 'inherit' to 'any' to match Media library
                 'posts_per_page' => -1,
                 'fields' => 'ids'
             ));
