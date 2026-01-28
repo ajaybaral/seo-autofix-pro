@@ -669,11 +669,11 @@
 
         row.html(
             '<td class="column-page">' +
-            '<strong>' + escapeHtml(pageTitle) + '</strong>' +
-            '<br>' +
-            '<a href="' + escapeHtml(result.found_on_url) + '" class="page-url-link" target="_blank" style="font-size: 0.9em; color: #666;">' +
+            '<a href="' + escapeHtml(result.found_on_url) + '" class="page-url-link" target="_blank" style="font-weight: bold;">' +
             escapeHtml(result.found_on_url) +
             '</a>' +
+            '<br>' +
+            '<span style="font-size: 0.85em; color: #666;">' + escapeHtml(pageTitle) + '</span>' +
             '</td>' +
             '<td class="column-broken-link">' +
             '<div class="link-type">' + linkTypeDisplay + '</div>' +
