@@ -862,7 +862,7 @@
         }
 
         // Add new rows for links we haven't shown yet
-        const $tbody = $('#results-table tbody');
+        const $tbody = $('#results-table-body'); // Fixed selector to match HTML
         let newRowsAdded = 0;
 
         brokenLinks.forEach(link => {
