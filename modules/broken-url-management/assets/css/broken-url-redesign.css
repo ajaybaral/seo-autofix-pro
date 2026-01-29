@@ -1026,3 +1026,69 @@
     border-color: #3b82f6;
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
+
+/* ========================================
+   CUSTOM URL VALIDATION FEEDBACK
+   ======================================== */
+
+.custom-url-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.custom-url-wrapper input {
+    flex: 1;
+}
+
+.url-validation-status {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 24px;
+}
+
+.url-validation-status .dashicons {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+}
+
+.url-validation-status.loading .dashicons {
+    color: #6b7280;
+    animation: spin 1s linear infinite;
+}
+
+.url-validation-status.valid .dashicons {
+    color: #10b981;
+}
+
+.url-validation-status.invalid .dashicons {
+    color: #dc2626;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.url-validation-message {
+    margin-top: 6px;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.url-validation-message.success {
+    color: #059669;
+}
+
+.url-validation-message.error {
+    color: #dc2626;
+}

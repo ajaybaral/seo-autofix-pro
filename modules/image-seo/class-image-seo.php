@@ -270,7 +270,15 @@ class SEOAutoFix_Image_SEO
 
         $batch_size = isset($_POST['batch_size']) ? absint($_POST['batch_size']) : 50;
         $offset = isset($_POST['offset']) ? absint($_POST['offset']) : 0;
-        $status_filter = isset($_POST['status_filter']) ? sanitize_text_field($_POST['status_filter']) : 'blank';
+        // Always show ALL images - no filtering by status
+        $status_filter = 'all';
+
+        // 🔍 DEBUG: Log scan parameters
+        error_log('🔍 [IMAGE-SEO-SCAN] ===== SCAN BATCH START =====');
+        error_log('🔍 [IMAGE-SEO-SCAN] Batch size: ' . $batch_size);
+        error_log('🔍 [IMAGE-SEO-SCAN] Offset: ' . $offset);
+        error_log('🔍 [IMAGE-SEO-SCAN] Status filter: ' . $status_filter);
+        error_log('🔍 [IMAGE-SEO-SCAN] Is first batch: ' . ($offset === 0 ? 'YES' : 'NO'));
 
 
 
@@ -281,6 +289,15 @@ class SEOAutoFix_Image_SEO
 
         try {
             $results = $this->analyzer->scan_all_images($batch_size, $offset, $this->usage_tracker, $status_filter);
+
+            // 🔍 DEBUG: Log scan results
+            error_log('🔍 [IMAGE-SEO-SCAN] Results returned: ' . count($results));
+            if (!empty($results)) {
+                error_log('🔍 [IMAGE-SEO-SCAN] First image ID: ' . $results[0]['id']);
+                error_log('🔍 [IMAGE-SEO-SCAN] First image title: ' . $results[0]['title']);
+            } else {
+                error_log('🔍 [IMAGE-SEO-SCAN] ⚠️ NO RESULTS RETURNED!');
+            }
 
             // CALCULATE SEO SCORES for "Before" column
             foreach ($results as &$image) {
@@ -329,7 +346,22 @@ class SEOAutoFix_Image_SEO
             if ($offset === 0) {
                 // Get statistics from history table
                 $response_data['stats'] = $this->image_history->get_statistics();
+
+                // 🎯 NEW: Get total image count for accurate progress calculation
+                global $wpdb;
+                $total_images = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'attachment' AND post_mime_type LIKE 'image/%'");
+                $response_data['total_images'] = (int) $total_images;
+
+                // 🔍 DEBUG: Log first batch response
+                error_log('🔍 [IMAGE-SEO-SCAN] First batch - Stats: ' . json_encode($response_data['stats']));
+                error_log('🔍 [IMAGE-SEO-SCAN] First batch - Total images in DB: ' . $total_images);
             }
+
+            // 🔍 DEBUG: Log final response
+            error_log('🔍 [IMAGE-SEO-SCAN] Response - Results count: ' . count($response_data['results']));
+            error_log('🔍 [IMAGE-SEO-SCAN] Response - Has more: ' . ($response_data['hasMore'] ? 'true' : 'false'));
+            error_log('🔍 [IMAGE-SEO-SCAN] Response - Next offset: ' . $response_data['offset']);
+            error_log('🔍 [IMAGE-SEO-SCAN] ===== SCAN BATCH END =====');
 
             wp_send_json_success($response_data);
 
@@ -567,7 +599,7 @@ class SEOAutoFix_Image_SEO
         try {
             global $wpdb;
             $table_audit = $wpdb->prefix . 'seoautofix_imageseo_audit';
-            $table_history = $wpdb->prefix . 'seoautofix_imageseo_history';
+            $table_history = $wpdb->prefix . 'seoautofix_image_history';
 
             // CRITICAL DEBUG: Log the apply attempt
 

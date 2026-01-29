@@ -174,9 +174,35 @@
         $('input[name="fix-action"]').on('change', function () {
             if ($(this).val() === 'custom') {
                 $('#custom-url-input').show();
+                $('#custom-url-field').focus();
             } else {
                 $('#custom-url-input').hide();
+                // Clear validation feedback when switching away from custom
+                clearUrlValidationFeedback();
             }
+        });
+
+        // Real-time validation for custom URL input (debounced)
+        let urlValidationTimeout;
+        $('#custom-url-field').on('input', function () {
+            const url = $(this).val().trim();
+
+            // Clear previous timeout
+            clearTimeout(urlValidationTimeout);
+
+            // Clear feedback if empty
+            if (!url) {
+                clearUrlValidationFeedback();
+                return;
+            }
+
+            // Show loading state
+            showUrlValidationFeedback('loading', '');
+
+            // Debounce validation (500ms)
+            urlValidationTimeout = setTimeout(function () {
+                validateCustomUrl(url);
+            }, 500);
         });
 
         // Auto-fix panel buttons
@@ -1954,7 +1980,7 @@
         if (action === 'suggested') {
             newUrl = result.suggested_url || result.user_modified_url;
         } else if (action === 'custom') {
-            newUrl = $('#custom-url-field').val();
+            newUrl = $('#custom-url-field').val().trim();
         } else if (action === 'home') {
             newUrl = window.location.origin;
         }
@@ -1964,6 +1990,53 @@
             return;
         }
 
+        // If custom URL, validate it first
+        if (action === 'custom') {
+            console.log('[APPLY FIX] Validating custom URL before saving:', newUrl);
+
+            // Check if validation feedback shows invalid
+            const $statusIcon = $('#url-validation-status');
+            if ($statusIcon.hasClass('invalid')) {
+                alert('Please enter a valid URL. The current URL is broken or invalid.');
+                return;
+            }
+
+            // Validate the URL before proceeding
+            $.ajax({
+                url: seoautofixBrokenUrls.ajax_url,
+                method: 'POST',
+                data: {
+                    action: 'seoautofix_broken_links_test_url',
+                    nonce: seoautofixBrokenUrls.nonce,
+                    url: newUrl
+                },
+                success: function (validationResponse) {
+                    if (validationResponse.success && validationResponse.data.is_valid) {
+                        // URL is valid, proceed with saving
+                        saveFixedUrl(result.id, newUrl);
+                    } else {
+                        // URL is invalid
+                        const errorMsg = validationResponse.data ? validationResponse.data.message : 'URL is invalid';
+                        alert('Cannot save broken URL: ' + errorMsg);
+                        showUrlValidationFeedback('invalid', errorMsg);
+                    }
+                },
+                error: function () {
+                    alert('Failed to validate URL. Please try again.');
+                }
+            });
+        } else {
+            // For suggested or home URLs, save directly
+            saveFixedUrl(result.id, newUrl);
+        }
+    }
+
+    /**
+     * Save the fixed URL (helper function for applyCurrentFix)
+     */
+    function saveFixedUrl(entryId, newUrl) {
+        console.log('[SAVE FIX] Saving URL for entry', entryId, ':', newUrl);
+
         // Apply fix via AJAX
         $.ajax({
             url: seoautofixBrokenUrls.ajaxUrl,
@@ -1971,11 +2044,15 @@
             data: {
                 action: 'seoautofix_broken_links_update_suggestion',
                 nonce: seoautofixBrokenUrls.nonce,
-                id: result.id,
+                id: entryId,
                 new_url: newUrl
             },
             success: function (response) {
                 if (response.success) {
+                    // Update the table row's suggested URL display
+                    updateTableRowSuggestedUrl(entryId, newUrl);
+
+                    // Close panel and refresh
                     $('#auto-fix-panel').slideUp();
                     loadScanResults(currentScanId);
                     alert('Fix applied successfully!');
@@ -4156,6 +4233,82 @@
         $('#bulk-progress-modal').fadeOut(200, function () {
             $(this).remove();
         });
+    }
+
+    /**
+     * Validate custom URL via AJAX
+     */
+    function validateCustomUrl(url) {
+        console.log('[URL VALIDATION] Testing URL:', url);
+
+        $.ajax({
+            url: seoautofixBrokenUrls.ajax_url,
+            method: 'POST',
+            data: {
+                action: 'seoautofix_broken_links_test_url',
+                nonce: seoautofixBrokenUrls.nonce,
+                url: url
+            },
+            success: function (response) {
+                console.log('[URL VALIDATION] Response:', response);
+
+                if (response.success && response.data.is_valid) {
+                    showUrlValidationFeedback('valid', response.data.message || 'URL is valid');
+                } else {
+                    const errorMsg = response.data ? response.data.message : 'URL validation failed';
+                    showUrlValidationFeedback('invalid', errorMsg);
+                }
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.error('[URL VALIDATION] Error:', textStatus, errorThrown);
+                showUrlValidationFeedback('invalid', 'Failed to validate URL');
+            }
+        });
+    }
+
+    /**
+     * Show URL validation feedback
+     */
+    function showUrlValidationFeedback(status, message) {
+        const $statusIcon = $('#url-validation-status');
+        const $message = $('#url-validation-message');
+
+        // Clear previous classes
+        $statusIcon.removeClass('loading valid invalid');
+        $message.removeClass('success error');
+
+        if (status === 'loading') {
+            $statusIcon.addClass('loading').html('<span class="dashicons dashicons-update"></span>');
+            $message.text('Validating URL...').removeClass('success error');
+        } else if (status === 'valid') {
+            $statusIcon.addClass('valid').html('<span class="dashicons dashicons-yes-alt"></span>');
+            $message.text(message).addClass('success');
+        } else if (status === 'invalid') {
+            $statusIcon.addClass('invalid').html('<span class="dashicons dashicons-dismiss"></span>');
+            $message.text(message).addClass('error');
+        }
+    }
+
+    /**
+     * Clear URL validation feedback
+     */
+    function clearUrlValidationFeedback() {
+        $('#url-validation-status').removeClass('loading valid invalid').html('');
+        $('#url-validation-message').removeClass('success error').text('');
+    }
+
+    /**
+     * Update table row's suggested URL display
+     */
+    function updateTableRowSuggestedUrl(entryId, newUrl) {
+        const $row = $(`tr[data-entry-id="${entryId}"]`);
+        if ($row.length) {
+            const $suggestedUrlCell = $row.find('.suggested-url-editable');
+            if ($suggestedUrlCell.length) {
+                $suggestedUrlCell.text(newUrl);
+                console.log('[UPDATE TABLE] Updated suggested URL for entry', entryId, 'to:', newUrl);
+            }
+        }
     }
 
 })(jQuery);

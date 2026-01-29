@@ -173,8 +173,12 @@ $recent_scans = $db_manager->get_scans(10);
                     </label>
 
                     <div id="custom-url-input" class="custom-url-input" style="display: none;">
-                        <input type="url" id="custom-url-field"
-                            placeholder="<?php echo esc_attr__('Enter custom URL...', 'seo-autofix-pro'); ?>" />
+                        <div class="custom-url-wrapper">
+                            <input type="url" id="custom-url-field"
+                                placeholder="<?php echo esc_attr__('Enter custom URL...', 'seo-autofix-pro'); ?>" />
+                            <span id="url-validation-status" class="url-validation-status"></span>
+                        </div>
+                        <div id="url-validation-message" class="url-validation-message"></div>
                     </div>
 
                     <label class="fix-option">

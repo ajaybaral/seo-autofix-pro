@@ -50,54 +50,61 @@ class Image_Analyzer
         $history_table = $wpdb->prefix . 'seoautofix_image_history';
 
 
+        // 🔍 DEBUG: Log what we're about to do
+        error_log('🔍 [ANALYZER] Status filter received: ' . $status_filter);
 
-
-
-
-
-
-        $valid_statuses = array('blank', 'optimal');
+        $valid_statuses = array('blank', 'optimal', 'all');
         if (!in_array($status_filter, $valid_statuses)) {
-
-            $status_filter = 'blank';
+            error_log('🔍 [ANALYZER] Invalid status filter, defaulting to "all"');
+            $status_filter = 'all';
         }
 
 
+        // 🎯 FIX: When status_filter is 'all', query WordPress posts table directly
+        // This ensures we get ALL images from media library, not just those in history table
+        if ($status_filter === 'all') {
+            error_log('🔍 [ANALYZER] Querying WordPress posts table for ALL images');
 
+            // Query WordPress posts table for all image attachments
+            $sql = $wpdb->prepare(
+                "SELECT ID as attachment_id
+                 FROM {$wpdb->posts}
+                 WHERE post_type = 'attachment' 
+                 AND post_mime_type LIKE 'image/%'
+                 ORDER BY ID DESC
+                 LIMIT %d OFFSET %d",
+                $batch_size,
+                $offset
+            );
+        } else {
+            error_log('🔍 [ANALYZER] Querying history table with status filter: ' . $status_filter);
 
-
-
-        // UX-IMPROVEMENT: Scan ALL images (no filtering)
-        // Frontend will handle filtering via stat card clicks
-        // This ensures user sees all 167 images and can filter by clicking stats
-
-
-        $sql = $wpdb->prepare(
-            "SELECT attachment_id, issue_type, status 
-             FROM {$history_table} 
-             ORDER BY 
-                CASE status
-                    WHEN 'blank' THEN 1
-                    WHEN 'generate' THEN 2
-                    WHEN 'skipped' THEN 3
-                    WHEN 'optimal' THEN 4
-                    WHEN 'optimized' THEN 5
-                    ELSE 6
-                END,
-                attachment_id DESC 
-             LIMIT %d OFFSET %d",
-            $batch_size,
-            $offset
-        );
-
-
-
-
+            // Query history table for specific status
+            $sql = $wpdb->prepare(
+                "SELECT attachment_id, issue_type, status 
+                 FROM {$history_table} 
+                 WHERE status = %s
+                 ORDER BY 
+                    CASE status
+                        WHEN 'blank' THEN 1
+                        WHEN 'generate' THEN 2
+                        WHEN 'skipped' THEN 3
+                        WHEN 'optimal' THEN 4
+                        WHEN 'optimized' THEN 5
+                        ELSE 6
+                    END,
+                    attachment_id DESC 
+                 LIMIT %d OFFSET %d",
+                $status_filter,
+                $batch_size,
+                $offset
+            );
+        }
 
 
         $results_data = $wpdb->get_results($sql);
 
-
+        error_log('🔍 [ANALYZER] Query returned ' . count($results_data) . ' rows');
 
 
         if (count($results_data) > 0) {
@@ -171,6 +178,11 @@ class Image_Analyzer
 
             }
 
+            // 🎯 FIX: When querying posts table, we don't have issue_type and status
+            // Calculate them based on detected issues
+            $issue_type = isset($row->issue_type) ? $row->issue_type : $this->classify_issue($attachment_id, $metadata['alt']);
+            $status = isset($row->status) ? $row->status : (empty($issues) ? 'optimal' : 'blank');
+
             $results[] = array(
                 'id' => $attachment_id,
                 'thumbnail' => wp_get_attachment_image_url($attachment_id, 'thumbnail'),
@@ -178,8 +190,8 @@ class Image_Analyzer
                 'filename' => basename(get_attached_file($attachment_id)),
                 'current_alt' => $metadata['alt'],
                 'issues' => $issues,
-                'issue_type' => $row->issue_type,
-                'status' => $row->status,  // NEW: Include status (blank/optimal) for visual distinction
+                'issue_type' => $issue_type,
+                'status' => $status,  // NEW: Include status (blank/optimal) for visual distinction
                 'used_in_posts' => $usage_data['used_in_posts'],
                 'used_in_pages' => $usage_data['used_in_pages'],
                 'usage_details' => $usage_details  // NEW: Full post/page details for grouping
@@ -193,7 +205,8 @@ class Image_Analyzer
 
         if (count($results) > 0) {
             $result_ids = array_map(function ($r) {
-                return $r['id']; }, $results);
+                return $r['id'];
+            }, $results);
 
 
         } else {

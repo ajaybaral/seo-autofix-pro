@@ -379,6 +379,9 @@ class SEOAutoFix_Broken_Url_Management
         add_action('wp_ajax_seoautofix_broken_links_create_snapshot', array($this, 'ajax_create_snapshot'));
         add_action('wp_ajax_seoautofix_broken_links_undo_changes', array($this, 'ajax_undo_changes'));
         add_action('wp_ajax_seoautofix_broken_links_check_snapshot', array($this, 'ajax_check_snapshot'));
+
+        // Test URL (for custom URL validation)
+        add_action('wp_ajax_seoautofix_broken_links_test_url', array($this, 'ajax_test_url'));
     }
 
     /**
@@ -1437,6 +1440,39 @@ class SEOAutoFix_Broken_Url_Management
         wp_send_json_success(array(
             'has_snapshot' => ($count > 0),
             'snapshot_count' => intval($count)
+        ));
+    }
+
+    /**
+     * AJAX: Test URL validity (for custom URL validation)
+     */
+    public function ajax_test_url()
+    {
+        check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
+        }
+
+        $url = isset($_POST['url']) ? esc_url_raw($_POST['url']) : '';
+
+        if (empty($url)) {
+            wp_send_json_error(array('message' => __('URL is required', 'seo-autofix-pro')));
+        }
+
+        // Test the URL using Link_Tester
+        $link_tester = new Link_Tester();
+        $result = $link_tester->test_url($url);
+
+        // Return validation result
+        wp_send_json_success(array(
+            'is_valid' => !$result['is_broken'],
+            'status_code' => $result['status_code'],
+            'error_type' => $result['error_type'],
+            'error' => $result['error'],
+            'message' => $result['is_broken']
+                ? sprintf(__('URL is broken (Status: %d)', 'seo-autofix-pro'), $result['status_code'])
+                : __('URL is valid', 'seo-autofix-pro')
         ));
     }
 }
