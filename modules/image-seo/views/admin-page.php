@@ -86,7 +86,8 @@ if (!defined('ABSPATH')) {
             <div class="progress-bar">
                 <div class="progress-fill"></div>
             </div>
-            <p class="progress-text"><?php _e('Scanning images...', 'seo-autofix-pro'); ?></p>
+            <p class="progress-text"><?php _e('Scanning images...', 'seo-autofix-pro'); ?> <span
+                    id="progress-percentage">0%</span></p>
         </div>
 
 
@@ -104,7 +105,8 @@ if (!defined('ABSPATH')) {
                     </button>
                 </div>
                 <p style="margin: 8px 0 15px; color: #666; font-size: 13px;">
-                    <?php _e('Choose a filter to narrow down the images shown below:', 'seo-autofix-pro'); ?></p>
+                    <?php _e('Choose a filter to narrow down the images shown below:', 'seo-autofix-pro'); ?>
+                </p>
 
                 <!-- 4 Radio Buttons in ONE LINE -->
                 <div style="display: flex; gap: 12px; flex-wrap: wrap;">

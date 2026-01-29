@@ -772,6 +772,15 @@ jQuery(document).ready(function ($) {
         // FIX: Show stats section immediately so it can update in real-time
         $statsSection.show();
         console.log('SCAN-DEBUG: Stats section shown for real-time updates');
+
+        // Reset stats to show loading state
+        $('#stat-total').text('0');
+        $('#stat-missing-alt').text('0');
+        $('#stat-has-alt').text('0');
+
+        // Reset percentage
+        $('#progress-percentage').text('0%');
+
         $filtersSection.hide();
 
         // Reset active filter when new scan starts
@@ -833,9 +842,10 @@ jQuery(document).ready(function ($) {
                     if (offset === 0 && response.data.stats) {
                         globalStats = response.data.stats;
                     }
-                    // Update progress
+                    // Update progress with percentage display
                     const progress = Math.min(100, (offset + 50) / 500 * 100);
                     $progressFill.css('width', progress + '%');
+                    $('#progress-percentage').text(Math.round(progress) + '%');
                     console.log('Progress:', progress + '%');
 
                     // FIX: Update stats in real-time after each batch
