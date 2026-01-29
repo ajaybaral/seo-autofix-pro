@@ -1575,3 +1575,39 @@
         font-size: 11px;
     }
 }
+
+/* ========================================
+   VISUAL FEEDBACK STYLES - Button State Management
+   ======================================== */
+
+/* Undo Notification */
+.undo-notification {
+    position: fixed;
+    top: 50px;
+    right: 20px;
+    background: #4caf50;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    z-index: 10000;
+    display: none;
+    font-weight: 500;
+    font-size: 14px;
+}
+
+/* Highlight undone row */
+.highlight-undo {
+    background-color: #fff3cd !important;
+    transition: background-color 0.3s ease;
+}
+
+/* Spinning icon for loading states */
+.dashicons.spin {
+    animation: dashicon-spin 1s linear infinite;
+}
+
+@keyframes dashicon-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}

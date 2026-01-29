@@ -42,6 +42,11 @@
      * Initialize all event listeners
      */
     function initializeEventListeners() {
+        // Set initial button states (all disabled until scan completes)
+        $('#fix-all-issues-btn, #remove-broken-links-btn, #replace-broken-links-btn').prop('disabled', true);
+        $('#download-report-btn, #email-report-btn, #download-report-empty-btn, #email-report-empty-btn').prop('disabled', true);
+        $('#undo-last-fix-btn, #undo-changes-btn').prop('disabled', true);
+
         // Header action buttons
         $('#start-auto-fix-btn').on('click', startNewScan);
         $('#export-report-btn').on('click', exportToCSV);
@@ -1162,6 +1167,9 @@
                         // Update button text to show number of fixed links
                         updateFixedReportButtonText();
 
+                        // Update button states based on new data
+                        updateButtonStates();
+
                         // Enable undo button since we have changes in the stack
                         if (undoStack.length > 0) {
                             $('#undo-last-fix-btn').prop('disabled', false);
@@ -1224,6 +1232,59 @@
             $('#email-report-header-btn').find('.email-icon').text('✉ (' + count + ')');
         }
     }
+
+    /**
+     * Update stats after undoing a fix
+     */
+    function updateStatsAfterUndo() {
+        // Increase the total count badge
+        const totalBadge = $('.filter-btn[data-filter="all"] .count');
+        if (totalBadge.length) {
+            const currentTotal = parseInt(totalBadge.text()) || 0;
+            totalBadge.text(currentTotal + 1);
+        }
+
+        // Update header broken count
+        const headerCount = $('#header-broken-count');
+        if (headerCount.length) {
+            const currentCount = parseInt(headerCount.text()) || 0;
+            headerCount.text(currentCount + 1);
+        }
+    }
+
+    /**
+     * Update button states based on current data state
+     * Centralizes all button enable/disable logic
+     */
+    function updateButtonStates() {
+        console.log('[UPDATE BUTTON STATES] Checking button states...');
+
+        // Count broken links (excluding fixed and empty rows)
+        const brokenCount = $('#results-table-body tr')
+            .not('.status-fixed, .empty-results-row')
+            .length;
+        
+        const hasFixed = fixedLinksSession.length > 0;
+        const hasUndo = undoStack.length > 0;
+
+        console.log('[UPDATE BUTTON STATES] brokenCount:', brokenCount, 'hasFixed:', hasFixed, 'hasUndo:', hasUndo);
+
+        // Fix All, Remove, Replace buttons - disabled when no broken links
+        const actionButtons = $('#fix-all-issues-btn, #remove-broken-links-btn, #replace-broken-links-btn');
+        actionButtons.prop('disabled', brokenCount === 0);
+        console.log('[UPDATE BUTTON STATES] Action buttons disabled:', brokenCount === 0);
+
+        // Download/Email Fix Report buttons - disabled when nothing fixed
+        const reportButtons = $('#download-report-btn, #email-report-btn, #download-report-empty-btn, #email-report-empty-btn');
+        reportButtons.prop('disabled', ! hasFixed);
+        console.log('[UPDATE BUTTON STATES] Report buttons disabled:', !hasFixed);
+
+        // Undo button - disabled when undo stack is empty
+        const undoButtons = $('#undo-last-fix-btn, #undo-changes-btn');
+        undoButtons.prop('disabled', !hasUndo);
+        console.log('[UPDATE BUTTON STATES] Undo buttons disabled:', !hasUndo);
+    }
+
 
     /**
      * Download fixed links report as CSV
@@ -1342,6 +1403,11 @@
         const lastChange = undoStack.pop();
         console.log('[UNDO] Restoring change:', lastChange);
 
+        // Show loading state
+        $('#undo-last-fix-btn, #undo-changes-btn')
+            .prop('disabled', true)
+            .html('<span class="dashicons dashicons-update spin"></span> Undoing...');
+
         // Call backend to restore the link
         $.ajax({
             url: seoautofixBrokenUrls.ajaxUrl,
@@ -1358,6 +1424,18 @@
                     $('#results-table-body').prepend(newRow);
                     newRow.hide().fadeIn(400);
 
+                    // Highlight the restored row
+                    newRow.addClass('highlight-undo');
+                    setTimeout(() => newRow.removeClass('highlight-undo'), 2000);
+
+                    // Show notification
+                    const brokenUrl = lastChange.original_data ? lastChange.original_data.broken_url : 'link';
+                    const notification = $('<div class="undo-notification">✓ Restored: ' + escapeHtml(brokenUrl) + '</div>');
+                    $('body').append(notification);
+                    notification.fadeIn(200).delay(2000).fadeOut(300, function () {
+                        $(this).remove();
+                    });
+
                     // Update stats
                     updateStatsAfterUndo();
 
@@ -1369,20 +1447,30 @@
                     // Update fixed report buttons
                     updateFixedReportButtonText();
 
-                    // Disable undo button if stack is empty
-                    if (undoStack.length === 0) {
-                        $('#undo-last-fix-btn').prop('disabled', true);
-                    }
+                    // Update all button states
+                    updateButtonStates();
 
                     console.log('[UNDO] Successfully restored link ID:', lastChange.id);
                 } else {
-                    alert(response.data.message || 'failed to undo fix');
+                    alert(response.data.message || 'Failed to undo fix');
                     undoStack.push(lastChange); // Put it back
                 }
+
+                // Reset button state
+                const buttonHtml = '<span class="dashicons dashicons-undo"></span> Undo Changes';
+                $('#undo-last-fix-btn, #undo-changes-btn')
+                    .prop('disabled', undoStack.length === 0)
+                    .html(buttonHtml);
             },
             error: function () {
                 alert('Error occurred while trying to undo');
                 undoStack.push(lastChange); // Put it back
+
+                // Reset button state
+                const buttonHtml = '<span class="dashicons dashicons-undo"></span> Undo Changes';
+                $('#undo-last-fix-btn, #undo-changes-btn')
+                    .prop('disabled', undoStack.length === 0)
+                    .html(buttonHtml);
             }
         });
     }
@@ -1409,93 +1497,104 @@
             return;
         }
 
-        if (!confirm('Fix ' + brokenLinks.length + ' broken link(s)? This will use suggested URLs where available, or redirect to homepage.')) {
+        if (!confirm('Fix ' + brokenLinks.length + ' broken link(s)? This will use suggested URLs where available.')) {
             return;
         }
 
         // Disable button during processing
-        $('#fix-all-issues-btn').prop('disabled', true).text('Fixing...');
+        $('#fix-all-issues-btn').prop('disabled', true).html('<span class="dashicons dashicons-update spin"></span> Fixing...');
 
-        let processed = 0;
-        const total = brokenLinks.length;
+        // Extract IDs for the AJAX call
+        const linkIds = brokenLinks.map(link => link.id);
 
-        // Process each link
-        brokenLinks.forEach(function (link, index) {
-            const redirectUrl = link.suggested_url || seoautofixBrokenUrls.homeUrl;
+        console.log('[FIX ALL] Fixing', linkIds.length, 'links with IDs:', linkIds);
 
-            // Push to undo stack before fixing
-            const $row = $('#results-table-body').find('.fix-btn[data-id="' + link.id + '"]').closest('tr');
-            undoStack.push({
-                id: link.id,
-                action: 'fix',
-                original_data: link,
-                row_html: $row[0].outerHTML
-            });
+        // Apply fixes in batch
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'POST',
+            data: {
+                action: 'seoautofix_broken_links_apply_fixes',
+                nonce: seoautofixBrokenUrls.nonce,
+                ids: linkIds // Correct format: array of IDs
+            },
+            success: function (response) {
+                console.log('[FIX ALL] Response:', response);
 
-            // Apply the fix
-            $.ajax({
-                url: seoautofixBrokenUrls.ajaxUrl,
-                method: 'POST',
-                data: {
-                    action: 'seoautofix_broken_links_apply_fixes',
-                    nonce: seoautofixBrokenUrls.nonce,
-                    fixes: JSON.stringify([{
-                        id: link.id,
-                        fix_type: link.suggested_url ? 'suggested' : 'homepage',
-                        redirect_url: redirectUrl
-                    }])
-                },
-                success: function (response) {
-                    processed++;
+                if (response.success) {
+                    const fixed = response.data.fixed_count || 0;
+                    const failed = response.data.failed_count || 0;
+                    const skipped = response.data.skipped_count || 0;
 
-                    if (response.success) {
-                        // Remove row
-                        $row.fadeOut(300, function () {
-                            $(this).remove();
+                    // Remove successfully fixed rows
+                    if (fixed > 0) {
+                        brokenLinks.forEach(function (link) {
+                            const $row = $('[data-id="' + link.id + '"]');
+                            
+                            // Push to undo stack before removing
+                            undoStack.push({
+                                id: link.id,
+                                action: 'fix',
+                                original_data: link,
+                                row_html: $row[0].outerHTML
+                            });
 
-                            if ($('#results-table-body tr').length === 0) {
-                                $('#results-table-body').html(
-                                    '<tr class="empty-results-row"><td colspan="5" style="text-align: center; padding: 40px;">No broken links found</td></tr>'
-                                );
-                            }
+                            // Add to fixed links session for export
+                            fixedLinksSession.push({
+                                id: link.id,
+                                location: link.found_on_page_title,
+                                anchor_text: link.anchor_text,
+                                broken_url: link.broken_url,
+                                link_type: link.link_type,
+                                status_code: link.status_code,
+                                error_type: link.error_type,
+                                suggested_url: link.suggested_url,
+                                reason: link.reason,
+                                is_fixed: 1
+                            });
+
+                            $row.fadeOut(300, function () {
+                                $(this).remove();
+
+                                if ($('#results-table-body tr').length === 0) {
+                                    $('#results-table-body').html(
+                                        '<tr class="empty-results-row"><td colspan="5" style="text-align: center; padding: 40px;">No broken links found</td></tr>'
+                                    );
+                                }
+                            });
                         });
 
-                        // Track for export
-                        fixedLinksSession.push({
-                            id: link.id,
-                            location: link.found_on_page_title,
-                            anchor_text: link.anchor_text,
-                            broken_url: link.broken_url,
-                            link_type: link.link_type,
-                            status_code: link.status_code,
-                            error_type: link.error_type,
-                            suggested_url: link.suggested_url,
-                            reason: link.reason,
-                            is_fixed: 1
-                        });
-                    }
-
-                    // When all processed, update UI
-                    if (processed === total) {
-                        $('#fix-all-issues-btn').prop('disabled', false).html('<span class="dashicons dashicons-yes-alt"></span> Fix All Issues');
-                        updateStatsAfterFix(total);
+                        // Update stats and buttons
+                        updateStatsAfterFix(fixed);
                         updateFixedReportButtonText();
+                        updateButtonStates();
 
                         // Enable undo button
                         $('#undo-last-fix-btn').prop('disabled', false);
-
-                        alert('Successfully fixed ' + total + ' link(s)!');
                     }
-                },
-                error: function () {
-                    processed++;
 
-                    if (processed === total) {
-                        $('#fix-all-issues-btn').prop('disabled', false).html('<span class="dashicons dashicons-yes-alt"></span> Fix All Issues');
-                        alert('Some fixes failed. Please try again.');
+                    // Show summary
+                    let message = '✅ Fixed: ' + fixed + '\n❌ Failed: ' + failed;
+                    if (skipped > 0) {
+                        message += '\n⚠️ Skipped: ' + skipped;
                     }
+                    if (response.data.messages && response.data.messages.length > 0) {
+                        message += '\n\nDetails:\n' + response.data.messages.join('\n');
+                    }
+                    alert(message);
+
+                    // Reset button
+                    $('#fix-all-issues-btn').prop('disabled', false).html('<span class="dashicons dashicons-yes-alt"></span> Fix All Issues');
+                } else {
+                    alert('Error: ' + (response.data.message || 'Failed to fix links'));
+                    $('#fix-all-issues-btn').prop('disabled', false).html('<span class="dashicons dashicons-yes-alt"></span> Fix All Issues');
                 }
-            });
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.error('[FIX ALL] Error:', textStatus, errorThrown);
+                alert('An error occurred while fixing links. Please try again.');
+                $('#fix-all-issues-btn').prop('disabled', false).html('<span class="dashicons dashicons-yes-alt"></span> Fix All Issues');
+            }
         });
     }
 
