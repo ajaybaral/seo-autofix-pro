@@ -277,6 +277,7 @@
 .bulk-delete-progress-fill {
     height: 100%;
     background: linear-gradient(90deg, #2271b1, #135e96);
+    width: 0%;
     transition: width 0.3s ease;
 }
 
@@ -297,8 +298,7 @@
     height: 100%;
     background: linear-gradient(90deg, #2271b1, #135e96);
     transition: width 0.3s ease;
-    min-width: 1px;
-    display: block;
+    width: 0%;
 }
 
 .progress-text {

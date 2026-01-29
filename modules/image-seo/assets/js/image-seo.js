@@ -761,6 +761,11 @@ jQuery(document).ready(function ($) {
 
         // Show progress, hide results
         $scanProgress.show();
+
+        // 🔧 FIX: Reset progress bar width to 0% to ensure it updates on first scan
+        $progressFill.css('width', '0%');
+        console.log('🔧 PROGRESS-FIX: Reset progress bar width to 0%');
+
         $resultsTable.hide();
         $emptyState.hide();
 
@@ -769,14 +774,10 @@ jQuery(document).ready(function ($) {
         $('.imageseo-pagination').hide();
         console.log('SCAN-DEBUG: Hidden filter controls and pagination during scan');
 
-        // FIX: Show stats section immediately so it can update in real-time
-        $statsSection.show();
-        console.log('SCAN-DEBUG: Stats section shown for real-time updates');
-
-        // Reset stats to show loading state
-        $('#stat-total').text('0');
-        $('#stat-missing-alt').text('0');
-        $('#stat-has-alt').text('0');
+        // Stats section should remain HIDDEN until scan completes
+        // User wants stats to appear only after scan is done
+        $statsSection.hide();
+        console.log('SCAN-DEBUG: Stats section hidden - will show after scan completes');
 
         // Reset percentage
         $('#progress-percentage').text('0%');
@@ -844,9 +845,67 @@ jQuery(document).ready(function ($) {
                     }
                     // Update progress with percentage display
                     const progress = Math.min(100, (offset + 50) / 500 * 100);
-                    $progressFill.css('width', progress + '%');
+
+                    // 🔍 COMPREHENSIVE DEBUG: Log EVERYTHING about progress bar
+                    console.log('\n🔍 ========== PROGRESS BAR UPDATE DEBUG ==========');
+                    console.log('📊 Progress Calculation:');
+                    console.log('   - Offset:', offset);
+                    console.log('   - Calculated progress:', progress + '%');
+
+                    console.log('\n🎯 Element Existence:');
+                    console.log('   - $progressFill exists?', $progressFill.length > 0);
+                    console.log('   - $progressFill DOM element:', $progressFill[0]);
+                    console.log('   - $scanProgress exists?', $scanProgress.length > 0);
+
+                    console.log('\n📏 BEFORE Width Update:');
+                    console.log('   - Width (jQuery):', $progressFill.css('width'));
+                    console.log('   - Width (DOM):', $progressFill[0] ? $progressFill[0].style.width : 'N/A');
+                    console.log('   - Computed width:', $progressFill[0] ? window.getComputedStyle($progressFill[0]).width : 'N/A');
+
+                    console.log('\n🎨 CSS Properties:');
+                    console.log('   - Height:', $progressFill.css('height'));
+                    console.log('   - Background:', $progressFill.css('background'));
+                    console.log('   - Display:', $progressFill.css('display'));
+                    console.log('   - Visibility:', $progressFill.css('visibility'));
+                    console.log('   - Opacity:', $progressFill.css('opacity'));
+                    console.log('   - Position:', $progressFill.css('position'));
+
+                    console.log('\n📦 Parent Container (.progress-bar):');
+                    const $progressBar = $progressFill.parent();
+                    console.log('   - Width:', $progressBar.css('width'));
+                    console.log('   - Height:', $progressBar.css('height'));
+                    console.log('   - Display:', $progressBar.css('display'));
+                    console.log('   - Background:', $progressBar.css('background'));
+
+                    console.log('\n🔧 SETTING WIDTH NOW...');
+                    if ($progressFill[0]) {
+                        // 🔧 FIX: Calculate width in PIXELS instead of percentage
+                        // Browser wasn't computing percentage correctly (showed 0px)
+                        const parentWidth = $progressBar.width(); // Get parent width in pixels
+                        const widthInPixels = (progress / 100) * parentWidth;
+
+                        console.log('   📐 Parent width:', parentWidth + 'px');
+                        console.log('   📐 Calculated width:', widthInPixels + 'px (from ' + progress + '%)');
+
+                        $progressFill[0].style.width = widthInPixels + 'px';
+                        console.log('   ✅ Set width using .style.width =', widthInPixels + 'px');
+                    } else {
+                        console.error('   ❌ ERROR: $progressFill[0] is null!');
+                    }
+
+                    console.log('\n📏 AFTER Width Update:');
+                    console.log('   - Width (jQuery):', $progressFill.css('width'));
+                    console.log('   - Width (DOM):', $progressFill[0] ? $progressFill[0].style.width : 'N/A');
+                    console.log('   - Computed width:', $progressFill[0] ? window.getComputedStyle($progressFill[0]).width : 'N/A');
+
+                    console.log('\n👁️ Visibility Check:');
+                    console.log('   - $scanProgress visible?', $scanProgress.is(':visible'));
+                    console.log('   - $scanProgress display:', $scanProgress.css('display'));
+                    console.log('   - $progressFill visible?', $progressFill.is(':visible'));
+
                     $('#progress-percentage').text(Math.round(progress) + '%');
-                    console.log('Progress:', progress + '%');
+                    console.log('\n✅ Percentage text updated to:', Math.round(progress) + '%');
+                    console.log('🔍 ========== END PROGRESS BAR DEBUG ==========\n');
 
                     // FIX: Update stats in real-time after each batch
                     if (scannedImages.length > 0) {
@@ -860,106 +919,118 @@ jQuery(document).ready(function ($) {
                         scanBatch(response.data.offset); // UX-IMPROVEMENT: No status filter
                     } else {
                         console.log('No more batches, finishing scan...');
-                        console.log('Calling renderResults with', scannedImages.length, 'images');
-                        console.log('Global stats:', globalStats);
+
+                        // 🎯 UX IMPROVEMENT: Show 100% completion before hiding
+                        const parentWidth = $progressFill.parent().width();
+                        const widthInPixels = parentWidth; // 100% = full width
+
+                        $progressFill[0].style.width = widthInPixels + 'px';
+                        $('#progress-percentage').text('100%');
+                        console.log('✅ Progress set to 100% - showing completion for 800ms');
+
+                        // Wait 800ms to let user see 100% completion, then render results
+                        setTimeout(() => {
+                            console.log('Calling renderResults with', scannedImages.length, 'images');
+                            console.log('Global stats:', globalStats);
 
 
-                        // 🔥 FILTER DEBUG: Comprehensive analysis
-                        console.log('🔥🔥🔥 FILTER & STATS DEBUG START 🔥🔥🔥');
-                        console.log('📊 Backend Stats:', globalStats);
-                        console.log('📦 Total scanned images:', scannedImages.length);
+                            // 🔥 FILTER DEBUG: Comprehensive analysis
+                            console.log('🔥🔥🔥 FILTER & STATS DEBUG START 🔥🔥🔥');
+                            console.log('📊 Backend Stats:', globalStats);
+                            console.log('📦 Total scanned images:', scannedImages.length);
 
-                        // Categorize each image by status
-                        let categories = {
-                            optimal: [],
-                            low_score_with_alt: [],
-                            low_score_empty: [],
-                            generate: [],
-                            other: []
-                        };
+                            // Categorize each image by status
+                            let categories = {
+                                optimal: [],
+                                low_score_with_alt: [],
+                                low_score_empty: [],
+                                generate: [],
+                                other: []
+                            };
 
-                        scannedImages.forEach(img => {
-                            // Use ONLY the backend status - don't recalculate!
-                            const hasAlt = img.current_alt && img.current_alt.trim() !== '';
-                            const score = img.seo_score || 0;
-                            const status = img.status || 'unknown';
-                            const issue_type = img.issue_type || 'none';
+                            scannedImages.forEach(img => {
+                                // Use ONLY the backend status - don't recalculate!
+                                const hasAlt = img.current_alt && img.current_alt.trim() !== '';
+                                const score = img.seo_score || 0;
+                                const status = img.status || 'unknown';
+                                const issue_type = img.issue_type || 'none';
 
-                            // CRITICAL: Trust the backend's status classification
-                            // Backend already calculated score and set correct status
-                            if (status === 'optimal' || status === 'optimized') {
-                                categories.optimal.push({ id: img.id, score, alt: img.current_alt?.substring(0, 30), status, issue_type });
-                            } else if (status === 'blank' && hasAlt && issue_type !== 'empty' && issue_type !== 'generic') {
-                                // Low score WITH alt text (backend verified this)
-                                categories.low_score_with_alt.push({ id: img.id, score, alt: img.current_alt?.substring(0, 30), status, issue_type });
-                            } else if (status === 'blank' && !hasAlt) {
-                                categories.low_score_empty.push({ id: img.id, score, status, issue_type });
-                            } else if (status === 'generate') {
-                                categories.generate.push({ id: img.id, score, status, issue_type });
-                            } else {
-                                categories.other.push({ id: img.id, score, alt: img.current_alt?.substring(0, 30), status, issue_type });
-                            }
-                        });
-
-                        console.log('📈 Categorized Images:');
-                        console.log('  ✅ Optimal (score ≥75):', categories.optimal.length);
-                        console.log('     ALL OPTIMAL IMAGES:', categories.optimal);
-                        console.log('  ⚠️ Low Score WITH Alt:', categories.low_score_with_alt.length);
-                        console.log('     ALL LOW-SCORE IMAGES:', categories.low_score_with_alt);
-                        console.log('  ❌ Low Score NO Alt:', categories.low_score_empty.length);
-                        console.log('  🔄 Generate Status:', categories.generate.length, categories.generate);
-                        console.log('  ❓ Other:', categories.other.length, categories.other);
-
-                        // Find the problematic images
-                        const problematic = scannedImages.filter(img => {
-                            const hasAlt = img.current_alt && img.current_alt.trim() !== '';
-                            const score = img.seo_score || 0;
-                            const status = img.status || 'unknown';
-                            // Images with score=100 but status='blank'
-                            return status === 'blank' && score >= 75;
-                        });
-
-                        if (problematic.length > 0) {
-                            console.error('🐛 FOUND PROBLEMATIC IMAGES: score≥75 but status=blank');
-                            problematic.forEach(img => {
-                                console.error(`  ⚠️ ID=${img.id} score=${img.seo_score} status="${img.status}" alt="${img.current_alt?.substring(0, 40)}"`);
+                                // CRITICAL: Trust the backend's status classification
+                                // Backend already calculated score and set correct status
+                                if (status === 'optimal' || status === 'optimized') {
+                                    categories.optimal.push({ id: img.id, score, alt: img.current_alt?.substring(0, 30), status, issue_type });
+                                } else if (status === 'blank' && hasAlt && issue_type !== 'empty' && issue_type !== 'generic') {
+                                    // Low score WITH alt text (backend verified this)
+                                    categories.low_score_with_alt.push({ id: img.id, score, alt: img.current_alt?.substring(0, 30), status, issue_type });
+                                } else if (status === 'blank' && !hasAlt) {
+                                    categories.low_score_empty.push({ id: img.id, score, status, issue_type });
+                                } else if (status === 'generate') {
+                                    categories.generate.push({ id: img.id, score, status, issue_type });
+                                } else {
+                                    categories.other.push({ id: img.id, score, alt: img.current_alt?.substring(0, 30), status, issue_type });
+                                }
                             });
-                        }
 
-                        console.log('📊 Stats Comparison:');
-                        console.log('  Backend low_score_with_alt:', globalStats.low_score_with_alt);
-                        console.log('  Frontend low_score_with_alt:', categories.low_score_with_alt.length);
-                        console.log('  Difference:', Math.abs(globalStats.low_score_with_alt - categories.low_score_with_alt.length));
-                        console.log('🔥🔥🔥 FILTER & STATS DEBUG END 🔥🔥🔥');
+                            console.log('📈 Categorized Images:');
+                            console.log('  ✅ Optimal (score ≥75):', categories.optimal.length);
+                            console.log('     ALL OPTIMAL IMAGES:', categories.optimal);
+                            console.log('  ⚠️ Low Score WITH Alt:', categories.low_score_with_alt.length);
+                            console.log('     ALL LOW-SCORE IMAGES:', categories.low_score_with_alt);
+                            console.log('  ❌ Low Score NO Alt:', categories.low_score_empty.length);
+                            console.log('  🔄 Generate Status:', categories.generate.length, categories.generate);
+                            console.log('  ❓ Other:', categories.other.length, categories.other);
 
-                        renderResults(scannedImages);
-                        updateStats(); // Recalculate from scannedImages array
+                            // Find the problematic images
+                            const problematic = scannedImages.filter(img => {
+                                const hasAlt = img.current_alt && img.current_alt.trim() !== '';
+                                const score = img.seo_score || 0;
+                                const status = img.status || 'unknown';
+                                // Images with score=100 but status='blank'
+                                return status === 'blank' && score >= 75;
+                            });
 
-                        // ENSURE Export Changes button is visible after renderResults
-                        $exportFilterCsvBtn.show().prop('disabled', filterChanges.length === 0);
-                        console.log('EXPORT-CHANGES-DEBUG: Button re-shown after renderResults, disabled:', $exportFilterCsvBtn.prop('disabled'));
+                            if (problematic.length > 0) {
+                                console.error('🐛 FOUND PROBLEMATIC IMAGES: score≥75 but status=blank');
+                                problematic.forEach(img => {
+                                    console.error(`  ⚠️ ID=${img.id} score=${img.seo_score} status="${img.status}" alt="${img.current_alt?.substring(0, 40)}"`);
+                                });
+                            }
 
-                        // RE-ENABLE RADIO BUTTONS after scan completes
-                        $('input[name="image-filter"]').prop('disabled', false);
+                            console.log('📊 Stats Comparison:');
+                            console.log('  Backend low_score_with_alt:', globalStats.low_score_with_alt);
+                            console.log('  Frontend low_score_with_alt:', categories.low_score_with_alt.length);
+                            console.log('  Difference:', Math.abs(globalStats.low_score_with_alt - categories.low_score_with_alt.length));
+                            console.log('🔥🔥🔥 FILTER & STATS DEBUG END 🔥🔥🔥');
 
-                        // SHOW filter controls and pagination after scan completes
-                        $('.imageseo-filter-controls').show();
-                        $('.imageseo-pagination').show();
+                            renderResults(scannedImages);
+                            updateStats(); // Recalculate from scannedImages array
 
-                        // SHOW Stats and Results Table (which were hidden initially)
-                        $('.imageseo-stats').show();
-                        $('.imageseo-results').show();
+                            // ENSURE Export Changes button is visible after renderResults
+                            $exportFilterCsvBtn.show().prop('disabled', filterChanges.length === 0);
+                            console.log('EXPORT-CHANGES-DEBUG: Button re-shown after renderResults, disabled:', $exportFilterCsvBtn.prop('disabled'));
 
-                        // SHOW Export CSV button after scan completes
-                        $('#export-csv-btn').show();
+                            // RE-ENABLE RADIO BUTTONS after scan completes
+                            $('input[name="image-filter"]').prop('disabled', false);
 
-                        // SHOW Export Changes in CSV button (disabled until changes are made)
-                        $exportFilterCsvBtn.show().prop('disabled', true);
-                        console.log('EXPORT-CHANGES-DEBUG: Button shown after scan completion, disabled:', $exportFilterCsvBtn.prop('disabled'));
+                            // SHOW filter controls and pagination after scan completes
+                            $('.imageseo-filter-controls').show();
+                            $('.imageseo-pagination').show();
 
-                        $resultsTable.show();
+                            // SHOW Stats and Results Table (which were hidden initially)
+                            $('.imageseo-stats').show();
+                            $('.imageseo-results').show();
 
-                        console.log('SCAN-DEBUG: Showing filter controls, stats, and results after scan');
+                            // SHOW Export CSV button after scan completes
+                            $('#export-csv-btn').show();
+
+                            // SHOW Export Changes in CSV button (disabled until changes are made)
+                            $exportFilterCsvBtn.show().prop('disabled', true);
+                            console.log('EXPORT-CHANGES-DEBUG: Button shown after scan completion, disabled:', $exportFilterCsvBtn.prop('disabled'));
+
+                            $resultsTable.show();
+
+                            console.log('SCAN-DEBUG: Showing filter controls, stats, and results after scan');
+                        }, 800); // 800ms delay to show 100% completion
                     }
                 } else {
                     showError('Scan failed: ' + (response.data.message || 'Unknown error'));
