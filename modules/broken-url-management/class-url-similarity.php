@@ -23,13 +23,14 @@ class URL_Similarity
      * Only suggest URLs with similarity score above this threshold
      * Otherwise, fallback to homepage
      */
-    const MIN_SCORE_THRESHOLD = 45; // Reduced from 65 to allow more suggestions
+    const MIN_SCORE_THRESHOLD = 30; // Lowered to allow more fuzzy matches for typos/formatting
 
     /**
      * Scoring weights
+     * Prioritize slug similarity for better text-wise matching
      */
-    const WEIGHT_SEGMENT_OVERLAP = 50;
-    const WEIGHT_SLUG_SIMILARITY = 30;
+    const WEIGHT_SEGMENT_OVERLAP = 35;
+    const WEIGHT_SLUG_SIMILARITY = 45;
     const WEIGHT_STRUCTURE_SIMILARITY = 20;
 
     /**
@@ -151,7 +152,8 @@ class URL_Similarity
     }
 
     /**
-     * Calculate slug similarity using Levenshtein distance
+     * Calculate slug similarity using enhanced fuzzy matching
+     * Handles common URL errors: missing slashes, typos, separator variations
      * 
      * @param string $slug1 First slug
      * @param string $slug2 Second slug
@@ -163,9 +165,33 @@ class URL_Similarity
             return 0;
         }
 
-        // Convert to lowercase
+        // Convert to lowercase for case-insensitive comparison
         $slug1 = strtolower($slug1);
         $slug2 = strtolower($slug2);
+
+        // Create normalized versions (remove all separators for fuzzy matching)
+        $normalized1 = preg_replace('/[-_\s]+/', '', $slug1);
+        $normalized2 = preg_replace('/[-_\s]+/', '', $slug2);
+
+        // Check for exact match after normalization (handles separator variations)
+        if ($normalized1 === $normalized2) {
+            return 100;
+        }
+
+        // Check substring containment (e.g., "aboutme" contains in "about-me")
+        $substring_score = 0;
+        if (strlen($normalized1) > 0 && strlen($normalized2) > 0) {
+            if (strpos($normalized2, $normalized1) !== false) {
+                // slug1 is contained in slug2
+                $substring_score = (strlen($normalized1) / strlen($normalized2)) * 100;
+            } elseif (strpos($normalized1, $normalized2) !== false) {
+                // slug2 is contained in slug1
+                $substring_score = (strlen($normalized2) / strlen($normalized1)) * 100;
+            }
+        }
+
+        // Calculate normalized Levenshtein similarity (handles typos)
+        $levenshtein_normalized = $this->levenshtein_similarity($normalized1, $normalized2);
 
         // Remove common separators and split into words
         $words1 = preg_split('/[-_\s]+/', $slug1);
@@ -176,22 +202,25 @@ class URL_Similarity
         $words1 = array_diff($words1, $stop_words);
         $words2 = array_diff($words2, $stop_words);
 
-        if (empty($words1) || empty($words2)) {
-            // Fallback to Levenshtein distance if no words left
-            return $this->levenshtein_similarity($slug1, $slug2);
+        // Calculate word overlap score
+        $word_overlap_score = 0;
+        if (!empty($words1) && !empty($words2)) {
+            $common_words = count(array_intersect($words1, $words2));
+            $total_words = max(count($words1), count($words2));
+            $word_overlap_score = ($common_words / $total_words) * 100;
         }
 
-        // Calculate word overlap
-        $common_words = count(array_intersect($words1, $words2));
-        $total_words = max(count($words1), count($words2));
+        // Also calculate Levenshtein distance for original slugs
+        $levenshtein_original = $this->levenshtein_similarity($slug1, $slug2);
 
-        $word_overlap_score = ($common_words / $total_words) * 100;
+        // Combine scores with intelligent weighting
+        // Prioritize substring matches, then normalized similarity, then word overlap
+        $final_score = max(
+            $substring_score * 0.9, // High weight for substring matches
+            ($levenshtein_normalized * 0.4) + ($word_overlap_score * 0.3) + ($levenshtein_original * 0.3)
+        );
 
-        // Also calculate Levenshtein distance for overall slug
-        $levenshtein_score = $this->levenshtein_similarity($slug1, $slug2);
-
-        // Return weighted average
-        return ($word_overlap_score * 0.7) + ($levenshtein_score * 0.3);
+        return $final_score;
     }
 
     /**
