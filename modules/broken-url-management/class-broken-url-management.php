@@ -707,33 +707,61 @@ class SEOAutoFix_Broken_Url_Management
      */
     public function ajax_apply_fixes()
     {
+        error_log('========================================');
+        error_log('[AJAX_APPLY_FIXES] 🔥 ENDPOINT CALLED 🔥');
+        error_log('[AJAX_APPLY_FIXES] Timestamp: ' . current_time('mysql'));
+        error_log('[AJAX_APPLY_FIXES] REQUEST_METHOD: ' . $_SERVER['REQUEST_METHOD']);
+        error_log('[AJAX_APPLY_FIXES] POST data: ' . print_r($_POST, true));
+        error_log('========================================');
+
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
+        error_log('[AJAX_APPLY_FIXES] ✅ Nonce verified');
 
         if (!current_user_can('manage_options')) {
+            error_log('[AJAX_APPLY_FIXES] ❌ Unauthorized - user lacks manage_options capability');
             wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
         }
+
+        error_log('[AJAX_APPLY_FIXES] ✅ User authorized');
 
         $ids = isset($_POST['ids']) ? array_map('intval', (array) $_POST['ids']) : array();
         $custom_url = isset($_POST['custom_url']) ? esc_url_raw($_POST['custom_url']) : '';
 
-        error_log('[SEO_AUTOFIX] ajax_apply_fixes called with IDs: ' . print_r($ids, true));
-        error_log('[SEO_AUTOFIX] Custom URL: ' . $custom_url);
+        error_log('[AJAX_APPLY_FIXES] Parsed IDs: ' . print_r($ids, true));
+        error_log('[AJAX_APPLY_FIXES] IDs count: ' . count($ids));
+        error_log('[AJAX_APPLY_FIXES] Custom URL: ' . $custom_url);
 
         if (empty($ids)) {
+            error_log('[AJAX_APPLY_FIXES] ❌ No entries selected - sending error response');
             wp_send_json_error(array('message' => __('No entries selected', 'seo-autofix-pro')));
         }
+
+        error_log('[AJAX_APPLY_FIXES] ✅ IDs validated, creating Link_Analyzer instance');
 
         try {
             $db_manager = new Database_Manager();
             $link_analyzer = new Link_Analyzer();
 
+            error_log('[AJAX_APPLY_FIXES] Calling link_analyzer->apply_fixes()');
             $result = $link_analyzer->apply_fixes($ids, $custom_url);
 
-            error_log('[SEO_AUTOFIX] apply_fixes result: ' . print_r($result, true));
+            error_log('========================================');
+            error_log('[AJAX_APPLY_FIXES] 📥 apply_fixes() returned');
+            error_log('[AJAX_APPLY_FIXES] Result: ' . print_r($result, true));
+            error_log('[AJAX_APPLY_FIXES] Fixed count: ' . $result['fixed_count']);
+            error_log('[AJAX_APPLY_FIXES] Failed count: ' . $result['failed_count']);
+            error_log('[AJAX_APPLY_FIXES] Skipped count: ' . $result['skipped_count']);
+            error_log('[AJAX_APPLY_FIXES] Messages: ' . print_r($result['messages'], true));
+            error_log('========================================');
 
+            error_log('[AJAX_APPLY_FIXES] ✅ Sending success response to frontend');
             wp_send_json_success($result);
         } catch (\Exception $e) {
-            error_log('[SEO_AUTOFIX] Exception in ajax_apply_fixes: ' . $e->getMessage());
+            error_log('========================================');
+            error_log('[AJAX_APPLY_FIXES] ❌ EXCEPTION CAUGHT');
+            error_log('[AJAX_APPLY_FIXES] Exception message: ' . $e->getMessage());
+            error_log('[AJAX_APPLY_FIXES] Exception trace: ' . $e->getTraceAsString());
+            error_log('========================================');
             wp_send_json_error(array('message' => $e->getMessage()));
         }
     }
@@ -939,25 +967,50 @@ class SEOAutoFix_Broken_Url_Management
      */
     public function ajax_apply_fix_plan()
     {
+        error_log('========================================');
+        error_log('[AJAX_APPLY_FIX_PLAN] 🔥 ENDPOINT CALLED 🔥');
+        error_log('[AJAX_APPLY_FIX_PLAN] Timestamp: ' . current_time('mysql'));
+        error_log('[AJAX_APPLY_FIX_PLAN] POST data: ' . print_r($_POST, true));
+        error_log('========================================');
+
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
+        error_log('[AJAX_APPLY_FIX_PLAN] ✅ Nonce verified');
 
         if (!current_user_can('manage_options')) {
+            error_log('[AJAX_APPLY_FIX_PLAN] ❌ Unauthorized');
             wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
         }
+
+        error_log('[AJAX_APPLY_FIX_PLAN] ✅ User authorized');
 
         $plan_id = isset($_POST['plan_id']) ? sanitize_text_field($_POST['plan_id']) : '';
         $selected_entry_ids = isset($_POST['selected_entry_ids']) ? array_map('intval', (array) $_POST['selected_entry_ids']) : array();
 
+        error_log('[AJAX_APPLY_FIX_PLAN] Plan ID: ' . $plan_id);
+        error_log('[AJAX_APPLY_FIX_PLAN] Selected entry IDs: ' . print_r($selected_entry_ids, true));
+
         if (empty($plan_id)) {
+            error_log('[AJAX_APPLY_FIX_PLAN] ❌ No plan ID provided');
             wp_send_json_error(array('message' => __('Plan ID required', 'seo-autofix-pro')));
         }
 
+        error_log('[AJAX_APPLY_FIX_PLAN] Creating Fix_Plan_Manager instance');
         $fix_plan_manager = new Fix_Plan_Manager();
+        
+        error_log('[AJAX_APPLY_FIX_PLAN] Calling apply_fix_plan()');
         $result = $fix_plan_manager->apply_fix_plan($plan_id, $selected_entry_ids);
 
+        error_log('========================================');
+        error_log('[AJAX_APPLY_FIX_PLAN] 📥 apply_fix_plan() returned');
+        error_log('[AJAX_APPLY_FIX_PLAN] Result: ' . print_r($result, true));
+        error_log('[AJAX_APPLY_FIX_PLAN] Success: ' . ($result['success'] ? 'YES' : 'NO'));
+        error_log('========================================');
+
         if ($result['success']) {
+            error_log('[AJAX_APPLY_FIX_PLAN] ✅ Sending success response');
             wp_send_json_success($result);
         } else {
+            error_log('[AJAX_APPLY_FIX_PLAN] ❌ Sending error response');
             wp_send_json_error($result);
         }
     }

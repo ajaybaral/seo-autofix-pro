@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Broken URL Management - Frontend JavaScript
  */
 
@@ -619,6 +619,9 @@
 
             // Update filter counts
             updateFilterCounts(data);
+
+            // Update button states even when no results
+            updateButtonStates();
             return;
         }
 
@@ -636,6 +639,9 @@
 
         // Update filter counts (simplified - just show current results)
         updateFilterCounts(data);
+
+        // Update button states after displaying results
+        updateButtonStates();
     }
 
     /**
@@ -1071,29 +1077,42 @@
      * Apply selected fixes
      */
     function applySelectedFixes(idsToFix) {
-        console.log('[APPLY SELECTED FIXES] Called with IDs:', idsToFix);
+        console.log('========================================');
+        console.log('[APPLY SELECTED FIXES] 🔥 FUNCTION CALLED 🔥');
+        console.log('[APPLY SELECTED FIXES] Timestamp:', new Date().toISOString());
+        console.log('[APPLY SELECTED FIXES] IDs parameter received:', idsToFix);
+        console.log('========================================');
 
         let selectedIds = idsToFix || [];
 
         // If no IDs provided, get from checkboxes
         if (!selectedIds || selectedIds.length === 0) {
+            console.log('[APPLY SELECTED FIXES] No IDs provided, checking for checkboxes');
             $('.result-checkbox:checked').each(function () {
                 selectedIds.push($(this).data('id'));
             });
+            console.log('[APPLY SELECTED FIXES] IDs from checkboxes:', selectedIds);
         }
 
-        console.log('[APPLY SELECTED FIXES] Selected IDs:', selectedIds);
+        console.log('[APPLY SELECTED FIXES] Final selected IDs:', selectedIds);
+        console.log('[APPLY SELECTED FIXES] Total count:', selectedIds.length);
 
         if (selectedIds.length === 0) {
+            console.log('[APPLY SELECTED FIXES] ❌ NO IDS - Showing alert');
             alert('Please select at least one entry to fix');
             return;
         }
 
         if (!confirm('Are you sure you want to apply fixes for ' + selectedIds.length + ' link(s)?')) {
+            console.log('[APPLY SELECTED FIXES] ❌ USER CANCELLED');
             return;
         }
 
-        console.log('[APPLY SELECTED FIXES] Sending AJAX request');
+        console.log('[APPLY SELECTED FIXES] ✅ User confirmed, preparing AJAX request');
+        console.log('[APPLY SELECTED FIXES] AJAX URL:', seoautofixBrokenUrls.ajaxUrl);
+        console.log('[APPLY SELECTED FIXES] Nonce:', seoautofixBrokenUrls.nonce);
+        console.log('[APPLY SELECTED FIXES] Action: seoautofix_broken_links_apply_fixes');
+        console.log('[APPLY SELECTED FIXES] Sending IDs:', JSON.stringify(selectedIds));
 
         $.ajax({
             url: seoautofixBrokenUrls.ajaxUrl,
@@ -1103,13 +1122,24 @@
                 nonce: seoautofixBrokenUrls.nonce,
                 ids: selectedIds
             },
+            beforeSend: function () {
+                console.log('[APPLY SELECTED FIXES] 📡 AJAX REQUEST SENT');
+            },
             success: function (response) {
-                console.log('[APPLY SELECTED FIXES] Success response:', response);
+                console.log('========================================');
+                console.log('[APPLY SELECTED FIXES] 📥 AJAX SUCCESS RESPONSE RECEIVED');
+                console.log('[APPLY SELECTED FIXES] Response object:', response);
+                console.log('[APPLY SELECTED FIXES] Response.success:', response.success);
+                console.log('[APPLY SELECTED FIXES] Response.data:', response.data);
+                console.log('========================================');
 
                 if (response.success) {
                     const fixed = response.data.fixed_count || 0;
                     const failed = response.data.failed_count || 0;
                     const skipped = response.data.skipped_count || 0;
+
+                    console.log('[APPLY SELECTED FIXES] ✅ SUCCESS - Fixed:', fixed, 'Failed:', failed, 'Skipped:', skipped);
+                    console.log('[APPLY SELECTED FIXES] Messages:', response.data.messages);
 
                     // Show summary message
                     let message = '✅ Fixed: ' + fixed + '\n❌ Failed: ' + failed;
@@ -1121,9 +1151,12 @@
 
                     // Remove successfully fixed rows dynamically
                     if (fixed > 0) {
+                        console.log('[APPLY SELECTED FIXES] Removing fixed rows from table');
                         selectedIds.forEach(function (id) {
                             const $row = $('tr[data-id="' + id + '"]');
                             const rowData = $row.data('result');
+
+                            console.log('[APPLY SELECTED FIXES] Processing row ID:', id, 'Row found:', $row.length > 0);
 
                             // Push to undo stack before removing
                             undoStack.push({
@@ -1161,6 +1194,7 @@
                             });
                         });
 
+                        console.log('[APPLY SELECTED FIXES] Updating stats after fix');
                         // Update stats dynamically (subtract fixed count)
                         updateStatsAfterFix(fixed);
 
@@ -1173,21 +1207,31 @@
                         // Enable undo button since we have changes in the stack
                         if (undoStack.length > 0) {
                             $('#undo-last-fix-btn').prop('disabled', false);
+                            console.log('[APPLY SELECTED FIXES] Undo button enabled, stack length:', undoStack.length);
                         }
                     }
 
                     // If there were failures, reload to show updated state
                     if (failed > 0) {
+                        console.log('[APPLY SELECTED FIXES] Some failures detected, reloading results in 500ms');
                         setTimeout(function () {
                             loadScanResults(currentScanId);
                         }, 500);
                     }
                 } else {
+                    console.log('[APPLY SELECTED FIXES] ❌ RESPONSE SUCCESS = FALSE');
+                    console.log('[APPLY SELECTED FIXES] Error message:', response.data.message);
                     alert(response.data.message || 'Failed to apply fixes');
                 }
             },
             error: function (jqXHR, textStatus, errorThrown) {
-                console.log('[APPLY SELECTED FIXES] Error:', textStatus, errorThrown);
+                console.log('========================================');
+                console.log('[APPLY SELECTED FIXES] ❌ AJAX ERROR');
+                console.log('[APPLY SELECTED FIXES] Status:', textStatus);
+                console.log('[APPLY SELECTED FIXES] Error:', errorThrown);
+                console.log('[APPLY SELECTED FIXES] jqXHR:', jqXHR);
+                console.log('[APPLY SELECTED FIXES] Response Text:', jqXHR.responseText);
+                console.log('========================================');
                 alert('Error applying fixes: ' + textStatus);
             }
         });
@@ -1263,23 +1307,24 @@
         const brokenCount = $('#results-table-body tr')
             .not('.status-fixed, .empty-results-row')
             .length;
-        
+
         const hasFixed = fixedLinksSession.length > 0;
         const hasUndo = undoStack.length > 0;
+        const hasScan = currentScanId !== null;
 
-        console.log('[UPDATE BUTTON STATES] brokenCount:', brokenCount, 'hasFixed:', hasFixed, 'hasUndo:', hasUndo);
+        console.log('[UPDATE BUTTON STATES] brokenCount:', brokenCount, 'hasFixed:', hasFixed, 'hasUndo:', hasUndo, 'hasScan:', hasScan);
 
-        // Fix All, Remove, Replace buttons - disabled when no broken links
+        // Fix All, Remove, Replace buttons - ACTIVE when there's a scan (regardless of broken count)
         const actionButtons = $('#fix-all-issues-btn, #remove-broken-links-btn, #replace-broken-links-btn');
-        actionButtons.prop('disabled', brokenCount === 0);
-        console.log('[UPDATE BUTTON STATES] Action buttons disabled:', brokenCount === 0);
+        actionButtons.prop('disabled', !hasScan);
+        console.log('[UPDATE BUTTON STATES] Action buttons disabled:', !hasScan);
 
         // Download/Email Fix Report buttons - disabled when nothing fixed
         const reportButtons = $('#download-report-btn, #email-report-btn, #download-report-empty-btn, #email-report-empty-btn');
-        reportButtons.prop('disabled', ! hasFixed);
+        reportButtons.prop('disabled', !hasFixed);
         console.log('[UPDATE BUTTON STATES] Report buttons disabled:', !hasFixed);
 
-        // Undo button - disabled when undo stack is empty
+        // Undo buttons - ONLY enabled when there are changes made (undo stack has items)
         const undoButtons = $('#undo-last-fix-btn, #undo-changes-btn');
         undoButtons.prop('disabled', !hasUndo);
         console.log('[UPDATE BUTTON STATES] Undo buttons disabled:', !hasUndo);
@@ -1530,7 +1575,7 @@
                     if (fixed > 0) {
                         brokenLinks.forEach(function (link) {
                             const $row = $('[data-id="' + link.id + '"]');
-                            
+
                             // Push to undo stack before removing
                             undoStack.push({
                                 id: link.id,
@@ -3536,27 +3581,99 @@
                             closeBulkProgressModal();
 
                             if (applyResponse.success) {
-                                const results = applyResponse.data.results || {};
-                                const successCount = results.success || 0;
-                                const failedCount = results.failed || 0;
+                                // The response structure is: applyResponse.data = { fixed_count, failed_count, removed_count, messages, etc. }
+                                const successCount = applyResponse.data.fixed_count || 0;
+                                const failedCount = applyResponse.data.failed_count || 0;
+                                const removedCount = applyResponse.data.removed_count || 0;
+                                const messages = applyResponse.data.messages || [];
 
                                 console.log('[BULK REPLACE V2] Apply results:', {
-                                    success: successCount,
+                                    fixed: successCount,
                                     failed: failedCount,
-                                    fullResults: results
+                                    removed: removedCount,
+                                    messages: messages,
+                                    fullResponse: applyResponse.data
                                 });
 
-                                let message = `Successfully processed ${successCount} link(s).`;
+                                // Build success message
+                                let message = `Successfully fixed ${successCount} broken link(s) across ${applyResponse.data.total_pages || 0} page(s).`;
+
+                                if (removedCount > 0) {
+                                    message += `\n${removedCount} link(s) were removed.`;
+                                }
+
                                 if (failedCount > 0) {
                                     message += `\n${failedCount} link(s) failed to process.`;
                                 }
 
+                                // Show detailed messages if available
+                                if (messages.length > 0) {
+                                    message += '\n\nDetails:\n' + messages.join('\n');
+                                }
+
                                 alert(message);
 
-                                // Refresh the page to show updated results
-                                if (successCount > 0) {
-                                    console.log('[BULK REPLACE V2] Reloading page to show results');
-                                    location.reload();
+                                // Dynamically update the table instead of reloading
+                                if (successCount > 0 || removedCount > 0) {
+                                    console.log('[BULK REPLACE V2] Updating table dynamically');
+
+                                    // Get the entry IDs that were ACTUALLY fixed from the backend response
+                                    const fixedIds = applyResponse.data.fixed_entry_ids || [];
+                                    console.log('[BULK REPLACE V2] Backend confirmed fixed IDs:', fixedIds);
+                                    console.log('[BULK REPLACE V2] Total IDs sent:', links.map(l => l.id));
+
+                                    if (fixedIds.length === 0) {
+                                        console.warn('[BULK REPLACE V2] No fixed_entry_ids in response, cannot update table');
+                                        return;
+                                    }
+
+                                    // Remove only the rows that were actually fixed
+                                    let removedRowsCount = 0;
+                                    fixedIds.forEach(id => {
+                                        const row = $(`tr[data-id="${id}"]`);
+                                        if (row.length) {
+                                            console.log('[BULK REPLACE V2] Removing row for fixed ID:', id);
+                                            row.fadeOut(300, function () {
+                                                $(this).remove();
+                                                removedRowsCount++;
+
+                                                // Check if table is now empty (after last row is removed)
+                                                if (removedRowsCount === fixedIds.length) {
+                                                    const remainingRows = $('#broken-links-table tbody tr:visible').length;
+                                                    console.log('[BULK REPLACE V2] All fixed rows removed. Remaining rows:', remainingRows);
+
+                                                    if (remainingRows === 0) {
+                                                        console.log('[BULK REPLACE V2] No more broken links - showing empty state');
+                                                        $('#broken-links-table tbody').html(
+                                                            '<tr><td colspan="7" style="text-align: center; padding: 40px;">' +
+                                                            '<p style="font-size: 16px; color: #10b981; margin: 0;">✅ All broken links have been fixed!</p>' +
+                                                            '<p style="font-size: 14px; color: #6b7280; margin-top: 10px;">Run a new scan to check for more issues.</p>' +
+                                                            '</td></tr>'
+                                                        );
+
+                                                        // Update stats to show 0
+                                                        $('.stat-value').text('0');
+
+                                                        // Disable action buttons
+                                                        updateButtonStates();
+                                                    } else {
+                                                        // Update statistics with remaining count
+                                                        const currentTotal = parseInt($('.stat-value').first().text()) || 0;
+                                                        const newTotal = Math.max(0, currentTotal - fixedIds.length);
+
+                                                        console.log('[BULK REPLACE V2] Updating stats - Old:', currentTotal, 'Removed:', fixedIds.length, 'New:', newTotal);
+                                                        $('.stat-value').first().text(newTotal);
+
+                                                        // Update button states
+                                                        updateButtonStates();
+                                                    }
+                                                }
+                                            });
+                                        } else {
+                                            console.warn('[BULK REPLACE V2] Row not found for ID:', id);
+                                        }
+                                    });
+
                                 } else {
                                     console.warn('[BULK REPLACE V2] No links were successfully processed');
                                 }

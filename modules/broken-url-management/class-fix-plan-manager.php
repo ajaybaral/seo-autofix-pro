@@ -205,6 +205,7 @@ class Fix_Plan_Manager
         $failed_count = 0;
         $removed_count = 0;
         $messages = array();
+        $fixed_entry_ids = array(); // Track which entry IDs were successfully fixed
 
         // Group by page to minimize database updates
         $pages_to_fix = array();
@@ -223,6 +224,11 @@ class Fix_Plan_Manager
             if ($result['success']) {
                 $fixed_count += $result['fixed'];
                 $removed_count += $result['removed'];
+
+                // Collect the entry IDs that were successfully fixed
+                foreach ($page_fixes as $fix) {
+                    $fixed_entry_ids[] = $fix['entry_id'];
+                }
 
                 $page_title = $page_fixes[0]['found_on_page_title'];
                 $messages[] = sprintf(
@@ -246,7 +252,8 @@ class Fix_Plan_Manager
             'removed_count' => $removed_count,
             'failed_count' => $failed_count,
             'total_pages' => count($pages_to_fix),
-            'messages' => $messages
+            'messages' => $messages,
+            'fixed_entry_ids' => $fixed_entry_ids // Return the list of fixed entry IDs
         );
     }
 
