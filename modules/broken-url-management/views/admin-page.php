@@ -229,7 +229,7 @@ $recent_scans = $db_manager->get_scans(10);
 
         <!-- History & Export Section -->
         <div class="history-export-section">
-            <button id="undo-changes-btn" class="button">
+            <button id="undo-changes-btn" class="button" disabled>
                 <span class="dashicons dashicons-undo"></span>
                 <?php echo esc_html__('Undo Changes', 'seo-autofix-pro'); ?>
             </button>

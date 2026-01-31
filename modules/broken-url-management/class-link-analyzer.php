@@ -180,6 +180,103 @@ class Link_Analyzer
     }
 
     /**
+     * Get post ID from URL with multiple fallback methods
+     * Handles /index.php/ URLs and other WordPress URL formats
+     * 
+     * @param string $url The URL to get post ID from
+     * @return int Post ID or 0 if not found
+     */
+    private function get_post_id_from_url($url)
+    {
+        error_log('[GET_POST_ID] Attempting to get post ID from URL: ' . $url);
+
+        // Method 1: Standard WordPress url_to_postid()
+        $post_id = url_to_postid($url);
+        if ($post_id) {
+            error_log('[GET_POST_ID] Method 1 (url_to_postid) succeeded: ' . $post_id);
+            return $post_id;
+        }
+
+        // Method 2: Try removing /index.php/ if present
+        if (strpos($url, '/index.php/') !== false) {
+            $normalized_url = str_replace('/index.php/', '/', $url);
+            error_log('[GET_POST_ID] Method 2: Trying without /index.php/: ' . $normalized_url);
+            $post_id = url_to_postid($normalized_url);
+            if ($post_id) {
+                error_log('[GET_POST_ID] Method 2 succeeded: ' . $post_id);
+                return $post_id;
+            }
+        }
+
+        // Method 3: Try to extract page slug from URL
+        $parsed = parse_url($url);
+        if (isset($parsed['path'])) {
+            // Remove trailing slash and leading slashes
+            $path = trim($parsed['path'], '/');
+            
+            // Remove index.php if present
+            $path = str_replace('index.php/', '', $path);
+            
+            // Get the last segment (page slug)
+            $segments = explode('/', $path);
+            $page_slug = end($segments);
+            
+            if (!empty($page_slug)) {
+                error_log('[GET_POST_ID] Method 3: Extracted slug: ' . $page_slug);
+                
+                // Try to find page by slug
+                $page = get_page_by_path($page_slug, OBJECT, array('post', 'page'));
+                if ($page) {
+                    error_log('[GET_POST_ID] Method 3 succeeded via get_page_by_path: ' . $page->ID);
+                    return $page->ID;
+                }
+                
+                // Try WP_Query as fallback
+                error_log('[GET_POST_ID] Method 3b: Trying WP_Query with pagename');
+                $query = new \WP_Query(array(
+                    'pagename' => $page_slug,
+                    'post_type' => array('post', 'page'),
+                    'posts_per_page' => 1
+                ));
+                
+                if ($query->have_posts()) {
+                    $query->the_post();
+                    $found_id = get_the_ID();
+                    wp_reset_postdata();
+                    error_log('[GET_POST_ID] Method 3b succeeded via WP_Query: ' . $found_id);
+                    return $found_id;
+                }
+                wp_reset_postdata();
+            }
+        }
+
+        // Method 4: Try to match against all pages/posts by URL
+        error_log('[GET_POST_ID] Method 4: Querying all pages/posts to find URL match');
+        global $wpdb;
+        
+        // Get all published posts and pages
+        $posts = $wpdb->get_results(
+            "SELECT ID FROM {$wpdb->posts} 
+            WHERE post_status = 'publish' 
+            AND post_type IN ('post', 'page')
+            ORDER BY ID DESC
+            LIMIT 500"
+        );
+        
+        foreach ($posts as $post) {
+            $post_url = get_permalink($post->ID);
+            // Compare normalized URLs (without trailing slashes)
+            if (untrailingslashit($post_url) === untrailingslashit($url)) {
+                error_log('[GET_POST_ID] Method 4 succeeded by permalink match: ' . $post->ID);
+                return $post->ID;
+            }
+        }
+
+        error_log('[GET_POST_ID] All methods failed - could not find post ID');
+        return 0;
+    }
+
+    /**
      * Replace link in post/page content
      * 
      * @param string $page_url Page where link was found
@@ -191,23 +288,32 @@ class Link_Analyzer
     {
         error_log('[REPLACE_LINK] Starting. Page URL: ' . $page_url . ', Broken: ' . $broken_url . ', Replacement: ' . $replacement_url);
 
-        // Get post ID from URL
-        $post_id = url_to_postid($page_url);
+        // Get post ID from URL with multiple fallback methods
+        $post_id = $this->get_post_id_from_url($page_url);
 
         error_log('[REPLACE_LINK] Post ID from URL: ' . $post_id);
 
         if (!$post_id) {
-            error_log('[REPLACE_LINK] Failed to get post ID from URL');
+            error_log('[REPLACE_LINK] Failed to get post ID from URL after all fallback attempts');
             return false;
         }
+
 
         // Check if this is an Elementor page
         $is_elementor = $this->is_elementor_page($post_id);
         error_log('[REPLACE_LINK] Is Elementor page: ' . ($is_elementor ? 'YES' : 'NO'));
 
         if ($is_elementor) {
-            error_log('[REPLACE_LINK] Detected Elementor page - routing to Elementor handler');
-            return $this->replace_link_in_elementor($post_id, $broken_url, $replacement_url);
+            error_log('[REPLACE_LINK] Detected Elementor page - trying Elementor handler first');
+            $elementor_result = $this->replace_link_in_elementor($post_id, $broken_url, $replacement_url);
+            
+            if ($elementor_result) {
+                error_log('[REPLACE_LINK] ✅ Elementor replacement succeeded');
+                return true;
+            }
+            
+            error_log('[REPLACE_LINK] ⚠️ Elementor replacement failed - trying fallback to post_content');
+            // Fall through to try post_content as fallback
         }
 
         // Regular WordPress page - continue with post_content replacement
@@ -224,6 +330,16 @@ class Link_Analyzer
         error_log('[REPLACE_LINK] Got post. Title: ' . $post->post_title . ', Content length: ' . strlen($post->post_content));
 
         $content = $post->post_content;
+        
+        // CRITICAL: Check if broken URL exists in content at all
+        if (stripos($content, $broken_url) === false) {
+            error_log('[REPLACE_LINK] ❌ Broken URL NOT FOUND in post_content at all!');
+            error_log('[REPLACE_LINK] This means the link is likely in: theme template, header/footer, or widget');
+            error_log('[REPLACE_LINK] Content preview (first 500 chars): ' . substr($content, 0, 500));
+            return false;
+        }
+        
+        error_log('[REPLACE_LINK] ✅ Broken URL FOUND in post_content - proceeding with replacement');
 
         // Normalize URLs - remove trailing slashes for comparison
         $normalized_broken = untrailingslashit($broken_url);
@@ -498,45 +614,75 @@ class Link_Analyzer
      * @param bool &$replaced Reference to track if replacement occurred
      * @return mixed Modified data
      */
-    private function replace_url_in_elementor_data_recursive($data, $broken_url, $replacement_url, &$replaced)
+    private function replace_url_in_elementor_data_recursive($data, $broken_url, $replacement_url, &$replaced, $depth = 0)
     {
+        static $url_checks = 0;
+        
+        // Log every 100 checks to avoid overwhelming logs
+        if ($depth === 0) {
+            $url_checks = 0;
+            error_log('[ELEMENTOR RECURSIVE] Starting search for broken URL: ' . $broken_url);
+            error_log('[ELEMENTOR RECURSIVE] Replacement URL: ' . $replacement_url);
+        }
+
         // Handle arrays
         if (is_array($data)) {
             foreach ($data as $key => $value) {
                 // Check specific Elementor fields that commonly contain URLs
                 if ($key === 'url' && is_string($value)) {
-                    // Direct URL field
+                    $url_checks++;
+                    error_log('[ELEMENTOR RECURSIVE] Checking URL field at depth ' . $depth . ': ' . $value);
+                    
+                    // Direct URL field - try multiple matching strategies
                     if ($this->urls_match($value, $broken_url)) {
-                        error_log('[ELEMENTOR] Found URL in field: ' . $key . ' = ' . $value);
+                        error_log('[ELEMENTOR] ✅ Found URL in field: ' . $key . ' = ' . $value);
                         $data[$key] = $replacement_url;
+                        $replaced = true;
+                    } elseif (stripos($value, $broken_url) !== false) {
+                        // URL might be part of a longer string
+                        error_log('[ELEMENTOR] ✅ Found URL as substring in field: ' . $key);
+                        $data[$key] = str_replace($broken_url, $replacement_url, $value);
                         $replaced = true;
                     }
                 } elseif ($key === 'link' && is_array($value) && isset($value['url'])) {
+                    $url_checks++;
+                    error_log('[ELEMENTOR RECURSIVE] Checking link.url at depth ' . $depth . ': ' . $value['url']);
+                    
                     // Link object with URL property
                     if ($this->urls_match($value['url'], $broken_url)) {
-                        error_log('[ELEMENTOR] Found URL in link.url: ' . $value['url']);
+                        error_log('[ELEMENTOR] ✅ Found URL in link.url: ' . $value['url']);
                         $data[$key]['url'] = $replacement_url;
                         $replaced = true;
+                    } elseif (stripos($value['url'], $broken_url) !== false) {
+                        error_log('[ELEMENTOR] ✅ Found URL as substring in link.url');
+                        $data[$key]['url'] = str_replace($broken_url, $replacement_url, $value['url']);
+                        $replaced = true;
                     }
-                } elseif (in_array($key, ['text', 'editor', 'html', 'code', 'title']) && is_string($value)) {
+                } elseif (in_array($key, ['text', 'editor', 'html', 'code', 'title', 'content']) && is_string($value)) {
                     // Text/HTML fields that might contain links
                     if (stripos($value, $broken_url) !== false) {
-                        error_log('[ELEMENTOR] Found URL in text field: ' . $key);
+                        error_log('[ELEMENTOR] ✅ Found URL in text field "' . $key . '" at depth ' . $depth);
+                        error_log('[ELEMENTOR] Text preview: ' . substr($value, 0, 200));
                         $data[$key] = str_replace($broken_url, $replacement_url, $value);
                         $replaced = true;
                     }
                 } else {
                     // Recursively process nested structures
-                    $data[$key] = $this->replace_url_in_elementor_data_recursive($value, $broken_url, $replacement_url, $replaced);
+                    $data[$key] = $this->replace_url_in_elementor_data_recursive($value, $broken_url, $replacement_url, $replaced, $depth + 1);
                 }
             }
+        }
+        
+        // Log summary at the end
+        if ($depth === 0) {
+            error_log('[ELEMENTOR RECURSIVE] Search complete. Checked ' . $url_checks . ' URL fields. Replaced: ' . ($replaced ? 'YES' : 'NO'));
         }
 
         return $data;
     }
 
     /**
-     * Check if two URLs match (handles trailing slashes)
+     * Check if two URLs match (handles trailing slashes AND domain differences for migrations)
      * 
      * @param string $url1 First URL
      * @param string $url2 Second URL
@@ -544,9 +690,36 @@ class Link_Analyzer
      */
     private function urls_match($url1, $url2)
     {
+        // Method 1: Exact match after normalizing trailing slashes
         $normalized1 = untrailingslashit($url1);
         $normalized2 = untrailingslashit($url2);
-        return $normalized1 === $normalized2;
+        
+        if ($normalized1 === $normalized2) {
+            error_log('[URL_MATCH] ✅ Exact match: ' . $url1);
+            return true;
+        }
+        
+        // Method 2: Path-only match (for site migrations where domain changed)
+        // Extract paths from both URLs
+        $parsed1 = parse_url($url1);
+        $parsed2 = parse_url($url2);
+        
+        if (isset($parsed1['path']) && isset($parsed2['path'])) {
+            $path1 = untrailingslashit($parsed1['path']);
+            $path2 = untrailingslashit($parsed2['path']);
+            
+            // Also compare query strings if both have them
+            $query1 = isset($parsed1['query']) ? $parsed1['query'] : '';
+            $query2 = isset($parsed2['query']) ? $parsed2['query'] : '';
+            
+            if ($path1 === $path2 && $query1 === $query2) {
+                error_log('[URL_MATCH] ✅ Path match (domain migration): ' . $url1 . ' ≈ ' . $url2);
+                error_log('[URL_MATCH] Path1: ' . $path1 . ' | Path2: ' . $path2);
+                return true;
+            }
+        }
+        
+        return false;
     }
 
     /**

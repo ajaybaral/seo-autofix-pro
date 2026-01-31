@@ -1427,9 +1427,18 @@ class SEOAutoFix_Broken_Url_Management
                 }
             }
         }
-        // Delete snapshots after restore
-        $deleted = $wpdb->delete($table_snapshot, array('scan_id' => $scan_id), array('%s'));
-        error_log('[UNDO] Deleted ' . $deleted . ' snapshot entries');
+        //NOTE: DO NOT delete snapshots! They should persist for the entire session
+        // so users can undo multiple times if they make more fixes
+        // Snapshots are only deleted when:
+        // 1. A new scan is started (handled separately)
+        // 2. Page is refreshed (session ends)
+        // 3. User manually clears old data
+        
+        // OLD CODE (WRONG - deleted snapshot after first undo):
+        // $deleted = $wpdb->delete($table_snapshot, array('scan_id' => $scan_id), array('%s'));
+        // error_log('[UNDO] Deleted ' . $deleted . ' snapshot entries');
+        
+        error_log('[UNDO] Snapshot preserved for potential future undos');
 
         // ===== CRITICAL: Clean up database entries so links appear as broken again =====
         $table_activity = $wpdb->prefix . 'seoautofix_broken_links_activity';

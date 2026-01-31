@@ -2,6 +2,25 @@
  * Broken URL Management Styles
  */
 
+/* Loading animation for table rows during scan */
+@keyframes row-loading {
+    0%, 100% { 
+        background-color: #f9fafb; /* Light gray */
+    }
+    50% { 
+        background-color: #ffffff; /* White */
+    }
+}
+
+.scan-in-progress tbody tr {
+    animation: row-loading 2s ease-in-out infinite;
+}
+
+.scan-in-progress tbody tr:hover {
+    animation: none; /* Stop animation on hover */
+    background-color: #f0f0f1; /* WordPress hover bg */
+}
+
 /* Blink animations for status feedback */
 @keyframes blink-fixed {
     0%, 100% { 
@@ -38,6 +57,27 @@
     text-align: center;
     padding: 10px !important;
 }
+
+/* NEW: Green background animation for fixed rows */
+.row-being-fixed {
+    background-color: #d4edda !important;
+    transition: background-color 0.5s ease-in-out;
+}
+
+.row-being-fixed td {
+    color: #155724 !important;
+}
+
+.fixed-status-label {
+    display: inline-block;
+    background-color: #28a745;
+    color: white;
+    padding: 6px 16px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 13px;
+}
+
 
 /* Main Container */
 .seoautofix-broken-urls {

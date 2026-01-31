@@ -13,6 +13,7 @@
     let perPage = 25; // Default entries per page
     let isScanning = false;
     let scanProgressInterval = null;
+    let isScanInProgress = false; // Track if scan is actively running to disable buttons
 
     // Track fixed links in current session (for export)
     let fixedLinksSession = [];
@@ -23,8 +24,9 @@
     // Initialize on document ready
     $(document).ready(function () {
         console.log('=================================================');
-        console.log('🔥 BROKEN URL MANAGEMENT JS - VERSION 2.0 - NEW CODE LOADED 🔥');
-        console.log('🆕 Timestamp: 2026-01-24 23:22 - COMPREHENSIVE LOGGING 🆕');
+        console.log('🔥 BROKEN URL MANAGEMENT JS - VERSION 3.0 - SIMPLIFIED BUTTON LOGIC 🔥');
+        console.log('🆕 Timestamp: 2026-01-31 19:54 - SINGLE CENTRALIZED FUNCTION 🆕');
+        console.log('🆕 fixedLinksSession starts at:', fixedLinksSession.length);
         console.log('=================================================');
 
         // Check if we're on the broken URL management pagers();
@@ -50,7 +52,8 @@
         // Header action buttons
         $('#start-auto-fix-btn').on('click', startNewScan);
         $('#export-report-btn').on('click', exportToCSV);
-        $('#undo-last-fix-btn').on('click', undoLastFix);
+        // ✅ REMOVED: Old undo function - now using undoChanges() snapshot system instead
+        // $('#undo-last-fix-btn').on('click', undoLastFix);
         $('#fix-all-issues-btn').on('click', fixAllIssues);
 
         // Filter dropdowns
@@ -287,6 +290,15 @@
         $('.seoautofix-table-container-new').hide();
         $('.filter-section').hide();
 
+        // ✅ SET SCAN STATE AND DISABLE ALL ACTION BUTTONS
+        isScanInProgress = true;
+        setTableButtonsState(false); // Disable Fix/Remove/Replace buttons
+        console.log('[SCAN START] Set isScanInProgress = true, disabled all action buttons');
+        
+        // Add loading animation class to table
+        $('#results-table-body').closest('table').addClass('scan-in-progress');
+        console.log('[SCAN START] Added loading animation class to table');
+
         // Disable export button until results are available
         $('#export-report-btn').prop('disabled', true).addClass('disabled');
         console.log('[SCAN START] Export button disabled');
@@ -448,6 +460,13 @@
                     if (data.completed) {
                         console.log('[SCAN DEBUG] Scan completed!');
                         $('#scan-progress-text').text(seoautofixBrokenUrls.strings.scanComplete || 'Scan complete!');
+                        
+                        // ✅ RE-ENABLE BUTTONS AND REMOVE LOADING ANIMATION
+                        isScanInProgress = false;
+                        setTableButtonsState(true); // Enable Fix/Remove/Replace buttons
+                        $('#results-table-body').closest('table').removeClass('scan-in-progress');
+                        console.log('[SCAN COMPLETE] Set isScanInProgress = false, enabled all action buttons');
+                        
                         onScanComplete();
                     } else {
                         // Process next batch after a short delay
@@ -888,6 +907,12 @@
 
         if (newRowsAdded > 0) {
             console.log('[DYNAMIC UPDATE] Added', newRowsAdded, 'new rows');
+            
+            // ✅ Ensure buttons stay disabled if scan is still in progress
+            if (isScanInProgress) {
+                setTableButtonsState(false);
+                console.log('[DYNAMIC UPDATE] Scan in progress - re-disabled buttons after adding rows');
+            }
         }
     }
 
@@ -1182,16 +1207,8 @@
                                 });
                             }
 
-                            $row.fadeOut(300, function () {
-                                $(this).remove();
-
-                                // Update the "No results" message if table is empty
-                                if ($('.broken-links-table tbody tr').length === 0) {
-                                    $('.broken-links-table tbody').html(
-                                        '<tr><td colspan="5" style="text-align:center; padding: 30px;">No broken links found</td></tr>'
-                                    );
-                                }
-                            });
+                            // Use new animation function
+                            animateFixedRow($row);
                         });
 
                         console.log('[APPLY SELECTED FIXES] Updating stats after fix');
@@ -1202,13 +1219,8 @@
                         updateFixedReportButtonText();
 
                         // Update button states based on new data
+                        // updateButtonStates() now handles EVERYTHING based on fixedLinksSession.length
                         updateButtonStates();
-
-                        // Enable undo button since we have changes in the stack
-                        if (undoStack.length > 0) {
-                            $('#undo-last-fix-btn').prop('disabled', false);
-                            console.log('[APPLY SELECTED FIXES] Undo button enabled, stack length:', undoStack.length);
-                        }
                     }
 
                     // If there were failures, reload to show updated state
@@ -1298,7 +1310,7 @@
 
     /**
      * Update button states based on current data state
-     * Centralizes all button enable/disable logic
+     * SIMPLE CENTRALIZED LOGIC - ONE SOURCE OF TRUTH
      */
     function updateButtonStates() {
         console.log('[UPDATE BUTTON STATES] Checking button states...');
@@ -1308,26 +1320,55 @@
             .not('.status-fixed, .empty-results-row')
             .length;
 
-        const hasFixed = fixedLinksSession.length > 0;
-        const hasUndo = undoStack.length > 0;
+        // ✅ SINGLE SOURCE OF TRUTH: fixedLinksSession.length
+        const fixedCount = fixedLinksSession.length;
         const hasScan = currentScanId !== null;
 
-        console.log('[UPDATE BUTTON STATES] brokenCount:', brokenCount, 'hasFixed:', hasFixed, 'hasUndo:', hasUndo, 'hasScan:', hasScan);
+        console.log('[UPDATE BUTTON STATES] fixedCount:', fixedCount, 'brokenCount:', brokenCount, 'hasScan:', hasScan);
 
-        // Fix All, Remove, Replace buttons - ACTIVE when there's a scan (regardless of broken count)
+        // Fix All, Remove, Replace buttons - ACTIVE when there's a scan
         const actionButtons = $('#fix-all-issues-btn, #remove-broken-links-btn, #replace-broken-links-btn');
         actionButtons.prop('disabled', !hasScan);
         console.log('[UPDATE BUTTON STATES] Action buttons disabled:', !hasScan);
 
-        // Download/Email Fix Report buttons - disabled when nothing fixed
+        // ✅ SIMPLE LOGIC: fixedCount > 0 → ENABLE, fixedCount = 0 → DISABLE
+        const shouldEnableReportAndUndo = fixedCount > 0;
+        
+        // Download/Email Fix Report buttons
         const reportButtons = $('#download-report-btn, #email-report-btn, #download-report-empty-btn, #email-report-empty-btn');
-        reportButtons.prop('disabled', !hasFixed);
-        console.log('[UPDATE BUTTON STATES] Report buttons disabled:', !hasFixed);
+        reportButtons.prop('disabled', !shouldEnableReportAndUndo);
+        console.log('[UPDATE BUTTON STATES] Report buttons:', shouldEnableReportAndUndo ? 'ENABLED' : 'DISABLED', '(fixedCount:', fixedCount + ')');
 
-        // Undo buttons - ONLY enabled when there are changes made (undo stack has items)
+        // Undo buttons
         const undoButtons = $('#undo-last-fix-btn, #undo-changes-btn');
-        undoButtons.prop('disabled', !hasUndo);
-        console.log('[UPDATE BUTTON STATES] Undo buttons disabled:', !hasUndo);
+        undoButtons.prop('disabled', !shouldEnableReportAndUndo);
+        console.log('[UPDATE BUTTON STATES] Undo buttons:', shouldEnableReportAndUndo ? 'ENABLED' : 'DISABLED', '(fixedCount:', fixedCount + ')');
+    }
+
+
+    /**
+     * Enable or disable all table action buttons (Fix, Remove, Replace)
+     * Used to lock buttons during scan to prevent conflicts
+     */
+    function setTableButtonsState(enabled) {
+        console.log('[BUTTON LOCK] Setting table buttons to:', enabled ? 'ENABLED' : 'DISABLED');
+        
+        // Individual Fix buttons in each table row
+        $('.fix-entry-btn').prop('disabled', !enabled);
+        
+        // Bulk action buttons at the bottom
+        $('#fix-all-issues-btn').prop('disabled', !enabled);
+        $('#remove-broken-links-btn').prop('disabled', !enabled);
+        $('#replace-broken-links-btn').prop('disabled', !enabled);
+        
+        // Visual feedback - add/remove 'disabled' class for styling
+        if (enabled) {
+            $('.fix-entry-btn, #fix-all-issues-btn, #remove-broken-links-btn, #replace-broken-links-btn').removeClass('button-locked');
+        } else {
+            $('.fix-entry-btn, #fix-all-issues-btn, #remove-broken-links-btn, #replace-broken-links-btn').addClass('button-locked');
+        }
+        
+        console.log('[BUTTON LOCK] All table action buttons are now', enabled ? 'ENABLED' : 'ENABLED');
     }
 
 
@@ -1439,86 +1480,14 @@
     /**
      * Undo the last fix
      */
+    // ✅ DEPRECATED - OLD UNDO FUNCTION (undoStack-based)
+    // This function is NO LONGER USED - replaced by undoChanges() which uses backend snapshots
+    // Keeping code commented for reference only
+    /*
     function undoLastFix() {
-        if (undoStack.length === 0) {
-            alert('No changes to undo');
-            return;
-        }
-
-        const lastChange = undoStack.pop();
-        console.log('[UNDO] Restoring change:', lastChange);
-
-        // Show loading state
-        $('#undo-last-fix-btn, #undo-changes-btn')
-            .prop('disabled', true)
-            .html('<span class="dashicons dashicons-update spin"></span> Undoing...');
-
-        // Call backend to restore the link
-        $.ajax({
-            url: seoautofixBrokenUrls.ajaxUrl,
-            method: 'POST',
-            data: {
-                action: 'seoautofix_broken_links_undo_fix',
-                nonce: seoautofixBrokenUrls.nonce,
-                id: lastChange.id
-            },
-            success: function (response) {
-                if (response.success) {
-                    // Re-insert the row with animation
-                    const newRow = $(lastChange.row_html);
-                    $('#results-table-body').prepend(newRow);
-                    newRow.hide().fadeIn(400);
-
-                    // Highlight the restored row
-                    newRow.addClass('highlight-undo');
-                    setTimeout(() => newRow.removeClass('highlight-undo'), 2000);
-
-                    // Show notification
-                    const brokenUrl = lastChange.original_data ? lastChange.original_data.broken_url : 'link';
-                    const notification = $('<div class="undo-notification">✓ Restored: ' + escapeHtml(brokenUrl) + '</div>');
-                    $('body').append(notification);
-                    notification.fadeIn(200).delay(2000).fadeOut(300, function () {
-                        $(this).remove();
-                    });
-
-                    // Update stats
-                    updateStatsAfterUndo();
-
-                    // Remove from fixed links session
-                    fixedLinksSession = fixedLinksSession.filter(function (link) {
-                        return link.id !== lastChange.id;
-                    });
-
-                    // Update fixed report buttons
-                    updateFixedReportButtonText();
-
-                    // Update all button states
-                    updateButtonStates();
-
-                    console.log('[UNDO] Successfully restored link ID:', lastChange.id);
-                } else {
-                    alert(response.data.message || 'Failed to undo fix');
-                    undoStack.push(lastChange); // Put it back
-                }
-
-                // Reset button state
-                const buttonHtml = '<span class="dashicons dashicons-undo"></span> Undo Changes';
-                $('#undo-last-fix-btn, #undo-changes-btn')
-                    .prop('disabled', undoStack.length === 0)
-                    .html(buttonHtml);
-            },
-            error: function () {
-                alert('Error occurred while trying to undo');
-                undoStack.push(lastChange); // Put it back
-
-                // Reset button state
-                const buttonHtml = '<span class="dashicons dashicons-undo"></span> Undo Changes';
-                $('#undo-last-fix-btn, #undo-changes-btn')
-                    .prop('disabled', undoStack.length === 0)
-                    .html(buttonHtml);
-            }
-        });
+        // ... old code removed ...
     }
+    */
 
     /**
      * Fix all issues on current page
@@ -1598,15 +1567,8 @@
                                 is_fixed: 1
                             });
 
-                            $row.fadeOut(300, function () {
-                                $(this).remove();
-
-                                if ($('#results-table-body tr').length === 0) {
-                                    $('#results-table-body').html(
-                                        '<tr class="empty-results-row"><td colspan="5" style="text-align: center; padding: 40px;">No broken links found</td></tr>'
-                                    );
-                                }
-                            });
+                            // Use new animation function
+                            animateFixedRow($row);
                         });
 
                         // Update stats and buttons
@@ -1614,8 +1576,10 @@
                         updateFixedReportButtonText();
                         updateButtonStates();
 
-                        // Enable undo button
-                        $('#undo-last-fix-btn').prop('disabled', false);
+                        // EXPLICITLY enable undo buttons
+                        console.log('[FIX ALL] Undo stack length:', undoStack.length);
+                        $('#undo-last-fix-btn, #undo-changes-btn').prop('disabled', false);
+                        console.log('[FIX ALL] Undo buttons explicitly enabled');
                     }
 
                     // Show summary
@@ -1690,6 +1654,46 @@
         };
         return text.replace(/[&<>"']/g, function (m) { return map[m]; });
     }
+
+    /**
+     * Animate fixed row - NEW IMPLEMENTATION
+     * Shows green background with "Fixed" text, waits 2.5 seconds, then fades out and removes
+     */
+    function animateFixedRow($row, onComplete) {
+        console.log('[ANIMATE FIXED ROW] Starting animation for row:', $row.attr('data-id'));
+        
+        // Step 1: Add green background class
+        $row.addClass('row-being-fixed');
+        
+        // Step 2: Find the action column and replace with "Fixed" label
+        const $actionCell = $row.find('.column-action');
+        if ($actionCell.length) {
+            $actionCell.html('<span class="fixed-status-label">Fixed</span>');
+        }
+        
+        // Step 3: Wait 2.5 seconds, then fade out and remove
+        setTimeout(function() {
+            console.log('[ANIMATE FIXED ROW] Starting fade out for row:', $row.attr('data-id'));
+            $row.fadeOut(400, function() {
+                console.log('[ANIMATE FIXED ROW] Removing row:', $row.attr('data-id'));
+                $(this).remove();
+                
+                // Check if table is empty
+                if ($('#results-table-body tr').length === 0 || 
+                    $('#results-table-body tr:visible').length === 0) {
+                    $('#results-table-body').html(
+                        '<tr class="empty-results-row"><td colspan="5" style="text-align:center; padding: 30px;">No broken links found</td></tr>'
+                    );
+                }
+                
+                // Call completion callback if provided
+                if (onComplete && typeof onComplete === 'function') {
+                    onComplete();
+                }
+            });
+        }, 2500); // 2.5 seconds delay
+    }
+
 
     // ========================================
     // NEW v2.0 FUNCTIONS
@@ -2298,8 +2302,8 @@
 
                 if (response.success) {
                     console.log('[SNAPSHOT] Snapshot created:', response.data.snapshot_count, 'pages');
-                    // Enable undo button
-                    $('#undo-changes-btn').prop('disabled', false);
+                    // NOTE: Do NOT enable undo button here - it should only be enabled AFTER fixes are applied
+                    // The button will be enabled by applySelectedFixes() or fixAllIssues() when they make changes
                 } else {
                     console.error('[SNAPSHOT] Failed to create snapshot:', response.data.message);
                 }
@@ -2339,7 +2343,7 @@
 
         // Show loading state
         showNotification('Restoring original state...', 'info');
-        $('#undo-changes-btn').prop('disabled', true).text('Undoing...');
+        $('#undo-changes-btn').prop('disabled', true).html('<span class="dashicons dashicons-update spin"></span> Undoing...');
         console.log('[UNDO] Button disabled and text changed to "Undoing..."');
 
         console.log('[UNDO] Sending AJAX request...');
@@ -2368,6 +2372,12 @@
                 if (response.success) {
                     console.log('[UNDO] Undo successful!');
 
+                    // ✅ ALWAYS CLEAR fixedLinksSession when undo succeeds
+                    // Content is restored, so fixed links are no longer fixed!
+                    console.log('[UNDO] Clearing fixedLinksSession - was:', fixedLinksSession.length);
+                    fixedLinksSession = [];
+                    console.log('[UNDO] fixedLinksSession cleared to:', fixedLinksSession.length);
+
                     // Show detailed success message
                     const activityDeleted = response.data.activity_deleted || 0;
                     let message = response.data.message || 'Changes undone successfully!';
@@ -2383,14 +2393,24 @@
                     console.log('[UNDO] Reloading scan results...');
                     loadScanResults(currentScanId);
 
-                    // Re-enable button now that undo is complete
-                    // User can make new changes and undo again if needed
-                    $('#undo-changes-btn').prop('disabled', false).text('Undo Changes');
-                    console.log('[UNDO] Button re-enabled and text reset to "Undo Changes"');
+                    // ✅ CRITICAL FIX: Enable button AFTER loadScanResults completes
+                    // loadScanResults() is async and calls updateButtonStates() which would disable the button
+                    // We need to wait for it to finish, then re-enable the button
+                    // Use setTimeout to ensure this runs after displayResults() and updateButtonStates()
+                    setTimeout(function() {
+                        // Keep button ENABLED because snapshot persists for multiple undos
+                        $('#undo-changes-btn').prop('disabled', false).html('<span class="dashicons dashicons-undo"></span> Undo Changes');
+                        console.log('[UNDO] ✅ Button forcibly re-enabled after table reload (snapshot persists)');
+                        
+                        // ✅ CRITICAL: Call updateButtonStates() AGAIN to ensure Download/Email buttons are DISABLED
+                        // since fixedLinksSession was cleared
+                        updateButtonStates();
+                        console.log('[UNDO] ✅ updateButtonStates called - Download/Email should be DISABLED');
+                    }, 500); // 500ms should be enough for table reload to complete
                 } else {
                     console.error('[UNDO] Undo failed:', response.data.message);
                     showNotification(response.data.message || 'Failed to undo changes', 'error');
-                    $('#undo-changes-btn').prop('disabled', false).text('Undo Changes');
+                    $('#undo-changes-btn').prop('disabled', false).html('<span class="dashicons dashicons-undo"></span> Undo Changes');
                     console.log('[UNDO] Button re-enabled due to failure');
                 }
             },
@@ -2402,7 +2422,7 @@
                 console.error('[UNDO] Text status:', textStatus);
                 console.error('[UNDO] Error thrown:', errorThrown);
                 showNotification('Error undoing changes: ' + textStatus, 'error');
-                $('#undo-changes-btn').prop('disabled', false).text('Undo Changes');
+                $('#undo-changes-btn').prop('disabled', false).html('<span class="dashicons dashicons-undo"></span> Undo Changes');
                 console.log('[UNDO] Button re-enabled due to error');
             }
         });
@@ -2547,29 +2567,64 @@
                     const failed = response.data.failed_count || 0;
 
                     if (fixed > 0) {
-                        // Show blinking FIXED status
+                        // ✅ ADD TO fixedLinksSession - CRITICAL FOR BUTTON STATES!
                         const $row = $(`tr[data-id="${entryId}"]`);
+                        console.log('[APPLY FIX] 🔍 DEBUG: $row.length:', $row.length);
+                        
                         if ($row.length) {
-                            console.log('[APPLY FIX] Showing FIXED animation for entry:', entryId);
-
-                            // Replace row content with FIXED status
-                            const colspan = $row.find('td').length;
-                            $row.html(`<td colspan="${colspan}" class="row-status-fixed">✓ FIXED</td>`);
-
-                            // Remove row after 3 seconds
-                            setTimeout(() => {
-                                $row.fadeOut(300, function () {
-                                    $(this).remove();
-
-                                    // Update "No results" message if table is empty
-                                    if ($('.broken-links-table tbody tr').length === 0) {
-                                        $('.broken-links-table tbody').html(
-                                            '<tr><td colspan="5" style="text-align:center; padding: 30px;">No broken links found</td></tr>'
-                                        );
-                                    }
+                            const rowData = $row.data('result');
+                            console.log('[APPLY FIX] 🔍 DEBUG: rowData:', rowData);
+                            console.log('[APPLY FIX] 🔍 DEBUG: rowData type:', typeof rowData);
+                            
+                            if (rowData) {
+                                fixedLinksSession.push({
+                                    id: entryId,
+                                    location: rowData.found_on_page_title || rowData.page_title || 'Unknown',
+                                    anchor_text: rowData.anchor_text || '',
+                                    broken_url: rowData.broken_url || '',
+                                    link_type: rowData.link_type || 'unknown',
+                                    status_code: rowData.status_code || '',
+                                    error_type: rowData.error_type || '',
+                                    suggested_url: customUrl,
+                                    reason: 'Individual fix',
+                                    is_fixed: 1
                                 });
-                            }, 3000);
+                                console.log('[APPLY FIX] ✅ Added to fixedLinksSession. Count now:', fixedLinksSession.length);
+                            } else {
+                                console.error('[APPLY FIX] ❌ rowData is NULL/UNDEFINED - cannot add to fixedLinksSession!');
+                                // FALLBACK: Add minimal data using window.currentFixData
+                                if (window.currentFixData) {
+                                    console.log('[APPLY FIX] 🔄 Using window.currentFixData as fallback');
+                                    fixedLinksSession.push({
+                                        id: entryId,
+                                        location: window.currentFixData.found_on_page_title || 'Unknown',
+                                        anchor_text: window.currentFixData.anchor_text || '',
+                                        broken_url: window.currentFixData.broken_url || '',
+                                        link_type: window.currentFixData.link_type || 'unknown',
+                                        status_code: window.currentFixData.status_code || '',
+                                        error_type: window.currentFixData.error_type || '',
+                                        suggested_url: customUrl,
+                                        reason: 'Individual fix',
+                                        is_fixed: 1
+                                    });
+                                    console.log('[APPLY FIX] ✅ Added to fixedLinksSession (fallback). Count now:', fixedLinksSession.length);
+                                }
+                            }
+                            
+                            // Use proper green background animation
+                            console.log('[APPLY FIX] Calling animateFixedRow for entry:', entryId);
+                            animateFixedRow($row);
+                        } else {
+                            console.error('[APPLY FIX] ❌ Row not found for entry:', entryId);
                         }
+                        
+                        // Enable undo button since a fix was successfully applied
+                        console.log('[APPLY FIX] Enabling undo button - fixed count:', fixed);
+                        $('#undo-changes-btn').prop('disabled', false);
+                        
+                        // ✅ Update button states to enable Download/Email buttons
+                        updateButtonStates();
+                        console.log('[APPLY FIX] Button states updated');
                     }
 
                     // Show summary message
@@ -3627,14 +3682,36 @@
                                         return;
                                     }
 
+                                    // ✅ POPULATE fixedLinksSession to enable Download/Email report buttons
+                                    console.log('[BULK REPLACE V2] Adding', fixedIds.length, 'links to fixedLinksSession');
+                                    fixedIds.forEach(id => {
+                                        // Find the original link data from the links array
+                                        const linkData = links.find(l => l.id == id);
+                                        if (linkData) {
+                                            fixedLinksSession.push({
+                                                id: linkData.id,
+                                                location: linkData.found_on_page_title || linkData.page_title,
+                                                anchor_text: linkData.anchor_text,
+                                                broken_url: linkData.broken_url,
+                                                link_type: linkData.link_type,
+                                                status_code: linkData.status_code,
+                                                error_type: linkData.error_type,
+                                                suggested_url: linkData.suggested_url || linkData.new_url,
+                                                reason: linkData.reason || 'Bulk action',
+                                                is_fixed: 1
+                                            });
+                                        }
+                                    });
+                                    console.log('[BULK REPLACE V2] fixedLinksSession now has', fixedLinksSession.length, 'entries');
+
                                     // Remove only the rows that were actually fixed
                                     let removedRowsCount = 0;
                                     fixedIds.forEach(id => {
-                                        const row = $(`tr[data-id="${id}"]`);
-                                        if (row.length) {
-                                            console.log('[BULK REPLACE V2] Removing row for fixed ID:', id);
-                                            row.fadeOut(300, function () {
-                                                $(this).remove();
+                                        const $row = $(`tr[data-id="${id}"]`);
+                                        if ($row.length) {
+                                            console.log('[BULK REPLACE V2] Animating and removing row for fixed ID:', id);
+                                            // ✅ USE PROPER GREEN ANIMATION instead of simple fadeOut
+                                            animateFixedRow($row, function() {
                                                 removedRowsCount++;
 
                                                 // Check if table is now empty (after last row is removed)
@@ -3654,7 +3731,7 @@
                                                         // Update stats to show 0
                                                         $('.stat-value').text('0');
 
-                                                        // Disable action buttons
+                                                        // Update all button states (handled by centralized function)
                                                         updateButtonStates();
                                                     } else {
                                                         // Update statistics with remaining count
@@ -3664,7 +3741,7 @@
                                                         console.log('[BULK REPLACE V2] Updating stats - Old:', currentTotal, 'Removed:', fixedIds.length, 'New:', newTotal);
                                                         $('.stat-value').first().text(newTotal);
 
-                                                        // Update button states
+                                                        // Update all button states (handled by centralized function)
                                                         updateButtonStates();
                                                     }
                                                 }
@@ -4397,14 +4474,94 @@
 
                 if (response.success) {
                     const data = response.data;
+                    const successCount = data.fixed_count || data.removed_count || 0;
+                    
                     alert(
                         `✅ Success!\n\n` +
                         `${actionVerb} ${data.links_fixed || entryIds.length} link(s) on ${data.pages_modified || 0} page(s).\n\n` +
                         `You can undo this action using the "Undo Changes" button if needed.`
                     );
 
-                    // Refresh results table
-                    loadScanResults(currentScanId);
+                    // ✅ Process fixed links
+                    if (successCount > 0) {
+                        console.log('[APPLY BULK FIX] Processing', successCount, 'fixed links - action:', action);
+
+                        // Get the entry IDs that were fixed/removed
+                        const processedIds = data.fixed_entry_ids || entryIds;
+                        console.log('[APPLY BULK FIX] Processed IDs:', processedIds);
+
+                        // ✅ POPULATE fixedLinksSession to enable Download/Email report buttons
+                        // Extract link data from table rows before removing them
+                        console.log('[APPLY BULK FIX] Adding', processedIds.length, 'links to fixedLinksSession');
+                        processedIds.forEach(id => {
+                            const $row = $(`tr[data-id="${id}"]`);
+                            if ($row.length) {
+                                // ✅ USE $row.data('result') to get proper data - NOT table cells!
+                                const rowData = $row.data('result');
+                                console.log('[APPLY BULK FIX] 🔍 DEBUG: rowData for ID', id, ':', rowData);
+                                
+                                if (rowData) {
+                                    fixedLinksSession.push({
+                                        id: id,
+                                        location: rowData.found_on_page_title || rowData.page_title || 'Unknown',
+                                        anchor_text: rowData.anchor_text || '',
+                                        broken_url: rowData.broken_url || '',
+                                        link_type: rowData.link_type || 'unknown',
+                                        status_code: rowData.status_code || '',
+                                        error_type: rowData.error_type || '',
+                                        suggested_url: rowData.suggested_url || '',
+                                        reason: action === 'delete' ? 'Removed' : 'Fixed',
+                                        is_fixed: 1
+                                    });
+                                    console.log('[APPLY BULK FIX] ✅ Added ID', id, 'to fixedLinksSession');
+                                } else {
+                                    console.error('[APPLY BULK FIX] ❌ No rowData for ID', id, '- cannot add to fixedLinksSession');
+                                }
+                            } else {
+                                console.error('[APPLY BULK FIX] ❌ Row not found for ID', id);
+                            }
+                        });
+                        console.log('[APPLY BULK FIX] fixedLinksSession now has', fixedLinksSession.length, 'entries');
+
+                        // ✅ ANIMATE rows individually instead of full table reload
+                        let removedCount = 0;
+                        processedIds.forEach(id => {
+                            const $row = $(`tr[data-id="${id}"]`);
+                            if ($row.length) {
+                                console.log('[APPLY BULK FIX] Animating row:', id);
+                                animateFixedRow($row, function() {
+                                    removedCount++;
+                                    
+                                    // Check if all rows removed
+                                    if (removedCount === processedIds.length) {
+                                        const remainingRows = $('#broken-links-table tbody tr:visible').length;
+                                        console.log('[APPLY BULK FIX] All rows processed. Remaining:', remainingRows);
+                                        
+                                        if (remainingRows === 0) {
+                                            // Show empty state
+                                            $('#broken-links-table tbody').html(
+                                                '<tr><td colspan="7" style="text-align: center; padding: 40px;">' +
+                                                '<p style="font-size: 16px; color: #10b981; margin: 0;">✅ All broken links have been fixed!</p>' +
+                                                '<p style="font-size: 14px; color: #6b7280; margin-top: 10px;">Run a new scan to check for more issues.</p>' +
+                                                '</td></tr>'
+                                            );
+                                            $('.stat-value').text('0');
+                                            updateButtonStates();
+                                        } else {
+                                            // Update stats
+                                            const currentTotal = parseInt($('.stat-value').first().text()) || 0;
+                                            const newTotal = Math.max(0, currentTotal - processedIds.length);
+                                            $('.stat-value').first().text(newTotal);
+                                            updateButtonStates();
+                                        }
+                                    }
+                                });
+                            }
+                        });
+                    } else {
+                        // Fallback: Refresh if no processed IDs
+                        loadScanResults(currentScanId);
+                    }
                 } else {
                     alert(response.data.message || `Failed to ${action} links`);
                 }
