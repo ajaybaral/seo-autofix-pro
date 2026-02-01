@@ -440,6 +440,16 @@
                     if (data.stats && data.stats.total !== undefined) {
                         $('#scan-broken-count').text(data.stats.total);
                         console.log('✅ Updated broken count:', data.stats.total);
+                        
+                        // ✅ UPDATE 4xx AND 5xx STATS DYNAMICALLY
+                        if (data.stats['4xx'] !== undefined) {
+                            $('#broken-4xx-count, #stat-4xx-count, [data-stat="4xx"]').text(data.stats['4xx']);
+                            console.log('✅ Updated 4xx count:', data.stats['4xx']);
+                        }
+                        if (data.stats['5xx'] !== undefined) {
+                            $('#broken-5xx-count, #stat-5xx-count, [data-stat="5xx"]').text(data.stats['5xx']);
+                            console.log('✅ Updated 5xx count:', data.stats['5xx']);
+                        }
                     }
 
                     $('#scan-progress-text').text('Scanning...');
@@ -856,14 +866,23 @@
      * Shows results in real-time as links are discovered
      */
     function updateDynamicResults(brokenLinks, stats) {
-        console.log('[DYNAMIC UPDATE] Updating with', brokenLinks.length, 'links');
+        console.log('═══════════════════════════════════════════════════════');
+        console.log('🔄 [DYNAMIC UPDATE] FUNCTION CALLED');
+        console.log('[DYNAMIC UPDATE] Timestamp:', new Date().toLocaleTimeString());
+        console.log('[DYNAMIC UPDATE] Broken links received:', brokenLinks.length);
+        console.log('[DYNAMIC UPDATE] Broken links IDs:', brokenLinks.map(l => l.id));
+        console.log('[DYNAMIC UPDATE] Stats:', stats);
 
         // Show table container if hidden (correct selector!)
         const $tableContainer = $('.seoautofix-table-container-new');
         const $filterSection = $('.filter-section');
         const isTableHidden = $tableContainer.is(':hidden');
 
-        console.log('[DYNAMIC UPDATE] Table container found:', $tableContainer.length, 'hidden:', isTableHidden);
+        console.log('[DYNAMIC UPDATE] 📊 TABLE STATE CHECK:');
+        console.log('  - Table container found:', $tableContainer.length);
+        console.log('  - Is hidden?', isTableHidden);
+        console.log('  - Display CSS:', $tableContainer.css('display'));
+        console.log('  - Filter section found:', $filterSection.length);
 
         if (isTableHidden) {
             console.log('[DYNAMIC UPDATE] 🔥 SHOWING TABLE NOW 🔥');
@@ -883,6 +902,25 @@
         if (stats) {
             console.log('[DYNAMIC UPDATE] Updating stats:', stats);
             $('#header-broken-count').text(stats.total || 0);
+            
+            // ✅ UPDATE 4xx AND 5xx STATS IN REAL-TIME
+            if (stats['4xx'] !== undefined) {
+                $('#broken-4xx-count, #stat-4xx-count, [data-stat="4xx"]').text(stats['4xx']);
+                console.log('[DYNAMIC UPDATE] Updated 4xx count:', stats['4xx']);
+            }
+            if (stats['5xx'] !== undefined) {
+                $('#broken-5xx-count, #stat-5xx-count, [data-stat="5xx"]').text(stats['5xx']);
+                console.log('[DYNAMIC UPDATE] Updated 5xx count:', stats['5xx']);
+            }
+            if (stats.internal !== undefined) {
+                $('#internal-broken-count, #stat-internal-count, [data-stat="internal"]').text(stats.internal);
+                console.log('[DYNAMIC UPDATE] Updated internal count:', stats.internal);
+            }
+            if (stats.external !== undefined) {
+                $('#external-broken-count, #stat-external-count, [data-stat="external"]').text(stats.external);
+                console.log('[DYNAMIC UPDATE] Updated external count:', stats.external);
+            }
+            
             updateFilterCounts({ stats: stats });
         }
 
@@ -892,28 +930,59 @@
         }
 
         // Add new rows for links we haven't shown yet
-        const $tbody = $('#results-table-body'); // Fixed selector to match HTML
+        console.log('[DYNAMIC UPDATE] 🔨 ADDING ROWS TO TABLE');
+        console.log('  - displayedLinkIds size:', window.displayedLinkIds.size);
+        console.log('  - Already displayed IDs:', Array.from(window.displayedLinkIds));
+        
+        const $tbody = $('#results-table-body');
+        console.log('  - Table tbody found:', $tbody.length);
+        console.log('  - Current rows in tbody:', $tbody.find('tr').length);
         let newRowsAdded = 0;
 
-        brokenLinks.forEach(link => {
+        brokenLinks.forEach((link, index) => {
+            console.log(`[DYNAMIC UPDATE] Processing link ${index + 1}/${brokenLinks.length}: ID=${link.id}`);
+            
             if (!window.displayedLinkIds.has(link.id)) {
+                console.log(`  ✅ Link ${link.id} is NEW - creating row`);
                 const $row = createResultRow(link);
-                $tbody.append($row); // Add to bottom (chronological order)
-                $row.hide().fadeIn(400); // Smooth appearance
+                console.log(`  - Row created:`, $row.length ? 'SUCCESS' : 'FAILED', '(length:', $row.length, ')');
+                
+                $tbody.append($row);
+                console.log(`  - Row appended to tbody`);
+                
+                $row.hide().fadeIn(400);
+                console.log(`  - Fade-in animation started`);
+                
                 window.displayedLinkIds.add(link.id);
                 newRowsAdded++;
+                console.log(`  ✅ Link ${link.id} added successfully`);
+            } else {
+                console.log(`  ⏭️ Link ${link.id} ALREADY displayed, skipping`);
             }
         });
 
+        console.log('[DYNAMIC UPDATE] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('[DYNAMIC UPDATE] 📊 SUMMARY:');
+        console.log('  - New rows added:', newRowsAdded);
+        console.log('  - Total rows now:', $tbody.find('tr').length);
+        console.log('  - Total tracked IDs:', window.displayedLinkIds.size);
+        console.log('[DYNAMIC UPDATE] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
         if (newRowsAdded > 0) {
-            console.log('[DYNAMIC UPDATE] Added', newRowsAdded, 'new rows');
+            console.log('[DYNAMIC UPDATE] ✅ Successfully added', newRowsAdded, 'new rows');
             
             // ✅ Ensure buttons stay disabled if scan is still in progress
             if (isScanInProgress) {
                 setTableButtonsState(false);
-                console.log('[DYNAMIC UPDATE] Scan in progress - re-disabled buttons after adding rows');
+                console.log('[DYNAMIC UPDATE] 🔒 Scan in progress - re-disabled buttons');
             }
+        } else {
+            console.log('[DYNAMIC UPDATE] ⚠️ No new rows added (all links already displayed)');
         }
+        
+        console.log('═══════════════════════════════════════════════════════');
+        console.log('🔄 [DYNAMIC UPDATE] COMPLETED');
+        console.log('═══════════════════════════════════════════════════════');
     }
 
     /**
