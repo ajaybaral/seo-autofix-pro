@@ -29,6 +29,13 @@ class Link_Crawler
     const BATCH_SIZE = 10;
 
     /**
+     * Parallel URL testing limit (concurrent requests)
+     * Higher = faster but more server load
+     * Recommended: 20-50 for VPS, 10-20 for shared hosting, 50-100 for local/dedicated
+     */
+    const PARALLEL_LIMIT = 50;
+
+    /**
      * Database manager
      */
     private $db_manager;
@@ -329,6 +336,11 @@ class Link_Crawler
         $tested_count = 0;
         $broken_count = 0;
 
+        // ✅ SEPARATE INTERNAL AND EXTERNAL URLs FOR OPTIMAL TESTING
+        $internal_links = array();
+        $external_links = array();
+        $template_links = array();
+
         foreach ($links_to_test as $link => $found_on_pages) {
             // Mark as tested
             $tested_links[] = $link;
@@ -336,131 +348,60 @@ class Link_Crawler
             // Skip template-generated links (theme/plugin auto-generated)
             if ($this->is_template_generated_link($link)) {
                 error_log('[CRAWLER] Skipping template-generated link: ' . $link);
+                $template_links[] = $link;
                 $tested_count++;
                 continue;
             }
 
-            // Test the link
-            $test_result = $this->link_tester->test_url($link);
-            $tested_count++;
+            // Categorize as internal or external
+            if ($this->url_similarity->is_internal_url($link)) {
+                $internal_links[$link] = $found_on_pages;
+            } else {
+                $external_links[$link] = $found_on_pages;
+            }
+        }
 
-            // If broken, add to results
-            if ($test_result['is_broken']) {
-                $broken_count++;
-                error_log('[CRAWLER] Link is broken: ' . $link);
+        error_log('[CRAWLER] 📊 URL categorization: Internal=' . count($internal_links) . ', External=' . count($external_links) . ', Skipped=' . count($template_links));
 
-                $is_internal = $this->url_similarity->is_internal_url($link);
-                $link_type = $is_internal ? 'internal' : 'external';
+        // ✅ PROCESS INTERNAL URLs (FAST - WordPress functions)
+        if (!empty($internal_links)) {
+            error_log('[CRAWLER] ⚡ Testing ' . count($internal_links) . ' internal URLs (fast WordPress functions)...');
+            
+            foreach ($internal_links as $link => $found_on_pages) {
+                $test_result = $this->link_tester->test_url($link);
+                $tested_count++;
 
-                // Add entry for each page where link was found
-                foreach ($found_on_pages as $page_data) {
-                    // Handle both old format (string) and new format (array)
-                    if (is_array($page_data)) {
-                        $found_on_url = $page_data['found_on_url'];
-                        $found_on_page_id = isset($page_data['found_on_page_id']) ? $page_data['found_on_page_id'] : 0;
-                        $found_on_page_title = isset($page_data['found_on_page_title']) ? $page_data['found_on_page_title'] : '';
-                        $anchor_text = isset($page_data['anchor_text']) ? $page_data['anchor_text'] : '';
-                        $location = isset($page_data['location']) ? $page_data['location'] : 'content';
-                    } else {
-                        $found_on_url = $page_data;
-                        $found_on_page_id = 0;
-                        $found_on_page_title = '';
-                        $anchor_text = '';
-                        $location = 'content';
-                    }
-
-                    // Generate suggestion - filter out the current page to avoid suggesting itself
-                    $suggested_url = null;
-                    $reason = '';
-
-                    if ($is_internal) {
-                        // ✅ CONTENT-TYPE AWARE SUGGESTION MATCHING
-                        // Detect what type of URL this is (image, document, video, or page)
-                        $broken_url_type = $this->get_url_content_type($link);
-                        error_log('[CRAWLER] 🔍 Broken URL type detected: ' . $broken_url_type . ' for URL: ' . $link);
-
-                        // Get appropriate candidate URLs based on content type
-                        $candidate_urls = array();
-
-                        if ($broken_url_type === 'image') {
-                            // Get all image URLs from media library
-                            $candidate_urls = $this->get_all_media_urls('image');
-                            error_log('[CRAWLER] Searching within ' . count($candidate_urls) . ' image URLs for match');
-                        } elseif ($broken_url_type === 'document') {
-                            // Get all document URLs from media library
-                            $candidate_urls = $this->get_all_media_urls('document');
-                            error_log('[CRAWLER] Searching within ' . count($candidate_urls) . ' document URLs for match');
-                        } elseif ($broken_url_type === 'video') {
-                            // Get all video URLs from media library
-                            $candidate_urls = $this->get_all_media_urls('video');
-                            error_log('[CRAWLER] Searching within ' . count($candidate_urls) . ' video URLs for match');
-                        } elseif ($broken_url_type === 'audio') {
-                            // Get all audio URLs from media library
-                            $candidate_urls = $this->get_all_media_urls('audio');
-                            error_log('[CRAWLER] Searching within ' . count($candidate_urls) . ' audio URLs for match');
-                        } else {
-                            // For regular page URLs, use site pages/posts
-                            // Filter out the page where this broken link was found
-                            $candidate_urls = array_filter($valid_internal_urls, function ($url) use ($found_on_url) {
-                                // Normalize URLs for comparison (remove trailing slashes)
-                                return untrailingslashit($url) !== untrailingslashit($found_on_url);
-                            });
-                            error_log('[CRAWLER] Searching within ' . count($candidate_urls) . ' page URLs for match');
-                        }
-
-                        // Find best match within same content type
-                        if (!empty($candidate_urls)) {
-                            $match = $this->url_similarity->find_closest_match($link, $candidate_urls);
-
-                            // Only use suggestion if score is good enough
-                            $min_score_threshold = 0.3; // Minimum similarity score required
-                            $score = isset($match['score']) ? $match['score'] : 0;
-
-                            if ($score >= $min_score_threshold) {
-                                $suggested_url = $match['url'];
-                                $reason = $match['reason'];
-                                error_log('[CRAWLER] ✅ Found good match: ' . $suggested_url . ' (score: ' . $score . ')');
-                            } else {
-                                // Score too low - don't suggest inappropriate match
-                                $suggested_url = null;
-                                $reason = sprintf(
-                                    __('No suitable %s replacement found. Please provide a new %s URL or remove this link.', 'seo-autofix-pro'),
-                                    $broken_url_type,
-                                    $broken_url_type
-                                );
-                                error_log('[CRAWLER] ⚠️ Match score too low (' . $score . ' < ' . $min_score_threshold . ') - no suggestion');
-                            }
-                        } else {
-                            // No candidate URLs of this type available
-                            $suggested_url = null;
-                            $reason = sprintf(
-                                __('No %s URLs available in your media library. Please upload a new %s or remove this link.', 'seo-autofix-pro'),
-                                $broken_url_type,
-                                $broken_url_type
-                            );
-                            error_log('[CRAWLER] ❌ No candidate URLs of type: ' . $broken_url_type);
-                        }
-                    } else {
-                        $reason = __('This link is not working, either delete it or provide a new link', 'seo-autofix-pro');
-                    }
-
-                    $this->db_manager->add_broken_link($scan_id, array(
-                        'found_on_url' => $found_on_url,
-                        'found_on_page_id' => $found_on_page_id,
-                        'found_on_page_title' => $found_on_page_title,
-                        'broken_url' => $link,
-                        'link_type' => $link_type,
-                        'status_code' => $test_result['status_code'],
-                        'suggested_url' => $suggested_url,
-                        'reason' => $reason,
-                        'anchor_text' => $anchor_text,
-                        'location' => $location
-                    ));
+                // Process if broken
+                if ($test_result['is_broken']) {
+                    $this->process_broken_link($scan_id, $link, $found_on_pages, $test_result, $valid_internal_urls);
+                    $broken_count++;
                 }
             }
+            
+            error_log('[CRAWLER] ✅ Internal URLs testing complete');
+        }
 
-            // Small delay
-            usleep(50000); // 0.05 seconds (reduced from 0.1)
+        // ✅ PROCESS EXTERNAL URLs (PARALLEL - cURL multi-handle)
+        if (!empty($external_links)) {
+            error_log('[CRAWLER] 🚀 Testing ' . count($external_links) . ' external URLs (parallel testing)...');
+            
+            $external_urls_list = array_keys($external_links);
+            $start_time = microtime(true);
+            $parallel_results = $this->link_tester->test_urls_parallel($external_urls_list, self::PARALLEL_LIMIT);
+            $duration = round(microtime(true) - $start_time, 2);
+            
+            error_log('[CRAWLER] ✅ Parallel testing complete (' . $duration . ' seconds for ' . count($external_urls_list) . ' URLs)');
+            
+            foreach ($parallel_results as $link => $test_result) {
+                $tested_count++;
+                
+                // Process if broken
+                if ($test_result['is_broken']) {
+                    $found_on_pages = $external_links[$link];
+                    $this->process_broken_link($scan_id, $link, $found_on_pages, $test_result, $valid_internal_urls);
+                    $broken_count++;
+                }
+            }
         }
 
         // Update scan stats
@@ -961,6 +902,129 @@ class Link_Crawler
                 return 'audio';
             default:
                 return null;
+        }
+    }
+
+    /**
+     * Process a broken link: generate suggestion and save to database
+     * 
+     * @param int $scan_id Scan ID
+     * @param string $link Broken URL
+     * @param array $found_on_pages Pages where link was found
+     * @param array $test_result Test result from link tester
+     * @param array $valid_internal_urls Valid internal URLs for suggestions
+     */
+    private function process_broken_link($scan_id, $link, $found_on_pages, $test_result, $valid_internal_urls)
+    {
+        error_log('[CRAWLER] 🔴 Processing broken link: ' . $link);
+
+        $is_internal = $this->url_similarity->is_internal_url($link);
+        $link_type = $is_internal ? 'internal' : 'external';
+
+        // Add entry for each page where link was found
+        foreach ($found_on_pages as $page_data) {
+            // Handle both old format (string) and new format (array)
+            if (is_array($page_data)) {
+                $found_on_url = $page_data['found_on_url'];
+                $found_on_page_id = isset($page_data['found_on_page_id']) ? $page_data['found_on_page_id'] : 0;
+                $found_on_page_title = isset($page_data['found_on_page_title']) ? $page_data['found_on_page_title'] : '';
+                $anchor_text = isset($page_data['anchor_text']) ? $page_data['anchor_text'] : '';
+                $location = isset($page_data['location']) ? $page_data['location'] : 'content';
+            } else {
+                $found_on_url = $page_data;
+                $found_on_page_id = 0;
+                $found_on_page_title = '';
+                $anchor_text = '';
+                $location = 'content';
+            }
+
+            // Generate suggestion - filter out the current page to avoid suggesting itself
+            $suggested_url = null;
+            $reason = '';
+
+            if ($is_internal) {
+                // ✅ CONTENT-TYPE AWARE SUGGESTION MATCHING
+                // Detect what type of URL this is (image, document, video, or page)
+                $broken_url_type = $this->get_url_content_type($link);
+                error_log('[CRAWLER] 🔍 Broken URL type detected: ' . $broken_url_type . ' for URL: ' . $link);
+
+                // Get appropriate candidate URLs based on content type
+                $candidate_urls = array();
+
+                if ($broken_url_type === 'image') {
+                    // Get all image URLs from media library
+                    $candidate_urls = $this->get_all_media_urls('image');
+                    error_log('[CRAWLER] Searching within ' . count($candidate_urls) . ' image URLs for match');
+                } elseif ($broken_url_type === 'document') {
+                    // Get all document URLs from media library
+                    $candidate_urls = $this->get_all_media_urls('document');
+                    error_log('[CRAWLER] Searching within ' . count($candidate_urls) . ' document URLs for match');
+                } elseif ($broken_url_type === 'video') {
+                    // Get all video URLs from media library
+                    $candidate_urls = $this->get_all_media_urls('video');
+                    error_log('[CRAWLER] Searching within ' . count($candidate_urls) . ' video URLs for match');
+                } elseif ($broken_url_type === 'audio') {
+                    // Get all audio URLs from media library
+                    $candidate_urls = $this->get_all_media_urls('audio');
+                    error_log('[CRAWLER] Searching within ' . count($candidate_urls) . ' audio URLs for match');
+                } else {
+                    // For regular page URLs, use site pages/posts
+                    // Filter out the page where this broken link was found
+                    $candidate_urls = array_filter($valid_internal_urls, function ($url) use ($found_on_url) {
+                        // Normalize URLs for comparison (remove trailing slashes)
+                        return untrailingslashit($url) !== untrailingslashit($found_on_url);
+                    });
+                    error_log('[CRAWLER] Searching within ' . count($candidate_urls) . ' page URLs for match');
+                }
+
+                // Find best match within same content type
+                if (!empty($candidate_urls)) {
+                    $match = $this->url_similarity->find_closest_match($link, $candidate_urls);
+
+                    // Only use suggestion if score is good enough
+                    $min_score_threshold = 0.3; // Minimum similarity score required
+                    $score = isset($match['score']) ? $match['score'] : 0;
+
+                    if ($score >= $min_score_threshold) {
+                        $suggested_url = $match['url'];
+                        $reason = $match['reason'];
+                        error_log('[CRAWLER] ✅ Found good match: ' . $suggested_url . ' (score: ' . $score . ')');
+                    } else {
+                        // Score too low - don't suggest inappropriate match
+                        $suggested_url = null;
+                        $reason = sprintf(
+                            __('No suitable %s replacement found. Please provide a new %s URL or remove this link.', 'seo-autofix-pro'),
+                            $broken_url_type,
+                            $broken_url_type
+                        );
+                        error_log('[CRAWLER] ⚠️ Match score too low (' . $score . ' < ' . $min_score_threshold . ') - no suggestion');
+                    }
+                } else {
+                    // No candidate URLs of this type available
+                    $suggested_url = null;
+                    $reason = sprintf(
+                        __('No %s URLs available in your media library. Please upload a new %s or remove this link.', 'seo-autofix-pro'),
+                        $broken_url_type,
+                        $broken_url_type
+                    );
+                    error_log('[CRAWLER] ❌ No candidate URLs of type: ' . $broken_url_type);
+                }
+            } else {
+                $reason = __('This link is not working, either delete it or provide a new link', 'seo-autofix-pro');
+            }
+
+            $this->db_manager->add_broken_link($scan_id, array(
+                'found_on_url' => $found_on_url,
+                'found_on_page_id' => $found_on_page_id,
+                'found_on_page_title' => $found_on_page_title,
+                'broken_url' => $link,
+                'link_type' => $link_type,
+                'status_code' => $test_result['status_code'],
+                'suggested_url' => $suggested_url,
+                'reason' => $reason,
+                'anchor_text' => $anchor_text,
+                'location' => $location
+            ));
         }
     }
 }

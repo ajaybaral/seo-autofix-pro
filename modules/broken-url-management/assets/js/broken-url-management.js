@@ -1134,38 +1134,7 @@
         });
     }
 
-    /**
-     * Delete entry
-     */
-    $(document).on('click', '.delete-entry-btn', function () {
-        if (!confirm(seoautofixBrokenUrls.strings.confirmDelete)) {
-            return;
-        }
 
-        const id = $(this).data('id');
-        const $row = $(this).closest('tr');
-
-        $.ajax({
-            url: seoautofixBrokenUrls.ajaxUrl,
-            method: 'POST',
-            data: {
-                action: 'seoautofix_broken_links_delete_entry',
-                nonce: seoautofixBrokenUrls.nonce,
-                id: id
-            },
-            success: function (response) {
-                if (response.success) {
-                    $row.fadeOut(function () {
-                        $row.remove();
-                        // Reload to update counts
-                        loadScanResults(currentScanId);
-                    });
-                } else {
-                    alert(response.data.message || 'Failed to delete entry');
-                }
-            }
-        });
-    });
 
     /**
      * Apply selected fixes
@@ -2757,11 +2726,39 @@
                 if (response.success) {
                     console.log('[DELETE BROKEN LINK] Successfully removed link from content');
 
+                    // ✅ TRACK DELETION IN UNDO STACK
+                    const $row = $(`tr[data-id="${entryId}"]`);
+                    const rowData = $row.data('result');
+                    
+                    undoStack.push({
+                        id: entryId,
+                        action: 'delete',
+                        original_data: rowData,
+                        row_html: $row[0] ? $row[0].outerHTML : ''
+                    });
+                    console.log('[DELETE] Added to undoStack. Stack size:', undoStack.length);
+
+                    // ✅ TRACK DELETION IN FIXED LINKS SESSION
+                    if (rowData) {
+                        fixedLinksSession.push({
+                            location: rowData.location || 'content',
+                            anchor_text: rowData.anchor_text || '',
+                            broken_url: rowData.broken_url,
+                            link_type: rowData.link_type,
+                            status_code: rowData.status_code,
+                            error_type: rowData.status_code,
+                            suggested_url: '',
+                            reason: 'Link deleted by user',
+                            is_fixed: 'Deleted',
+                            fixed_at: new Date().toISOString()
+                        });
+                        console.log('[DELETE] Added to fixedLinksSession. Session size:', fixedLinksSession.length);
+                    }
+
                     // Hide the panel
                     $('#auto-fix-panel').slideUp();
 
                     // Show blinking DELETED status
-                    const $row = $(`tr[data-id="${entryId}"]`);
                     if ($row.length) {
                         console.log('[DELETE] Showing DELETED animation for entry:', entryId);
 
@@ -2776,6 +2773,13 @@
 
                                 // Update header count
                                 updateHeaderBrokenCount();
+                                
+                                // Update stats after row removed
+                                updateStatsAfterFix(1);
+                                
+                                // ✅ UPDATE BUTTON STATES (enables undo button!)
+                                updateButtonStates();
+                                console.log('[DELETE] ✅ Button states updated. Undo should now be ENABLED');
 
                                 // Update "No results" message if table is empty
                                 if ($('.broken-links-table tbody tr').length === 0) {

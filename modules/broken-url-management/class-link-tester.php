@@ -285,4 +285,136 @@ class Link_Tester
                 return sprintf(__('HTTP %d', 'seo-autofix-pro'), $status_code);
         }
     }
+
+    /**
+     * Test multiple URLs in parallel using cURL multi-handle
+     * 
+     * @param array $urls Array of URLs to test
+     * @param int $parallel_limit Number of URLs to test simultaneously (default: 10)
+     * @return array Associative array of URL => test_result
+     */
+    public function test_urls_parallel($urls, $parallel_limit = 50)
+    {
+        if (empty($urls)) {
+            return array();
+        }
+
+        error_log('[LINK TESTER] 🚀 Starting parallel testing for ' . count($urls) . ' URLs (limit: ' . $parallel_limit . ' concurrent)');
+        
+        $results = array();
+        
+        // Process URLs in chunks to avoid overwhelming server
+        $url_chunks = array_chunk($urls, $parallel_limit, true);
+        $total_chunks = count($url_chunks);
+        
+        error_log('[LINK TESTER] Processing ' . $total_chunks . ' chunks');
+        
+        foreach ($url_chunks as $chunk_index => $chunk) {
+            $chunk_num = $chunk_index + 1;
+            error_log('[LINK TESTER] Chunk ' . $chunk_num . '/' . $total_chunks . ': Testing ' . count($chunk) . ' URLs simultaneously...');
+            
+            $start_time = microtime(true);
+            $chunk_results = $this->execute_parallel_curl($chunk);
+            $duration = round(microtime(true) - $start_time, 2);
+            
+            error_log('[LINK TESTER] Chunk ' . $chunk_num . '/' . $total_chunks . ' complete (' . $duration . ' seconds)');
+            
+            $results = array_merge($results, $chunk_results);
+        }
+        
+        error_log('[LINK TESTER] ✅ Parallel testing complete. Tested ' . count($results) . ' URLs');
+        
+        return $results;
+    }
+
+    /**
+     * Execute parallel cURL requests
+     * 
+     * @param array $urls URLs to test
+     * @return array Results indexed by URL
+     */
+    private function execute_parallel_curl($urls)
+    {
+        $results = array();
+        $curl_handles = array();
+        $mh = curl_multi_init();
+        
+        // Initialize cURL handles for each URL
+        foreach ($urls as $url) {
+            $ch = curl_init();
+            
+            // Configure cURL options
+            curl_setopt_array($ch, array(
+                CURLOPT_URL => $url,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_NOBODY => true,  // HEAD request (faster)
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_MAXREDIRS => 5,
+                CURLOPT_TIMEOUT => self::REQUEST_TIMEOUT,
+                CURLOPT_CONNECTTIMEOUT => 5,
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_SSL_VERIFYHOST => false,
+                CURLOPT_USERAGENT => self::USER_AGENT,
+                CURLOPT_HEADER => false
+            ));
+            
+            curl_multi_add_handle($mh, $ch);
+            $curl_handles[$url] = $ch;
+        }
+        
+        // Execute all requests simultaneously
+        $running = null;
+        do {
+            curl_multi_exec($mh, $running);
+            // Wait for activity on any connection
+            curl_multi_select($mh, 0.1);
+        } while ($running > 0);
+        
+        // Collect results from each handle
+        foreach ($curl_handles as $url => $ch) {
+            $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curl_error = curl_error($ch);
+            $curl_errno = curl_errno($ch);
+            
+            if ($curl_errno) {
+                // cURL error occurred
+                $error_type = 'timeout';
+                
+                // Categorize based on error code
+                if ($curl_errno === 6) { // CURLE_COULDNT_RESOLVE_HOST
+                    $error_type = 'dns';
+                } elseif ($curl_errno === 7) { // CURLE_COULDNT_CONNECT
+                    $error_type = 'timeout';
+                } elseif ($curl_errno === 28) { // CURLE_OPERATION_TIMEDOUT
+                    $error_type = 'timeout';
+                }
+                
+                $results[$url] = array(
+                    'status_code' => 0,
+                    'error_type' => $error_type,
+                    'is_broken' => true,
+                    'error' => $curl_error
+                );
+            } else {
+                // Successful response (may still be error status code)
+                $error_type = $this->categorize_error_type($http_code);
+                
+                $results[$url] = array(
+                    'status_code' => $http_code,
+                    'error_type' => $error_type,
+                    'is_broken' => $this->is_broken_status_code($http_code),
+                    'error' => null
+                );
+            }
+            
+            // Clean up this handle
+            curl_multi_remove_handle($mh, $ch);
+            curl_close($ch);
+        }
+        
+        // Close the multi handle
+        curl_multi_close($mh);
+        
+        return $results;
+    }
 }

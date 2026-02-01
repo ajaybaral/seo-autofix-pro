@@ -633,14 +633,21 @@ class SEOAutoFix_Broken_Url_Management
      */
     private function remove_link_from_content($page_url, $broken_url)
     {
-        error_log('[REMOVE_LINK] Starting. Page URL: ' . $page_url . ', Broken URL: ' . $broken_url);
+        error_log('==================== REMOVE LINK DEBUG ====================');
+        error_log('[REMOVE_LINK] Starting removal process');
+        error_log('[REMOVE_LINK] Page URL: ' . $page_url);
+        error_log('[REMOVE_LINK] Broken URL: ' . $broken_url);
 
         // Get post ID from URL
         $post_id = url_to_postid($page_url);
-        error_log('[REMOVE_LINK] Post ID: ' . $post_id);
+        error_log('[REMOVE_LINK] url_to_postid() returned: ' . $post_id);
 
         if (!$post_id) {
-            error_log('[REMOVE_LINK] Failed to get post ID');
+            error_log('[REMOVE_LINK] ❌ FAILED: Could not convert URL to post ID');
+            error_log('[REMOVE_LINK] This could mean:');
+            error_log('[REMOVE_LINK]   - URL is homepage or archive');
+            error_log('[REMOVE_LINK]   - URL is custom post type not supported by url_to_postid()');
+            error_log('[REMOVE_LINK]   - URL format doesn\'t match WordPress permalink structure');
             return false;
         }
 
@@ -650,46 +657,115 @@ class SEOAutoFix_Broken_Url_Management
         error_log('[REMOVE_LINK] Is Elementor page: ' . ($is_elementor ? 'YES' : 'NO'));
 
         if ($is_elementor) {
-            error_log('[REMOVE_LINK] Detected Elementor page - routing to Elementor handler');
+            error_log('[REMOVE_LINK] Routing to Elementor-specific handler');
             return $link_analyzer->remove_link_from_elementor($post_id, $broken_url);
         }
 
         // Regular WordPress page - continue with post_content removal
-        error_log('[REMOVE_LINK] Regular WordPress page - using post_content removal');
+        error_log('[REMOVE_LINK] Processing as regular WordPress page');
 
         // Get post content
         $post = get_post($post_id);
         if (!$post) {
-            error_log('[REMOVE_LINK] Failed to get post');
+            error_log('[REMOVE_LINK] ❌ FAILED: get_post() returned null for post ID: ' . $post_id);
             return false;
         }
 
+        error_log('[REMOVE_LINK] Post retrieved successfully');
+        error_log('[REMOVE_LINK] Post ID: ' . $post->ID);
+        error_log('[REMOVE_LINK] Post Title: ' . $post->post_title);
+        error_log('[REMOVE_LINK] Post Type: ' . $post->post_type);
+
         $content = $post->post_content;
-        error_log('[REMOVE_LINK] Original content length: ' . strlen($content));
+        error_log('[REMOVE_LINK] Original content length: ' . strlen($content) . ' characters');
+        
+        // Log first 500 chars of content to see what we're working with
+        $content_preview = substr($content, 0, 500);
+        error_log('[REMOVE_LINK] Content preview (first 500 chars): ' . $content_preview);
 
-        // Remove the link tag but keep the anchor text
-        // Pattern matches: <a href="broken_url">text</a> and replaces with just "text"
-        $patterns = array(
-            '/<a\s+[^>]*href=["\']' . preg_quote($broken_url, '/') . '["\'][^>]*>(.*?)<\/a>/is',
-            '/<a\s+[^>]*src=["\']' . preg_quote($broken_url, '/') . '["\'][^>]*>(.*?)<\/a>/is',
-        );
-
-        $new_content = $content;
-        foreach ($patterns as $pattern) {
-            $new_content = preg_replace($pattern, '$1', $new_content);
+        // Check if broken URL exists in content AT ALL
+        if (strpos($content, $broken_url) === false) {
+            error_log('[REMOVE_LINK] ⚠️ WARNING: Broken URL NOT FOUND in post_content');
+            error_log('[REMOVE_LINK] Searched for: ' . $broken_url);
+            error_log('[REMOVE_LINK] This could mean:');
+            error_log('[REMOVE_LINK]   - Link is in a widget, menu, or custom field');
+            error_log('[REMOVE_LINK]   - Link is in Elementor/page builder data');
+            error_log('[REMOVE_LINK]   - URL encoding differs (e.g., & vs &amp;)');
+            error_log('[REMOVE_LINK]   - Link was already removed');
+            
+            // Try URL-encoded version
+            $encoded_url = htmlspecialchars($broken_url);
+            if (strpos($content, $encoded_url) !== false) {
+                error_log('[REMOVE_LINK] ✅ FOUND URL-ENCODED version: ' . $encoded_url);
+                $broken_url = $encoded_url; // Use encoded version for regex
+            } else {
+                error_log('[REMOVE_LINK] ❌ URL-encoded version also not found');
+                return false;
+            }
+        } else {
+            error_log('[REMOVE_LINK] ✅ Broken URL found in content');
         }
 
-        // Also handle img tags - remove entire img tag if src matches
-        $img_pattern = '/<img\s+[^>]*src=["\']' . preg_quote($broken_url, '/') . '["\'][^>]*\/?>/i';
-        $new_content = preg_replace($img_pattern, '', $new_content);
+        // Build regex patterns
+        $escaped_url = preg_quote($broken_url, '/');
+        error_log('[REMOVE_LINK] Escaped URL for regex: ' . $escaped_url);
+
+        $patterns = array(
+            '/<a\s+[^>]*href=["\']' . $escaped_url . '["\'][^>]*>(.*?)<\/a>/is',
+            '/<a\s+[^>]*src=["\']' . $escaped_url . '["\'][^>]*>(.*?)<\/a>/is',
+        );
+
+        $img_pattern = '/<img\s+[^>]*src=["\']' . $escaped_url . '["\'][^>]*\/?>/i';
+
+        error_log('[REMOVE_LINK] Testing regex patterns...');
+        error_log('[REMOVE_LINK] Pattern 1 (href): ' . $patterns[0]);
+        error_log('[REMOVE_LINK] Pattern 2 (src): ' . $patterns[1]);
+        error_log('[REMOVE_LINK] Image pattern: ' . $img_pattern);
+
+        // Try each pattern and log results
+        $new_content = $content;
+        $total_replacements = 0;
+
+        foreach ($patterns as $index => $pattern) {
+            $count = 0;
+            $new_content = preg_replace($pattern, '$1', $new_content, -1, $count);
+            
+            if ($count > 0) {
+                error_log('[REMOVE_LINK] ✅ Pattern ' . ($index + 1) . ' matched! Replacements: ' . $count);
+                $total_replacements += $count;
+            } else {
+                error_log('[REMOVE_LINK] ❌ Pattern ' . ($index + 1) . ' did not match');
+            }
+        }
+
+        // Try img pattern
+        $img_count = 0;
+        $new_content = preg_replace($img_pattern, '', $new_content, -1, $img_count);
+        if ($img_count > 0) {
+            error_log('[REMOVE_LINK] ✅ Image pattern matched! Replacements: ' . $img_count);
+            $total_replacements += $img_count;
+        } else {
+            error_log('[REMOVE_LINK] ❌ Image pattern did not match');
+        }
+
+        error_log('[REMOVE_LINK] Total replacements made: ' . $total_replacements);
+        error_log('[REMOVE_LINK] New content length: ' . strlen($new_content) . ' characters');
+        error_log('[REMOVE_LINK] Content size difference: ' . (strlen($content) - strlen($new_content)) . ' characters removed');
 
         // Check if any changes were made
         if ($new_content === $content) {
-            error_log('[REMOVE_LINK] No changes made - link not found in content');
+            error_log('[REMOVE_LINK] ❌ FAILED: No changes made to content');
+            error_log('[REMOVE_LINK] Regex patterns did not match any links');
+            error_log('[REMOVE_LINK] Possible reasons:');
+            error_log('[REMOVE_LINK]   - Link syntax is different than expected');
+            error_log('[REMOVE_LINK]   - Link has HTML entities or special characters');
+            error_log('[REMOVE_LINK]   - Link is wrapped in different HTML tags');
+            error_log('[REMOVE_LINK] ==================== END DEBUG ====================');
             return false;
         }
 
-        error_log('[REMOVE_LINK] Content modified. New length: ' . strlen($new_content));
+        error_log('[REMOVE_LINK] ✅ Content successfully modified!');
+        error_log('[REMOVE_LINK] Updating post...');
 
         // Update post
         $result = wp_update_post(array(
@@ -697,9 +773,15 @@ class SEOAutoFix_Broken_Url_Management
             'post_content' => $new_content
         ), true);
 
-        error_log('[REMOVE_LINK] wp_update_post result: ' . print_r($result, true));
+        if (is_wp_error($result)) {
+            error_log('[REMOVE_LINK] ❌ wp_update_post() returned error: ' . $result->get_error_message());
+            error_log('[REMOVE_LINK] ==================== END DEBUG ====================');
+            return false;
+        }
 
-        return !is_wp_error($result);
+        error_log('[REMOVE_LINK] ✅ wp_update_post() successful! Post updated.');
+        error_log('[REMOVE_LINK] ==================== END DEBUG ====================');
+        return true;
     }
 
     /**

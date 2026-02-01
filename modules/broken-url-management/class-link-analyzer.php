@@ -790,13 +790,80 @@ class Link_Analyzer
         // Recursively remove URLs in the data structure
         $modified_data = $this->remove_url_from_elementor_data_recursive($data, $broken_url, $removed);
 
-        if (!$removed) {
-            error_log('[ELEMENTOR DELETE] No removals made - URL not found in Elementor data');
+        if ($removed) {
+            error_log('[ELEMENTOR DELETE] ✅ Found and removed from Elementor data');
+            // Save the modified data
+            return $this->save_elementor_data($post_id, $modified_data);
+        }
+
+        // ========== FALLBACK: Check post_content instead ==========
+        error_log('[ELEMENTOR DELETE] Not found in Elementor data, checking post_content as fallback');
+        
+        $post = get_post($post_id);
+        if (!$post) {
+            error_log('[ELEMENTOR DELETE] Failed to get post object');
             return false;
         }
 
-        // Save the modified data
-        return $this->save_elementor_data($post_id, $modified_data);
+        $content = $post->post_content;
+        error_log('[ELEMENTOR DELETE] post_content length: ' . strlen($content) . ' chars');
+        
+        // Check if URL exists in post_content
+        if (stripos($content, $broken_url) === false) {
+            error_log('[ELEMENTOR DELETE] ❌ URL not found in post_content either');
+            return false;
+        }
+
+        error_log('[ELEMENTOR DELETE] ✅ URL FOUND in post_content! Removing...');
+        error_log('[ELEMENTOR DELETE] Content preview: ' . substr($content, 0, 500));
+
+        // Remove the link tag but keep the anchor text
+        $patterns = array(
+            '/<a\s+[^>]*href=["\']' . preg_quote($broken_url, '/') . '["\'][^>]*>(.*?)<\/a>/is',
+            '/<a\s+[^>]*href=["\']' . preg_quote(untrailingslashit($broken_url), '/') . '\/?' . '["\'][^>]*>(.*?)<\/a>/is',
+        );
+
+        $new_content = $content;
+        $total_replacements = 0;
+
+        foreach ($patterns as $index => $pattern) {
+            $count = 0;
+            $new_content = preg_replace($pattern, '$1', $new_content, -1, $count);
+            if ($count > 0) {
+                error_log('[ELEMENTOR DELETE] post_content pattern ' . ($index + 1) . ' matched ' . $count . ' times');
+                $total_replacements += $count;
+            }
+        }
+
+        // Also handle img tags
+        $img_pattern = '/<img\s+[^>]*src=["\']' . preg_quote($broken_url, '/') . '["\'][^>]*\/?>/i';
+        $img_count = 0;
+        $new_content = preg_replace($img_pattern, '', $new_content, -1, $img_count);
+        if ($img_count > 0) {
+            error_log('[ELEMENTOR DELETE] post_content img pattern matched ' . $img_count . ' times');
+            $total_replacements += $img_count;
+        }
+
+        if ($new_content === $content) {
+            error_log('[ELEMENTOR DELETE] ❌ No changes made to post_content');
+            return false;
+        }
+
+        error_log('[ELEMENTOR DELETE] ✅ Modified post_content, total replacements: ' . $total_replacements);
+
+        // Update post_content
+        $result = wp_update_post(array(
+            'ID' => $post_id,
+            'post_content' => $new_content
+        ), true);
+
+        if (is_wp_error($result)) {
+            error_log('[ELEMENTOR DELETE] ❌ wp_update_post failed: ' . $result->get_error_message());
+            return false;
+        }
+
+        error_log('[ELEMENTOR DELETE] ✅ Successfully updated post_content!');
+        return true;
     }
 
     /**
@@ -808,33 +875,71 @@ class Link_Analyzer
      * @param bool &$removed Reference to track if removal occurred
      * @return mixed Modified data
      */
-    private function remove_url_from_elementor_data_recursive($data, $broken_url, &$removed)
+    private function remove_url_from_elementor_data_recursive($data, $broken_url, &$removed, $depth = 0)
     {
+        // Add depth tracking and initial logging
+        if ($depth === 0) {
+            error_log('[ELEMENTOR DELETE RECURSIVE] ==================== START ====================');
+            error_log('[ELEMENTOR DELETE RECURSIVE] Searching for URL: ' . $broken_url);
+            error_log('[ELEMENTOR DELETE RECURSIVE] Data type: ' . gettype($data));
+            error_log('[ELEMENTOR DELETE RECURSIVE] Is array: ' . (is_array($data) ? 'YES' : 'NO'));
+            if (is_array($data)) {
+                error_log('[ELEMENTOR DELETE RECURSIVE] Array size: ' . count($data));
+                error_log('[ELEMENTOR DELETE RECURSIVE] Array keys: ' . implode(', ', array_keys($data)));
+            }
+        }
+
         // Handle arrays
         if (is_array($data)) {
             foreach ($data as $key => $value) {
+                // Log every field we're checking
+                if ($depth < 3) { // Only log top 3 levels to avoid spam
+                    error_log('[ELEMENTOR DELETE RECURSIVE] Depth ' . $depth . ' - Checking key: "' . $key . '" (type: ' . gettype($value) . ')');
+                }
+
                 // Check specific Elementor fields that commonly contain URLs
                 if ($key === 'url' && is_string($value)) {
+                    error_log('[ELEMENTOR DELETE RECURSIVE] ✓ Found URL field at depth ' . $depth .  ': ' . $value);
+                    error_log('[ELEMENTOR DELETE RECURSIVE] Comparing with broken URL: ' . $broken_url);
+                    
                     // Direct URL field - clear it if it matches
                     if ($this->urls_match($value, $broken_url)) {
-                        error_log('[ELEMENTOR DELETE] Found and clearing URL in field: ' . $key . ' = ' . $value);
+                        error_log('[ELEMENTOR DELETE] ✅ MATCH! Clearing URL in field: ' . $key . ' = ' . $value);
                         $data[$key] = ''; // Clear the URL but keep the field
                         $removed = true;
+                    } else {
+                        error_log('[ELEMENTOR DELETE RECURSIVE] ❌ No match. URL field contains: ' . $value);
                     }
                 } elseif ($key === 'link' && is_array($value) && isset($value['url'])) {
+                    error_log('[ELEMENTOR DELETE RECURSIVE] ✓ Found link object at depth ' . $depth . ' with URL: ' . $value['url']);
+                    error_log('[ELEMENTOR DELETE RECURSIVE] Comparing with broken URL: ' . $broken_url);
+                    
                     // Link object with URL property - clear the url but keep the link structure
                     if ($this->urls_match($value['url'], $broken_url)) {
-                        error_log('[ELEMENTOR DELETE] Found and clearing URL in link.url: ' . $value['url']);
+                        error_log('[ELEMENTOR DELETE] ✅ MATCH! Clearing URL in link.url: ' . $value['url']);
                         $data[$key]['url'] = ''; // Clear URL
                         $data[$key]['is_external'] = ''; // Clear external flag
                         $data[$key]['nofollow'] = ''; // Clear nofollow
                         $removed = true;
+                    } else {
+                        error_log('[ELEMENTOR DELETE RECURSIVE] ❌ No match. link.url contains: ' . $value['url']);
                     }
-                } elseif (in_array($key, ['text', 'editor', 'html', 'code', 'title']) && is_string($value)) {
+                } elseif (in_array($key, ['text', 'editor', 'html', 'code', 'title', 'content']) && is_string($value)) {
                     // Text/HTML fields that might contain links in HTML format
+                    $value_preview = substr($value, 0, 200);
+                    error_log('[ELEMENTOR DELETE RECURSIVE] ✓ Found text field "' . $key . '" at depth ' . $depth);
+                    error_log('[ELEMENTOR DELETE RECURSIVE] Content preview: ' . $value_preview);
+                    
+                    // ✅ SPECIAL CHECK: If this looks like our anchor text, show FULL content
+                    if (stripos($value, 'Stories are the threads') !== false) {
+                        error_log('[ELEMENTOR DELETE RECURSIVE] ⚠️ ANCHOR TEXT DETECTED! Showing FULL content:');
+                        error_log('[ELEMENTOR DELETE RECURSIVE] FULL CONTENT: ' . $value);
+                        error_log('[ELEMENTOR DELETE RECURSIVE] Content length: ' . strlen($value) . ' chars');
+                    }
+                    
                     // Remove <a> tags but keep anchor text
                     if (stripos($value, $broken_url) !== false) {
-                        error_log('[ELEMENTOR DELETE] Found URL in text field: ' . $key);
+                        error_log('[ELEMENTOR DELETE] ✅ FOUND URL in text field: ' . $key);
                         
                         // Pattern to match <a href="broken_url">text</a> and replace with just text
                         $patterns = array(
@@ -843,24 +948,46 @@ class Link_Analyzer
                         );
                         
                         $new_value = $value;
-                        foreach ($patterns as $pattern) {
-                            $new_value = preg_replace($pattern, '$1', $new_value);
+                        $pattern_matched = false;
+                        
+                        foreach ($patterns as $index => $pattern) {
+                            $count = 0;
+                            $new_value = preg_replace($pattern, '$1', $new_value, -1, $count);
+                            if ($count > 0) {
+                                error_log('[ELEMENTOR DELETE] Pattern ' . ($index + 1) . ' matched ' . $count . ' times');
+                                $pattern_matched = true;
+                            }
                         }
                         
                         // Also handle plain URL replacement if it's just text
-                        $new_value = str_replace($broken_url, '', $new_value);
+                        if (str_replace($broken_url, '', $new_value) !== $new_value) {
+                            error_log('[ELEMENTOR DELETE] Also found plain URL in text, removing');
+                            $new_value = str_replace($broken_url, '', $new_value);
+                            $pattern_matched = true;
+                        }
                         
                         if ($new_value !== $value) {
                             $data[$key] = $new_value;
                             $removed = true;
-                            error_log('[ELEMENTOR DELETE] Removed link from text field, kept anchor text');
+                            error_log('[ELEMENTOR DELETE] ✅ Removed link from text field, kept anchor text');
+                        } else {
+                            error_log('[ELEMENTOR DELETE] ⚠️ URL found but no changes made (regex didn\'t match)');
+                        }
+                    } else {
+                        if ($depth < 3) {
+                            error_log('[ELEMENTOR DELETE RECURSIVE] ❌ URL not found in text field "' . $key . '"');
                         }
                     }
                 } else {
                     // Recursively process nested structures
-                    $data[$key] = $this->remove_url_from_elementor_data_recursive($value, $broken_url, $removed);
+                    $data[$key] = $this->remove_url_from_elementor_data_recursive($value, $broken_url, $removed, $depth + 1);
                 }
             }
+        }
+
+        if ($depth === 0) {
+            error_log('[ELEMENTOR DELETE RECURSIVE] ==================== END ====================');
+            error_log('[ELEMENTOR DELETE RECURSIVE] Removal status: ' . ($removed ? 'SUCCESS' : 'NOT FOUND'));
         }
 
         return $data;
