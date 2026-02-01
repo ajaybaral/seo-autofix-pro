@@ -443,11 +443,11 @@
                         
                         // ✅ UPDATE 4xx AND 5xx STATS DYNAMICALLY
                         if (data.stats['4xx'] !== undefined) {
-                            $('#broken-4xx-count, #stat-4xx-count, [data-stat="4xx"]').text(data.stats['4xx']);
+                            $('#header-4xx-count').text(data.stats['4xx']);
                             console.log('✅ Updated 4xx count:', data.stats['4xx']);
                         }
                         if (data.stats['5xx'] !== undefined) {
-                            $('#broken-5xx-count, #stat-5xx-count, [data-stat="5xx"]').text(data.stats['5xx']);
+                            $('#header-5xx-count').text(data.stats['5xx']);
                             console.log('✅ Updated 5xx count:', data.stats['5xx']);
                         }
                     }
@@ -905,11 +905,11 @@
             
             // ✅ UPDATE 4xx AND 5xx STATS IN REAL-TIME
             if (stats['4xx'] !== undefined) {
-                $('#broken-4xx-count, #stat-4xx-count, [data-stat="4xx"]').text(stats['4xx']);
+                $('#header-4xx-count').text(stats['4xx']);
                 console.log('[DYNAMIC UPDATE] Updated 4xx count:', stats['4xx']);
             }
             if (stats['5xx'] !== undefined) {
-                $('#broken-5xx-count, #stat-5xx-count, [data-stat="5xx"]').text(stats['5xx']);
+                $('#header-5xx-count').text(stats['5xx']);
                 console.log('[DYNAMIC UPDATE] Updated 5xx count:', stats['5xx']);
             }
             if (stats.internal !== undefined) {
