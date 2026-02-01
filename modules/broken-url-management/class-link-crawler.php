@@ -374,21 +374,72 @@ class Link_Crawler
                     $reason = '';
 
                     if ($is_internal) {
-                        // Filter out the page where this broken link was found
-                        // Don't suggest "skill-managment" when the broken link is ON "skill-managment"
-                        $filtered_urls = array_filter($valid_internal_urls, function ($url) use ($found_on_url) {
-                            // Normalize URLs for comparison (remove trailing slashes)
-                            return untrailingslashit($url) !== untrailingslashit($found_on_url);
-                        });
+                        // ✅ CONTENT-TYPE AWARE SUGGESTION MATCHING
+                        // Detect what type of URL this is (image, document, video, or page)
+                        $broken_url_type = $this->get_url_content_type($link);
+                        error_log('[CRAWLER] 🔍 Broken URL type detected: ' . $broken_url_type . ' for URL: ' . $link);
 
-                        error_log('[CRAWLER] Finding suggestion for broken link: ' . $link . ' (found on: ' . $found_on_url . ')');
-                        error_log('[CRAWLER] Valid URLs count: ' . count($valid_internal_urls) . ', Filtered URLs count: ' . count($filtered_urls));
+                        // Get appropriate candidate URLs based on content type
+                        $candidate_urls = array();
 
-                        $match = $this->url_similarity->find_closest_match($link, $filtered_urls);
-                        $suggested_url = $match['url'];
-                        $reason = $match['reason'];
+                        if ($broken_url_type === 'image') {
+                            // Get all image URLs from media library
+                            $candidate_urls = $this->get_all_media_urls('image');
+                            error_log('[CRAWLER] Searching within ' . count($candidate_urls) . ' image URLs for match');
+                        } elseif ($broken_url_type === 'document') {
+                            // Get all document URLs from media library
+                            $candidate_urls = $this->get_all_media_urls('document');
+                            error_log('[CRAWLER] Searching within ' . count($candidate_urls) . ' document URLs for match');
+                        } elseif ($broken_url_type === 'video') {
+                            // Get all video URLs from media library
+                            $candidate_urls = $this->get_all_media_urls('video');
+                            error_log('[CRAWLER] Searching within ' . count($candidate_urls) . ' video URLs for match');
+                        } elseif ($broken_url_type === 'audio') {
+                            // Get all audio URLs from media library
+                            $candidate_urls = $this->get_all_media_urls('audio');
+                            error_log('[CRAWLER] Searching within ' . count($candidate_urls) . ' audio URLs for match');
+                        } else {
+                            // For regular page URLs, use site pages/posts
+                            // Filter out the page where this broken link was found
+                            $candidate_urls = array_filter($valid_internal_urls, function ($url) use ($found_on_url) {
+                                // Normalize URLs for comparison (remove trailing slashes)
+                                return untrailingslashit($url) !== untrailingslashit($found_on_url);
+                            });
+                            error_log('[CRAWLER] Searching within ' . count($candidate_urls) . ' page URLs for match');
+                        }
 
-                        error_log('[CRAWLER] Suggested URL: ' . $suggested_url . ' (score: ' . ($match['score'] ?? 0) . ')');
+                        // Find best match within same content type
+                        if (!empty($candidate_urls)) {
+                            $match = $this->url_similarity->find_closest_match($link, $candidate_urls);
+
+                            // Only use suggestion if score is good enough
+                            $min_score_threshold = 0.3; // Minimum similarity score required
+                            $score = isset($match['score']) ? $match['score'] : 0;
+
+                            if ($score >= $min_score_threshold) {
+                                $suggested_url = $match['url'];
+                                $reason = $match['reason'];
+                                error_log('[CRAWLER] ✅ Found good match: ' . $suggested_url . ' (score: ' . $score . ')');
+                            } else {
+                                // Score too low - don't suggest inappropriate match
+                                $suggested_url = null;
+                                $reason = sprintf(
+                                    __('No suitable %s replacement found. Please provide a new %s URL or remove this link.', 'seo-autofix-pro'),
+                                    $broken_url_type,
+                                    $broken_url_type
+                                );
+                                error_log('[CRAWLER] ⚠️ Match score too low (' . $score . ' < ' . $min_score_threshold . ') - no suggestion');
+                            }
+                        } else {
+                            // No candidate URLs of this type available
+                            $suggested_url = null;
+                            $reason = sprintf(
+                                __('No %s URLs available in your media library. Please upload a new %s or remove this link.', 'seo-autofix-pro'),
+                                $broken_url_type,
+                                $broken_url_type
+                            );
+                            error_log('[CRAWLER] ❌ No candidate URLs of type: ' . $broken_url_type);
+                        }
                     } else {
                         $reason = __('This link is not working, either delete it or provide a new link', 'seo-autofix-pro');
                     }
@@ -790,5 +841,126 @@ class Link_Crawler
         }
 
         return false;
+    }
+
+    /**
+     * Get content type of a URL based on file extension
+     * 
+     * @param string $url The URL to analyze
+     * @return string Content type: 'image', 'document', 'video', or 'page'
+     */
+    private function get_url_content_type($url)
+    {
+        // Parse the URL to get the path
+        $path = parse_url($url, PHP_URL_PATH);
+        if (!$path) {
+            return 'page';
+        }
+
+        $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+
+        // Image extensions
+        $image_extensions = array('jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico');
+        if (in_array($extension, $image_extensions)) {
+            return 'image';
+        }
+
+        // Document extensions
+        $doc_extensions = array('pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv');
+        if (in_array($extension, $doc_extensions)) {
+            return 'document';
+        }
+
+        // Video extensions
+        $video_extensions = array('mp4', 'webm', 'ogg', 'avi', 'mov', 'wmv', 'flv');
+        if (in_array($extension, $video_extensions)) {
+            return 'video';
+        }
+
+        // Audio extensions
+        $audio_extensions = array('mp3', 'wav', 'ogg', 'aac', 'm4a');
+        if (in_array($extension, $audio_extensions)) {
+            return 'audio';
+        }
+
+        // Default to page for URLs without extension or unknown extensions
+        return 'page';
+    }
+
+    /**
+     * Get all media URLs from WordPress media library
+     * 
+     * @param string $content_type Content type to filter: 'image', 'document', 'video', 'audio'
+     * @return array Array of media URLs
+     */
+    private function get_all_media_urls($content_type = 'image')
+    {
+        $media_urls = array();
+
+        // Get all attachments of specified type
+        $args = array(
+            'post_type' => 'attachment',
+            'post_status' => 'inherit',
+            'posts_per_page' => -1,
+            'post_mime_type' => $this->get_mime_type_filter($content_type)
+        );
+
+        $attachments = get_posts($args);
+        error_log('[CRAWLER] Found ' . count($attachments) . ' attachments of type: ' . $content_type);
+
+        foreach ($attachments as $attachment) {
+            $url = wp_get_attachment_url($attachment->ID);
+            if ($url) {
+                $media_urls[] = $url;
+
+                // Also get image sizes if it's an image
+                if ($content_type === 'image') {
+                    $sizes = array('thumbnail', 'medium', 'medium_large', 'large', 'full');
+                    foreach ($sizes as $size) {
+                        $size_url = wp_get_attachment_image_url($attachment->ID, $size);
+                        if ($size_url && $size_url !== $url) {
+                            $media_urls[] = $size_url;
+                        }
+                    }
+                }
+            }
+        }
+
+        $unique_urls = array_unique($media_urls);
+        error_log('[CRAWLER] Total unique ' . $content_type . ' URLs: ' . count($unique_urls));
+
+        return $unique_urls;
+    }
+
+    /**
+     * Get WordPress MIME type filter for content type
+     * 
+     * @param string $content_type Content type
+     * @return string|array MIME type filter for WP_Query
+     */
+    private function get_mime_type_filter($content_type)
+    {
+        switch ($content_type) {
+            case 'image':
+                return 'image';
+            case 'document':
+                return array(
+                    'application/pdf',
+                    'application/msword',
+                    'application/vnd.ms-excel',
+                    'application/vnd.ms-powerpoint',
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                    'text/plain',
+                    'text/csv'
+                );
+            case 'video':
+                return 'video';
+            case 'audio':
+                return 'audio';
+            default:
+                return null;
+        }
     }
 }
