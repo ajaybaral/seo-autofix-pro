@@ -714,8 +714,11 @@
         // Get page title or use found_on_url
         console.log('[CREATE ROW] Result data:', result);
 
-        // Create table row with data-id for animations
-        const row = $('<tr>').attr('data-id', result.id);
+        // ✅ Create table row with data-id AND attach result data
+        const row = $('<tr>')
+            .attr('data-id', result.id)
+            .data('result', result);  // ✅ CRITICAL FIX: Attach result data to row!
+        
         const pageTitle = result.found_on_page_title || extractPageName(result.found_on_url);
 
         if (isFixed) {
@@ -1358,29 +1361,30 @@
             .not('.status-fixed, .empty-results-row')
             .length;
 
-        // ✅ SINGLE SOURCE OF TRUTH: fixedLinksSession.length
-        const fixedCount = fixedLinksSession.length;
+        // ✅ SINGLE SOURCE OF TRUTH: Count ALL actions (fixes + deletes)
+        // fixedLinksSession tracks both 'fixed' and 'deleted' actions
+        const totalActionsCount = fixedLinksSession.length;
         const hasScan = currentScanId !== null;
 
-        console.log('[UPDATE BUTTON STATES] fixedCount:', fixedCount, 'brokenCount:', brokenCount, 'hasScan:', hasScan);
+        console.log('[UPDATE BUTTON STATES] totalActionsCount (fixes+deletes):', totalActionsCount, 'brokenCount:', brokenCount, 'hasScan:', hasScan);
 
         // Fix All, Remove, Replace buttons - ACTIVE when there's a scan
         const actionButtons = $('#fix-all-issues-btn, #remove-broken-links-btn, #replace-broken-links-btn');
         actionButtons.prop('disabled', !hasScan);
         console.log('[UPDATE BUTTON STATES] Action buttons disabled:', !hasScan);
 
-        // ✅ SIMPLE LOGIC: fixedCount > 0 → ENABLE, fixedCount = 0 → DISABLE
-        const shouldEnableReportAndUndo = fixedCount > 0;
+        // ✅ SIMPLE LOGIC: totalActionsCount > 0 → ENABLE (includes both fixes and deletes)
+        const shouldEnableReportAndUndo = totalActionsCount > 0;
         
         // Download/Email Fix Report buttons
         const reportButtons = $('#download-report-btn, #email-report-btn, #download-report-empty-btn, #email-report-empty-btn');
         reportButtons.prop('disabled', !shouldEnableReportAndUndo);
-        console.log('[UPDATE BUTTON STATES] Report buttons:', shouldEnableReportAndUndo ? 'ENABLED' : 'DISABLED', '(fixedCount:', fixedCount + ')');
+        console.log('[UPDATE BUTTON STATES] Report buttons:', shouldEnableReportAndUndo ? 'ENABLED' : 'DISABLED', '(totalActionsCount:', totalActionsCount + ')');
 
         // Undo buttons
         const undoButtons = $('#undo-last-fix-btn, #undo-changes-btn');
         undoButtons.prop('disabled', !shouldEnableReportAndUndo);
-        console.log('[UPDATE BUTTON STATES] Undo buttons:', shouldEnableReportAndUndo ? 'ENABLED' : 'DISABLED', '(fixedCount:', fixedCount + ')');
+        console.log('[UPDATE BUTTON STATES] Undo buttons:', shouldEnableReportAndUndo ? 'ENABLED' : 'DISABLED', '(totalActionsCount:', totalActionsCount + ')');
     }
 
 
@@ -1731,6 +1735,46 @@
             });
         }, 2500); // 2.5 seconds delay
     }
+
+    /**
+     * Animate deleted row - RED VERSION for delete operations
+     * Shows red background with "Deleted" text, waits 2.5 seconds, then fades out and removes
+     */
+    function animateDeletedRow($row, onComplete) {
+        console.log('[ANIMATE DELETED ROW] Starting animation for row:', $row.attr('data-id'));
+        
+        // Step 1: Add red background class
+        $row.addClass('row-being-deleted');
+        
+        // Step 2: Find the action column and replace with "Deleted" label
+        const $actionCell = $row.find('.column-action');
+        if ($actionCell.length) {
+            $actionCell.html('<span class="deleted-status-label">Deleted</span>');
+        }
+        
+        // Step 3: Wait 2.5 seconds, then fade out and remove
+        setTimeout(function() {
+            console.log('[ANIMATE DELETED ROW] Starting fade out for row:', $row.attr('data-id'));
+            $row.fadeOut(400, function() {
+                console.log('[ANIMATE DELETED ROW] Removing row:', $row.attr('data-id'));
+                $(this).remove();
+                
+                // Check if table is empty
+                if ($('#results-table-body tr').length === 0 || 
+                    $('#results-table-body tr:visible').length === 0) {
+                    $('#results-table-body').html(
+                        '<tr class="empty-results-row"><td colspan="5" style="text-align:center; padding: 30px;">No broken links found</td></tr>'
+                    );
+                }
+                
+                // Call completion callback if provided
+                if (onComplete && typeof onComplete === 'function') {
+                    onComplete();
+                }
+            });
+        }, 2500); // 2.5 seconds delay
+    }
+
 
 
     // ========================================
@@ -2109,7 +2153,19 @@
      * Event delegation for Fix buttons (since they're dynamically created)
      */
     $(document).on('click', '.fix-btn', function () {
-        const resultData = $(this).data('result');
+        // Get data from parent row, not from button
+        const $row = $(this).closest('tr');
+        const resultData = $row.data('result');
+        console.log('[FIX BTN] Clicked');
+        console.log('[FIX BTN] Row:', $row);
+        console.log('[FIX BTN] Result data:', resultData);
+        
+        if (!resultData) {
+            console.error('[FIX BTN] No result data found on row!');
+            alert('Error: Could not find link data. Please refresh the page.');
+            return;
+        }
+        
         showAutoFixPanel(resultData);
     });
 
@@ -2117,6 +2173,26 @@
      * Show auto-fix panel with link data
      */
     function showAutoFixPanel(result) {
+        console.log('╔════════════════════════════════════════════════════════╗');
+        console.log('║       SHOW AUTO FIX PANEL CALLED                       ║');
+        console.log('╚════════════════════════════════════════════════════════╝');
+        console.log('[AUTO FIX PANEL] Result parameter received:', result);
+        console.log('[AUTO FIX PANEL] Result type:', typeof result);
+        console.log('[AUTO FIX PANEL] Result is null?', result === null);
+        console.log('[AUTO FIX PANEL] Result is undefined?', result === undefined);
+        
+        if (!result) {
+            console.error('[AUTO FIX PANEL] ❌ ERROR: No result data provided!');
+            alert('Error: No data available for this entry');
+            return;
+        }
+        
+        console.log('[AUTO FIX PANEL] ✅ Result data exists');
+        console.log('[AUTO FIX PANEL] Result.id:', result.id);
+        console.log('[AUTO FIX PANEL] Result.found_on_page_title:', result.found_on_page_title);
+        console.log('[AUTO FIX PANEL] Result.found_on_url:', result.found_on_url);
+        console.log('[AUTO FIX PANEL] Result.broken_url:', result.broken_url);
+        
         const pageTitle = result.found_on_page_title || extractPageName(result.found_on_url);
         const statusCode = result.status_code || 404;
         const errorType = statusCode >= 500 ? '5xx' : '4xx';
@@ -2427,24 +2503,73 @@
 
                     showNotification(message, 'success');
 
-                    // Reload scan results to show restored links
-                    console.log('[UNDO] Reloading scan results...');
-                    loadScanResults(currentScanId);
-
-                    // ✅ CRITICAL FIX: Enable button AFTER loadScanResults completes
-                    // loadScanResults() is async and calls updateButtonStates() which would disable the button
-                    // We need to wait for it to finish, then re-enable the button
-                    // Use setTimeout to ensure this runs after displayResults() and updateButtonStates()
-                    setTimeout(function() {
-                        // Keep button ENABLED because snapshot persists for multiple undos
-                        $('#undo-changes-btn').prop('disabled', false).html('<span class="dashicons dashicons-undo"></span> Undo Changes');
-                        console.log('[UNDO] ✅ Button forcibly re-enabled after table reload (snapshot persists)');
+                    // ✅ Restore rows from undoStack
+                    // Backend has restored page content, now restore UI rows
+                    console.log('[UNDO] Restoring', undoStack.length, 'rows from undoStack');
+                    
+                    if (undoStack.length > 0) {
+                        const $tbody = $('#results-table-body');
+                        const $emptyRow = $tbody.find('.empty-results-row');
                         
-                        // ✅ CRITICAL: Call updateButtonStates() AGAIN to ensure Download/Email buttons are DISABLED
-                        // since fixedLinksSession was cleared
-                        updateButtonStates();
-                        console.log('[UNDO] ✅ updateButtonStates called - Download/Email should be DISABLED');
-                    }, 500); // 500ms should be enough for table reload to complete
+                        // Remove "No broken links found" message if present
+                        if ($emptyRow.length) {
+                            $emptyRow.remove();
+                            console.log('[UNDO] Removed empty results message');
+                        }
+                        
+                        // Restore each deleted row
+                        undoStack.forEach(function(item) {
+                            if (item.action === 'delete' && item.row_html && item.original_data) {
+                                console.log('[UNDO] Restoring row:', item.id);
+                                
+                                // Create row from stored HTML
+                                const $restoredRow = $(item.row_html);
+                                
+                                // Re-attach the data object
+                                $restoredRow.data('result', item.original_data);
+                                
+                                // Append to table
+                                $tbody.append($restoredRow);
+                                
+                                // Fade in animation
+                                $restoredRow.hide().fadeIn(400);
+                                
+                                console.log('[UNDO] Row restored:', item.id);
+                            }
+                        });
+                        
+                        // Update stats
+                        const restoredCount = undoStack.length;
+                        const count4xx = undoStack.filter(item => item.original_data && item.original_data.status_code >= 400 && item.original_data.status_code < 500).length;
+                        const count5xx = undoStack.filter(item => item.original_data && item.original_data.status_code >= 500).length;
+                        const countInternal = undoStack.filter(item => item.original_data && item.original_data.link_type === 'internal').length;
+                        const countExternal = undoStack.filter(item => item.original_data && item.original_data.link_type === 'external').length;
+                        
+                        // Update header count
+                        $('.broken-count').text(restoredCount);
+                        
+                        // Update stats cards if they exist
+                        $('#stat-4xx-count').text(count4xx);
+                        $('#stat-5xx-count').text(count5xx);
+                        $('#stat-internal-count').text(countInternal);
+                        $('#stat-external-count').text(countExternal);
+                        
+                        console.log('[UNDO] Stats updated - restored', restoredCount, 'broken links');
+                    }
+                    
+                    // Clear undo stack
+                   console.log('[UNDO] Clearing undoStack:', undoStack.length, 'items');
+                    undoStack = [];
+                    
+                    // Update button states
+                    updateButtonStates();
+
+                    // Re-enable undo button
+                    setTimeout(function() {
+                        $('#undo-changes-btn').prop('disabled', false).html('<span class="dashicons dashicons-undo"></span> Undo Changes');
+                        console.log('[UNDO] ✅ Undo complete - rows restored');
+                    }, 500);
+
                 } else {
                     console.error('[UNDO] Undo failed:', response.data.message);
                     showNotification(response.data.message || 'Failed to undo changes', 'error');
@@ -2758,37 +2883,44 @@
                     // Hide the panel
                     $('#auto-fix-panel').slideUp();
 
-                    // Show blinking DELETED status
+                    // ✅ Use proper DELETE animation (red version)
                     if ($row.length) {
                         console.log('[DELETE] Showing DELETED animation for entry:', entryId);
-
-                        // Replace row content with DELETED status
-                        const colspan = $row.find('td').length;
-                        $row.html(`<td colspan="${colspan}" class="row-status-deleted">✗ DELETED</td>`);
-
-                        // Remove row after 2 seconds
-                        setTimeout(() => {
-                            $row.fadeOut(300, function () {
-                                $(this).remove();
-
-                                // Update header count
-                                updateHeaderBrokenCount();
-                                
-                                // Update stats after row removed
-                                updateStatsAfterFix(1);
-                                
-                                // ✅ UPDATE BUTTON STATES (enables undo button!)
-                                updateButtonStates();
-                                console.log('[DELETE] ✅ Button states updated. Undo should now be ENABLED');
-
-                                // Update "No results" message if table is empty
-                                if ($('.broken-links-table tbody tr').length === 0) {
-                                    $('.broken-links-table tbody').html(
-                                        '<tr><td colspan="5" style="text-align:center; padding: 30px;">No broken links found</td></tr>'
-                                    );
+                        
+                        animateDeletedRow($row, function() {
+                            // Update header count
+                            updateHeaderBrokenCount();
+                            
+                            // Update stats after row removed
+                            updateStatsAfterFix(1);
+                            
+                            // ✅ UPDATE STATS CARDS (4xx, 5xx, internal, external)
+                            if (rowData) {
+                                // Reduce 4xx or 5xx count
+                                if (rowData.status_code >= 400 && rowData.status_code < 500) {
+                                    const current4xx = parseInt($('#header-4xx-count').text()) || 0;
+                                    $('#header-4xx-count').text(Math.max(0, current4xx - 1));
+                                } else if (rowData.status_code >= 500) {
+                                    const current5xx = parseInt($('#header-5xx-count').text()) || 0;
+                                    $('#header-5xx-count').text(Math.max(0, current5xx - 1));
                                 }
-                            });
-                        }, 2000);
+                                
+                                // Reduce internal or external count
+                                if (rowData.link_type === 'internal') {
+                                    const currentInternal = parseInt($('#stat-internal-count').text()) || 0;
+                                    $('#stat-internal-count, #internal-broken-count, [data-stat="internal"]').text(Math.max(0, currentInternal - 1));
+                                } else if (rowData.link_type === 'external') {
+                                    const currentExternal = parseInt($('#stat-external-count').text()) || 0;
+                                    $('#stat-external-count, #external-broken-count, [data-stat="external"]').text(Math.max(0, currentExternal - 1));
+                                }
+                                
+                                console.log('[DELETE] Updated stats cards for deleted link');
+                            }
+                            
+                            // ✅ UPDATE BUTTON STATES (enables undo button!)
+                            updateButtonStates();
+                            console.log('[DELETE] ✅ Button states updated. Undo should now be ENABLED');
+                        });
                     }
                 } else {
                     console.error('[DELETE BROKEN LINK] Delete failed:', response.data);
@@ -4241,27 +4373,47 @@
                     if (response.success) {
                         console.log('[FIX ALL - INDIVIDUAL DELETE] Successfully deleted from content');
 
-                        // Show DELETED animation on main table
+                        // ✅ TRACK DELETION BEFORE removing row
                         const $row = $(`tr[data-id="${linkId}"]`);
                         if ($row.length) {
-                            const colspan = $row.find('td').length;
-                            $row.html(`<td colspan="${colspan}" class="row-status-deleted">✗ DELETED</td>`);
+                            const rowData = $row.data('result');
 
-                            setTimeout(() => {
-                                $row.fadeOut(300, function () {
-                                    $(this).remove();
-
-                                    // Update header count
-                                    updateHeaderBrokenCount();
-
-                                    // Update "No results" message if table is empty
-                                    if ($('.broken-links-table tbody tr').length === 0) {
-                                        $('.broken-links-table tbody').html(
-                                            '<tr><td colspan="5" style="text-align:center; padding: 30px;">No broken links found</td></tr>'
-                                        );
-                                    }
+                            // ✅ Add to undoStack
+                            if (rowData) {
+                                undoStack.push({
+                                    id: linkId,
+                                    action: 'delete',
+                                    original_data: rowData,
+                                    row_html: $row[0] ? $row[0].outerHTML : ''
                                 });
-                            }, 2000);
+                                console.log('[FIX ALL - INDIVIDUAL DELETE] Added to undoStack. Stack size:', undoStack.length);
+
+                                // ✅ Add to fixedLinksSession
+                                fixedLinksSession.push({
+                                    id: linkId,
+                                    location: rowData.found_on_page_title || 'Unknown',
+                                    anchor_text: rowData.anchor_text || '',
+                                    broken_url: rowData.broken_url,
+                                    link_type: rowData.link_type,
+                                    status_code: rowData.status_code,
+                                    error_type: rowData.error_type,
+                                    suggested_url: '',
+                                    reason: 'Deleted',
+                                    is_fixed: 1,
+                                    fixed_at: new Date().toISOString()
+                                });
+                                console.log('[FIX ALL - INDIVIDUAL DELETE] Added to fixedLinksSession. Session size:', fixedLinksSession.length);
+                            }
+
+                            // ✅ Use proper DELETE animation (red version)
+                            animateDeletedRow($row, function() {
+                                // Update header count
+                                updateHeaderBrokenCount();
+
+                                // ✅ Update button states (enables undo/download/email buttons)
+                                updateButtonStates();
+                                console.log('[FIX ALL - INDIVIDUAL DELETE] Button states updated');
+                            });
                         }
 
                         // Remove from UI modal
@@ -4596,13 +4748,15 @@
                         });
                         console.log('[APPLY BULK FIX] fixedLinksSession now has', fixedLinksSession.length, 'entries');
 
-                        // ✅ ANIMATE rows individually instead of full table reload
+                        // ✅ ANIMATE rows individually - Use DELETE animation for delete action
                         let removedCount = 0;
                         processedIds.forEach(id => {
                             const $row = $(`tr[data-id="${id}"]`);
                             if ($row.length) {
-                                console.log('[APPLY BULK FIX] Animating row:', id);
-                                animateFixedRow($row, function() {
+                                console.log('[APPLY BULK FIX] Animating row:', id, '- Action:', action);
+                                // ✅ Use correct animation based on action type
+                                const animationFn = action === 'delete' ? animateDeletedRow : animateFixedRow;
+                                animationFn($row, function() {
                                     removedCount++;
                                     
                                     // Check if all rows removed

@@ -1092,3 +1092,42 @@
 .url-validation-message.error {
     color: #dc2626;
 }
+/* ========================================
+   ANIMATION CLASSES - Fix and Delete
+   ======================================== */
+
+/* Green animation for FIXED rows */
+.row-being-fixed {
+    background-color: #d1fae5 !important;
+    transition: background-color 0.3s ease;
+}
+
+.fixed-status-label {
+    display: inline-block;
+    padding: 6px 16px;
+    background: #10b981;
+    color: #fff;
+    font-weight: 600;
+    font-size: 13px;
+    border-radius: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Red animation for DELETED rows */
+.row-being-deleted {
+    background-color: #fee2e2 !important;
+    transition: background-color 0.3s ease;
+}
+
+.deleted-status-label {
+    display: inline-block;
+    padding: 6px 16px;
+    background: #dc2626;
+    color: #fff;
+    font-weight: 600;
+    font-size: 13px;
+    border-radius: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}

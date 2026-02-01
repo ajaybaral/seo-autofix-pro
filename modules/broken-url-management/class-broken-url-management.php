@@ -604,10 +604,12 @@ class SEOAutoFix_Broken_Url_Management
                     error_log('[ACTIVITY LOG SUCCESS] Activity log entry created with ID: ' . $wpdb->insert_id);
                 }
 
-                // Delete from database (not mark as fixed)
-                $wpdb->delete($table_results, array('id' => $id), array('%d'));
+                // SOFT DELETE: Mark as deleted (is_deleted = 1) instead of removing from database
+                // This allows undo to restore by setting is_deleted = 0
+                // Same behavior as FIX (which sets is_fixed = 1)
+                $db_manager->delete_entry($id);
 
-                error_log('[SEO_AUTOFIX] Successfully removed link from content and deleted from database');
+                error_log('[SEO_AUTOFIX] Successfully removed link from content and marked as deleted (soft delete)');
 
                 wp_send_json_success(array(
                     'message' => __('Link removed from content successfully', 'seo-autofix-pro')
@@ -1538,15 +1540,25 @@ class SEOAutoFix_Broken_Url_Management
         );
         error_log('[UNDO] Deleted ' . $activity_deleted . ' activity log entries');
 
-        // Mark broken links as unfixed instead of deleting them
+
+
+        // Mark broken links as unfixed AND undeleted instead of deleting them
         // This way they'll appear again in the results with the Fix button
         if (!empty($restored_page_ids)) {
             $placeholders = implode(',', array_fill(0, count($restored_page_ids), '%d'));
+            
+            error_log('[UNDO] About to update entries for page IDs: ' . implode(',', $restored_page_ids));
+            error_log('[UNDO] Scan ID: ' . $scan_id);
+            error_log('[UNDO] Query will be: UPDATE ' . $table_scan_results . ' SET is_fixed = 0, is_deleted = 0 WHERE scan_id = ' . $scan_id . ' AND found_on_page_id IN (' . implode(',', $restored_page_ids) . ')');
+            
             $results_updated = $wpdb->query($wpdb->prepare(
-                "UPDATE {$table_scan_results} SET is_fixed = 0 WHERE scan_id = %s AND found_on_page_id IN ($placeholders)",
+                "UPDATE {$table_scan_results} SET is_fixed = 0, is_deleted = 0 WHERE scan_id = %s AND found_on_page_id IN ($placeholders)",
                 array_merge(array($scan_id), $restored_page_ids)
             ));
-            error_log('[UNDO] Marked ' . $results_updated . ' entries as unfixed for restored pages');
+            
+            error_log('[UNDO] Update query executed. Rows affected: ' . $results_updated);
+            error_log('[UNDO] WPDB last error: ' . $wpdb->last_error);
+            error_log('[UNDO] Marked ' . $results_updated . ' entries as unfixed and undeleted for restored pages');
         }
 
         wp_send_json_success(array(
