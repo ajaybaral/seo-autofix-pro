@@ -96,6 +96,75 @@ class Fix_Plan_Manager
     }
 
     /**
+     * Generate fix plan from custom data (from modal)
+     * 
+     * @param array $entry_ids Array of entry IDs
+     * @param array $custom_plan_data Custom plan data from frontend modal
+     * @return array Fix plan
+     */
+    public function generate_fix_plan_from_custom_data($entry_ids, $custom_plan_data)
+    {
+        $fix_plan = array();
+        $plan_id = 'plan_' . uniqid();
+
+        // Create a lookup map for custom data by entry ID
+        $custom_data_map = array();
+        foreach ($custom_plan_data as $custom_item) {
+            $custom_data_map[$custom_item['entry_id']] = $custom_item;
+        }
+
+        foreach ($entry_ids as $entry_id) {
+            $entry = $this->db_manager->get_entry($entry_id);
+
+            if (!$entry) {
+                continue;
+            }
+
+            // Check if we have custom data for this entry
+            $custom_data = isset($custom_data_map[$entry_id]) ? $custom_data_map[$entry_id] : null;
+
+            // Determine new_url and fix_action from custom data or entry data
+            if ($custom_data) {
+                // Use custom data from modal
+                $new_url = $custom_data['new_url'];
+                // Map frontend action names to backend action names
+                $fix_action = ($custom_data['action'] === 'delete') ? 'remove' : 'replace';
+            } else {
+                // Fallback to entry data
+                $new_url = $entry['user_modified_url'] ?: $entry['suggested_url'];
+                $fix_action = $this->determine_fix_action($entry);
+            }
+
+            $fix_plan[] = array(
+                'entry_id' => $entry_id,
+                'found_on_page_id' => $entry['found_on_page_id'],
+                'found_on_page_title' => $entry['found_on_page_title'],
+                'found_on_url' => $entry['found_on_url'],
+                'link_location' => $entry['link_location'],
+                'anchor_text' => $entry['anchor_text'],
+                'broken_url' => $entry['broken_url'],
+                'link_type' => $entry['link_type'],
+                'status_code' => $entry['status_code'],
+                'suggested_url' => $entry['suggested_url'],
+                'user_modified_url' => $entry['user_modified_url'],
+                'fix_action' => $fix_action,
+                'new_url' => $new_url,
+                'can_edit' => true
+            );
+        }
+
+        // Store fix plan in transient
+        set_transient('seoautofix_fix_plan_' . $plan_id, $fix_plan, HOUR_IN_SECONDS);
+
+        return array(
+            'success' => true,
+            'plan_id' => $plan_id,
+            'fix_plan' => $fix_plan,
+            'total_fixes' => count($fix_plan)
+        );
+    }
+
+    /**
      * Determine fix action for an entry
      * 
      * @param array $entry Broken link entry
@@ -103,17 +172,12 @@ class Fix_Plan_Manager
      */
     private function determine_fix_action($entry)
     {
-        // External links can only be removed
-        if ($entry['link_type'] === 'external') {
-            return 'remove';
-        }
-
-        // If we have a suggested or user-modified URL, replace
+        // If we have a user-modified or suggested URL, replace (works for both internal and external links)
         if (!empty($entry['user_modified_url']) || !empty($entry['suggested_url'])) {
             return 'replace';
         }
 
-        // Default to remove if no suggestion
+        // Default to remove if no replacement URL available
         return 'remove';
     }
 

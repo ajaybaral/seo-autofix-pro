@@ -680,7 +680,7 @@ class SEOAutoFix_Broken_Url_Management
 
         $content = $post->post_content;
         error_log('[REMOVE_LINK] Original content length: ' . strlen($content) . ' characters');
-        
+
         // Log first 500 chars of content to see what we're working with
         $content_preview = substr($content, 0, 500);
         error_log('[REMOVE_LINK] Content preview (first 500 chars): ' . $content_preview);
@@ -694,7 +694,7 @@ class SEOAutoFix_Broken_Url_Management
             error_log('[REMOVE_LINK]   - Link is in Elementor/page builder data');
             error_log('[REMOVE_LINK]   - URL encoding differs (e.g., & vs &amp;)');
             error_log('[REMOVE_LINK]   - Link was already removed');
-            
+
             // Try URL-encoded version
             $encoded_url = htmlspecialchars($broken_url);
             if (strpos($content, $encoded_url) !== false) {
@@ -731,7 +731,7 @@ class SEOAutoFix_Broken_Url_Management
         foreach ($patterns as $index => $pattern) {
             $count = 0;
             $new_content = preg_replace($pattern, '$1', $new_content, -1, $count);
-            
+
             if ($count > 0) {
                 error_log('[REMOVE_LINK] ✅ Pattern ' . ($index + 1) . ' matched! Replacements: ' . $count);
                 $total_replacements += $count;
@@ -1001,13 +1001,27 @@ class SEOAutoFix_Broken_Url_Management
         }
 
         $entry_ids = isset($_POST['entry_ids']) ? array_map('intval', (array) $_POST['entry_ids']) : array();
+        $custom_plan_json = isset($_POST['custom_plan']) ? stripslashes($_POST['custom_plan']) : '';
 
         if (empty($entry_ids)) {
             wp_send_json_error(array('message' => __('No entries selected', 'seo-autofix-pro')));
         }
 
         $fix_plan_manager = new Fix_Plan_Manager();
-        $result = $fix_plan_manager->generate_fix_plan($entry_ids);
+
+        // If custom plan is provided (from Fix All Issues modal), use it
+        if (!empty($custom_plan_json)) {
+            $custom_plan_data = json_decode($custom_plan_json, true);
+            if ($custom_plan_data) {
+                $result = $fix_plan_manager->generate_fix_plan_from_custom_data($entry_ids, $custom_plan_data);
+            } else {
+                // Fallback to regular generation if JSON is invalid
+                $result = $fix_plan_manager->generate_fix_plan($entry_ids);
+            }
+        } else {
+            // Regular generation (from Replace Broken Links button)
+            $result = $fix_plan_manager->generate_fix_plan($entry_ids);
+        }
 
         if ($result['success']) {
             wp_send_json_success($result);
@@ -1080,7 +1094,7 @@ class SEOAutoFix_Broken_Url_Management
 
         error_log('[AJAX_APPLY_FIX_PLAN] Creating Fix_Plan_Manager instance');
         $fix_plan_manager = new Fix_Plan_Manager();
-        
+
         error_log('[AJAX_APPLY_FIX_PLAN] Calling apply_fix_plan()');
         $result = $fix_plan_manager->apply_fix_plan($plan_id, $selected_entry_ids);
 
@@ -1517,11 +1531,11 @@ class SEOAutoFix_Broken_Url_Management
         // 1. A new scan is started (handled separately)
         // 2. Page is refreshed (session ends)
         // 3. User manually clears old data
-        
+
         // OLD CODE (WRONG - deleted snapshot after first undo):
         // $deleted = $wpdb->delete($table_snapshot, array('scan_id' => $scan_id), array('%s'));
         // error_log('[UNDO] Deleted ' . $deleted . ' snapshot entries');
-        
+
         error_log('[UNDO] Snapshot preserved for potential future undos');
 
         // ===== CRITICAL: Clean up database entries so links appear as broken again =====
@@ -1546,16 +1560,16 @@ class SEOAutoFix_Broken_Url_Management
         // This way they'll appear again in the results with the Fix button
         if (!empty($restored_page_ids)) {
             $placeholders = implode(',', array_fill(0, count($restored_page_ids), '%d'));
-            
+
             error_log('[UNDO] About to update entries for page IDs: ' . implode(',', $restored_page_ids));
             error_log('[UNDO] Scan ID: ' . $scan_id);
             error_log('[UNDO] Query will be: UPDATE ' . $table_scan_results . ' SET is_fixed = 0, is_deleted = 0 WHERE scan_id = ' . $scan_id . ' AND found_on_page_id IN (' . implode(',', $restored_page_ids) . ')');
-            
+
             $results_updated = $wpdb->query($wpdb->prepare(
                 "UPDATE {$table_scan_results} SET is_fixed = 0, is_deleted = 0 WHERE scan_id = %s AND found_on_page_id IN ($placeholders)",
                 array_merge(array($scan_id), $restored_page_ids)
             ));
-            
+
             error_log('[UNDO] Update query executed. Rows affected: ' . $results_updated);
             error_log('[UNDO] WPDB last error: ' . $wpdb->last_error);
             error_log('[UNDO] Marked ' . $results_updated . ' entries as unfixed and undeleted for restored pages');
