@@ -81,8 +81,49 @@ class SEO_AutoFix_Pro
      */
     public function init()
     {
+        // Prevent caching during development/debug mode
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            $this->disable_caching();
+        }
+
         // Load text domain for translations
         load_plugin_textdomain('seo-autofix-pro', false, dirname(SEOAUTOFIX_PLUGIN_BASENAME) . '/languages');
+    }
+
+    /**
+     * Disable caching for plugin assets and admin pages during development
+     */
+    private function disable_caching()
+    {
+        // Send no-cache headers for plugin admin pages
+        add_action('admin_init', function() {
+            // Only for our plugin pages
+            if (isset($_GET['page']) && strpos($_GET['page'], 'seo-autofix') === 0) {
+                nocache_headers();
+                header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+                header('Cache-Control: post-check=0, pre-check=0', false);
+                header('Pragma: no-cache');
+                header('Expires: 0');
+            }
+        });
+
+        // Add version parameter to all plugin scripts and styles to bust cache
+        add_filter('script_loader_src', array($this, 'add_cache_buster'), 10, 2);
+        add_filter('style_loader_src', array($this, 'add_cache_buster'), 10, 2);
+    }
+
+    /**
+     * Add cache buster parameter to plugin assets
+     */
+    public function add_cache_buster($src, $handle)
+    {
+        // Only add cache buster to our plugin files
+        if (strpos($src, 'seo-autofix-pro') !== false) {
+            // Add timestamp as version parameter to force browser reload
+            $separator = (strpos($src, '?') !== false) ? '&' : '?';
+            return $src . $separator . 'ver=' . time();
+        }
+        return $src;
     }
 
     /**
