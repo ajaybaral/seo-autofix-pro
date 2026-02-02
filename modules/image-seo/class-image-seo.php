@@ -607,28 +607,7 @@ class SEOAutoFix_Image_SEO
 
 
 
-            // CRITICAL SAFETY CHECK: Get current status from history table
-            $current_history = $wpdb->get_row($wpdb->prepare(
-                "SELECT status, issue_type FROM $table_history WHERE attachment_id = %d LIMIT 1",
-                $attachment_id
-            ));
 
-
-
-
-            // BLOCK re-applying to already-optimized images
-            if ($current_history && ($current_history->status === 'optimal' || $current_history->status === 'optimized')) {
-
-
-
-
-
-
-                wp_send_json_error(array(
-                    'message' => 'This image is already optimized and cannot be re-applied.'
-                ));
-                return;
-            }
 
 
 

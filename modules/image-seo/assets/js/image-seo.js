@@ -364,20 +364,16 @@ jQuery(document).ready(function ($) {
             });
         }
 
-        // Filter-Scoped CSV: DON'T clear changes when switching filters - track ALL changes globally
+        // FIXED: Clear changes when switching to a different filter
+        // Each filter view is independent - start fresh
         if (currentFilterValue !== filterValue) {
-            console.log('FILTER-CSV: Filter changed from', currentFilterValue, 'to', filterValue, '- keeping', filterChanges.length, 'tracked changes');
-            currentFilterValue = filterValue;
-        }
+            console.log('FILTER-CSV: Filter changed from', currentFilterValue, 'to', filterValue, '- CLEARING', filterChanges.length, 'tracked changes');
+            filterChanges = []; // Clear the array
+            currentFilterValue = filterValue; // Update current filter
 
-        // Always keep Export Changes button visible (it was shown after scan)
-        // Enable ONLY when there are changes to export
-        if (filterChanges.length > 0) {
-            $exportFilterCsvBtn.show().prop('disabled', false).removeClass('disabled');
-            console.log('EXPORT-BTN: Enabled - ' + filterChanges.length + ' changes tracked');
-        } else {
+            // Disable export button since we have no changes in this new filter view
             $exportFilterCsvBtn.show().prop('disabled', true).addClass('disabled');
-            console.log('EXPORT-BTN: Disabled - no changes tracked');
+            console.log('EXPORT-BTN: Disabled - switched to new filter, no changes yet');
         }
 
         currentPage = 1;
@@ -494,6 +490,15 @@ jQuery(document).ready(function ($) {
 
         // Uncheck all radio buttons
         $('input[name="image-filter"]').prop('checked', false);
+
+        // FIXED: Clear changes when resetting to "no filter" view
+        console.log('FILTER-CSV: Reset filter - CLEARING', filterChanges.length, 'tracked changes');
+        filterChanges = []; // Clear the array
+        currentFilterValue = 'no_filter'; // Set to "no filter" state
+
+        // Disable export button since we have no changes in this view yet
+        $exportFilterCsvBtn.show().prop('disabled', true).addClass('disabled');
+        console.log('EXPORT-BTN: Disabled - reset to no filter, no changes yet');
 
         // Show ALL images (no filtering)
         currentPage = 1;
@@ -929,6 +934,11 @@ jQuery(document).ready(function ($) {
 
                             // SHOW Export CSV button after scan completes
                             $('#export-csv-btn').show();
+
+                            // FIXED: Initialize filter changes tracking for new scan
+                            filterChanges = []; // Clear any previous changes
+                            currentFilterValue = 'no_filter'; // Initial state is "no filter"
+                            console.log('FILTER-CSV: Initialized - empty changes, currentFilter:', currentFilterValue);
 
                             // SHOW Export Changes in CSV button (disabled until changes are made)
                             $exportFilterCsvBtn.show().prop('disabled', true);
@@ -1948,6 +1958,27 @@ jQuery(document).ready(function ($) {
                     if (imgIndex !== -1) {
                         scannedImages[imgIndex].current_alt = altText;
                         scannedImages[imgIndex].status = 'optimized'; // Mark as optimized
+
+                        // FIX: Track changes for CSV export regardless of filter state
+                        const image = scannedImages[imgIndex];
+
+                        // Get previous alt text (last non-empty value before this change)
+                        const previousAlt = getLastNonEmptyAltText(attachmentId);
+
+                        filterChanges.push({
+                            attachment_id: attachmentId,
+                            filename: image.filename || '',
+                            thumbnail: image.thumbnail || '',
+                            previous_alt: previousAlt,
+                            new_alt: altText,
+                            filter: currentFilterValue || 'no_filter'
+                        });
+
+                        console.log('FILTER-CSV: Tracked change', filterChanges.length, '- Previous:', previousAlt, '→ New:', altText);
+
+                        // Enable and show the Export button now that we have changes
+                        $exportFilterCsvBtn.show().prop('disabled', false).removeClass('disabled');
+                        console.log('EXPORT-BTN: Enabled after apply - ' + filterChanges.length + ' changes tracked');
                     }
 
                     // Update stats cards in real-time - fetch fresh from backend
@@ -1955,31 +1986,6 @@ jQuery(document).ready(function ($) {
 
                     // Update Bulk Apply button state
                     updateBulkApplyButtonState();
-
-                    // Filter-Scoped CSV: Track this change
-                    if (currentFilterValue) {
-                        const imgIndex = scannedImages.findIndex(img => parseInt(img.id) === parseInt(attachmentId));
-                        if (imgIndex !== -1) {
-                            const image = scannedImages[imgIndex];
-
-                            // Get previous alt text (last non-empty value before this change)
-                            const previousAlt = getLastNonEmptyAltText(attachmentId);
-
-                            filterChanges.push({
-                                attachment_id: attachmentId,
-                                filename: image.filename || '',
-                                thumbnail: image.thumbnail || '',
-                                previous_alt: previousAlt,
-                                new_alt: altText,
-                                filter: currentFilterValue
-                            });
-
-                            console.log('FILTER-CSV: Tracked change', filterChanges.length, '- Previous:', previousAlt, '→ New:', altText);
-
-                            // Enable the Export button now that we have changes
-                            $exportFilterCsvBtn.prop('disabled', false);
-                        }
-                    }
                 } else {
                     console.log('========================================');
                     console.log('❌ APPLY-DEBUG: Backend returned success=false');
