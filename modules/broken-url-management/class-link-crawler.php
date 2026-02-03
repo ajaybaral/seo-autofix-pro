@@ -33,7 +33,7 @@ class Link_Crawler
      * Higher = faster but more server load
      * Recommended: 20-50 for VPS, 10-20 for shared hosting, 50-100 for local/dedicated
      */
-    const PARALLEL_LIMIT = 200;
+    const PARALLEL_LIMIT = 100;
 
     /**
      * Database manager
