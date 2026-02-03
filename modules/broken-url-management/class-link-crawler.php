@@ -33,7 +33,7 @@ class Link_Crawler
      * Higher = faster but more server load
      * Recommended: 20-50 for VPS, 10-20 for shared hosting, 50-100 for local/dedicated
      */
-    const PARALLEL_LIMIT = 50;
+    const PARALLEL_LIMIT = 200;
 
     /**
      * Database manager
@@ -366,7 +366,7 @@ class Link_Crawler
         // ✅ PROCESS INTERNAL URLs (FAST - WordPress functions)
         if (!empty($internal_links)) {
             error_log('[CRAWLER] ⚡ Testing ' . count($internal_links) . ' internal URLs (fast WordPress functions)...');
-            
+
             foreach ($internal_links as $link => $found_on_pages) {
                 $test_result = $this->link_tester->test_url($link);
                 $tested_count++;
@@ -377,24 +377,24 @@ class Link_Crawler
                     $broken_count++;
                 }
             }
-            
+
             error_log('[CRAWLER] ✅ Internal URLs testing complete');
         }
 
         // ✅ PROCESS EXTERNAL URLs (PARALLEL - cURL multi-handle)
         if (!empty($external_links)) {
             error_log('[CRAWLER] 🚀 Testing ' . count($external_links) . ' external URLs (parallel testing)...');
-            
+
             $external_urls_list = array_keys($external_links);
             $start_time = microtime(true);
             $parallel_results = $this->link_tester->test_urls_parallel($external_urls_list, self::PARALLEL_LIMIT);
             $duration = round(microtime(true) - $start_time, 2);
-            
+
             error_log('[CRAWLER] ✅ Parallel testing complete (' . $duration . ' seconds for ' . count($external_urls_list) . ' URLs)');
-            
+
             foreach ($parallel_results as $link => $test_result) {
                 $tested_count++;
-                
+
                 // Process if broken
                 if ($test_result['is_broken']) {
                     $found_on_pages = $external_links[$link];
