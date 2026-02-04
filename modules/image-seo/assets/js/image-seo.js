@@ -689,6 +689,10 @@ jQuery(document).ready(function ($) {
         });
     });
 
+    $scanBtn.on('click', function () {
+        scanImages();
+    });
+
     $exportBtn.on('click', function () {
         exportToCSV();
     });
