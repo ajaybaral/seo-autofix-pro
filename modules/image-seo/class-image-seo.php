@@ -22,7 +22,7 @@ class SEOAutoFix_Image_SEO
     /**
      * Module version
      */
-    const VERSION = '1.2.0';
+    const VERSION = '1.0.0';
 
     /**
      * API Manager instance
