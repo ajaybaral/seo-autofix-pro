@@ -323,7 +323,7 @@ class SEOAutoFix_Image_SEO
             // On first batch, populate history table with ALL images
             // GUARD: Only run if frontend says should_populate=true (session flag)
             if ($offset === 0) {
-                $populate_lock = get_transient('imageseo_populate_lock');
+                $should_populate = isset($_POST['should_populate']) ? filter_var($_POST['should_populate'], FILTER_VALIDATE_BOOLEAN) : false;
 
                 if ($should_populate) {
                     $this->populate_all_images_in_history();
