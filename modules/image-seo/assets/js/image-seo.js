@@ -33,8 +33,6 @@ jQuery(document).ready(function ($) {
     const $scanProgress = $('#scan-progress');
     const $progressFill = $('.progress-fill');
 
-    console.log('Timestamp: 10:42');
-
     /**
      * Show toast notification
      */
@@ -2193,6 +2191,7 @@ jQuery(document).ready(function ($) {
 
     // ========== INITIALIZATION ==========
     // Load initial stats from database on page load
+    console.log('Timestamp: 10:42');
     console.log('🚀 PAGE-LOAD: Calling loadInitialStats()...');
     loadInitialStats();
 
