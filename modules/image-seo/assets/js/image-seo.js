@@ -26,6 +26,7 @@ jQuery(document).ready(function ($) {
     let backgroundScanResults = [];
     let backgroundScanStats = null;
     let backgroundAbortController = null;
+    let populateAlreadyCalled = false; // Tracks if populate_all_images_in_history() was called this session
 
     // Elements
     const $scanBtn = $('#scan-btn');
@@ -124,15 +125,9 @@ jQuery(document).ready(function ($) {
                     // Keep stats hidden until first scan
                 }
 
-                // Auto-start background scan if there are images to scan
-                if (response.success && response.data && response.data.stats) {
-                    const stats = response.data.stats;
-                    // Only start if there are images in the library
-                    if (stats.total && stats.total > 0) {
-                        console.log('📊 INIT-ST ATS: Found', stats.total, 'total images - starting background scan');
-                        setTimeout(() => startBackgroundScan(), 500); // Small delay to let page finish loading
-                    }
-                }
+                // DISABLED: Auto-start removed - user controls when to scan
+                // Background scan will start only when user clicks "Scan Images" button
+                console.log('📊 INIT-STATS: Page loaded, ready for user to start scan');
             },
             error: function (xhr, status, error) {
                 console.error('❌ INIT-STATS: Failed to load initial stats');
@@ -730,8 +725,15 @@ jQuery(document).ready(function ($) {
             action: 'imageseo_scan',
             nonce: imageSeoData.nonce,
             batch_size: 50,
-            offset: offset
+            offset: offset,
+            should_populate: !populateAlreadyCalled  // Only populate if not already called
         };
+
+        // Mark populate as called after first batch request
+        if (offset === 0 && !populateAlreadyCalled) {
+            populateAlreadyCalled = true;
+            console.log('🚩 POPULATE-FLAG: Set to true, backend will populate once');
+        }
 
         const ajaxConfig = {
             url: imageSeoData.ajaxUrl,
@@ -755,6 +757,7 @@ jQuery(document).ready(function ($) {
                         backgroundScanComplete = true;
                         backgroundScanInProgress = false;
                         console.log('✅ BACKGROUND-SCAN: Complete! Cached', backgroundScanResults.length, 'images');
+                        // Note: Do NOT reset populateAlreadyCalled here - it stays true until page refresh or manual reset
                     }
                 }
             },
@@ -780,10 +783,13 @@ jQuery(document).ready(function ($) {
             backgroundAbortController.abort();
             console.log('🛑 BACKGROUND-SCAN: Aborted');
         }
+        // Reset populate flag when canceling
+        populateAlreadyCalled = false;
         backgroundScanInProgress = false;
         backgroundScanComplete = false;
         backgroundScanResults = [];
         backgroundScanStats = null;
+        console.log('🔄 RESET: Populate flag reset, ready for fresh scan');
     }
 
     // Cancel background scan on page unload
@@ -931,9 +937,16 @@ jQuery(document).ready(function ($) {
             action: 'imageseo_scan',
             nonce: imageSeoData.nonce,
             batch_size: 50,
-            offset: offset
+            offset: offset,
+            should_populate: !populateAlreadyCalled  // Only populate if not already called
             // UX-IMPROVEMENT: No status_filter parameter - backend returns ALL
         };
+
+        // Mark populate as called after first batch request
+        if (offset === 0 && !populateAlreadyCalled) {
+            populateAlreadyCalled = true;
+            console.log('🚩 POPULATE-FLAG: Set to true, backend will populate once');
+        }
         ;
 
         $.ajax({
@@ -2368,7 +2381,7 @@ jQuery(document).ready(function ($) {
 
     // ========== INITIALIZATION ==========
     // Load initial stats from database on page load
-    console.log('Timestamp: 10:42');
+    console.log('Timestamp: 11:17');
     console.log('🚀 PAGE-LOAD: Calling loadInitialStats()...');
     loadInitialStats();
 

@@ -319,9 +319,20 @@ class SEOAutoFix_Image_SEO
                 }
             }
 
+
             // On first batch, populate history table with ALL images
+            // GUARD: Only run once per session (5 minute window) to prevent duplicates
             if ($offset === 0) {
-                $this->populate_all_images_in_history();
+                $populate_lock = get_transient('imageseo_populate_lock');
+
+                if (!$populate_lock) {
+                    // Set lock for 5 minutes
+                    set_transient('imageseo_populate_lock', true, 5 * MINUTE_IN_SECONDS);
+                    $this->populate_all_images_in_history();
+                    error_log('🔒 POPULATE-LOCK: Created lock, populated history table');
+                } else {
+                    error_log('🔒 POPULATE-LOCK: Lock active, skipping populate (prevents duplicates)');
+                }
             }
 
             $response_data = array(
