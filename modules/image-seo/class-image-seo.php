@@ -299,21 +299,8 @@ class SEOAutoFix_Image_SEO
                 error_log('🔍 [IMAGE-SEO-SCAN] ⚠️ NO RESULTS RETURNED!');
             }
 
-            // CALCULATE SEO SCORES for "Before" column
-            foreach ($results as &$image) {
-                if (!empty($image['current_alt'])) {
-                    $usage_context = array('pages' => array(), 'posts' => array());
-                    $score_data = $this->seo_scorer->score_alt_text($image['current_alt'], $usage_context);
-                    $image['score_before'] = $score_data['score'];
-                    $image['seo_score'] = $score_data['score'];
+            // SEO scoring removed for performance - no longer calculating scores during scan
 
-                } else {
-                    $image['score_before'] = 0;
-                    $image['seo_score'] = 0;
-
-                }
-            }
-            unset($image);
 
 
             if (!empty($results)) {
@@ -694,24 +681,9 @@ class SEOAutoFix_Image_SEO
 
 
 
-            // CRITICAL BUG FIX: Determine proper status based on score
-            // When user clicks Apply, the image should be marked as optimized!
-            // Calculate score for the new alt text
-            $usage_context = array('pages' => array(), 'posts' => array());
-            $score_data = $this->seo_scorer->score_alt_text($new_alt, $usage_context);
-            $new_score = $score_data['score'];
-
-            // Determine status based on score
-            if ($new_score >= 75) {
-                $status = 'optimal';  // High score = optimal
-
-            } else {
-                $status = 'optimized';  // Low score but user applied it manually = optimized
-
-            }
-
-
-
+            // SEO scoring removed for performance
+            // Images are marked as optimized when user manually applies alt text
+            $status = 'optimized';
 
             $this->image_history->update_image_history($attachment_id, array(
                 'new_alt' => $new_alt,

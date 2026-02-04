@@ -21,9 +21,7 @@ jQuery(document).ready(function ($) {
     let currentFilterValue = null;  // Track which filter is active
 
     // Elements
-    console.log('SCAN-BUTTON-DEBUG: Setting up scan button selector #scan-btn');
     const $scanBtn = $('#scan-btn');
-    console.log('SCAN-BUTTON-DEBUG: Scan button found:', $scanBtn.length, 'element:', $scanBtn[0]);
     const $exportBtn = $('#export-csv-btn');
     const $exportFilterCsvBtn = $('#export-filter-csv-btn');  // NEW: Filter-scoped export
     const $bulkApplyBtn = $('#bulk-apply-btn');
@@ -84,8 +82,6 @@ jQuery(document).ready(function ($) {
         $('#stat-total').text(total);
         $('#stat-missing-alt').text(withoutAlt);
         $('#stat-has-alt').text(withAlt);
-
-        console.log('✅ STATS-UPDATE: Total:', total, 'With Alt:', withAlt, 'Missing Alt:', withoutAlt);
     }
 
     /**
@@ -93,7 +89,6 @@ jQuery(document).ready(function ($) {
      * This shows existing scan data from previous sessions
      */
     function loadInitialStats() {
-        console.log('📊 INIT-STATS: Loading initial stats from database...');
 
         $.ajax({
             url: imageSeoData.ajaxUrl,
@@ -118,9 +113,7 @@ jQuery(document).ready(function ($) {
                     // Show stats section since we have data
                     $statsSection.show();
 
-                    console.log('✅ INIT-STATS: Stats cards updated from database');
                 } else {
-                    console.log('📊 INIT-STATS: No data in database yet (first time)');
                     // Keep stats hidden until first scan
                 }
             },
@@ -151,10 +144,8 @@ jQuery(document).ready(function ($) {
         // Enable/disable Bulk Apply based on ready count
         if (readyCount > 0) {
             $bulkApplyBtn.prop('disabled', false).removeClass('disabled');
-            console.log('BULK-APPLY-STATE: Enabled - ' + readyCount + ' rows ready');
         } else {
             $bulkApplyBtn.prop('disabled', true).addClass('disabled');
-            console.log('BULK-APPLY-STATE: Disabled - no rows ready');
         }
     }
 
@@ -219,15 +210,10 @@ jQuery(document).ready(function ($) {
 
     // Bulk Apply - Click individual Apply buttons for visible rows with ENABLED apply buttons
     $bulkApplyBtn.on('click', function () {
-        console.log('====== BULK APPLY DEBUG START ======');
-        console.log('BULK-APPLY-DEBUG: Button clicked');
-
         // Get only VISIBLE rows
         const $visibleRows = $resultsTbody.find('tr.result-row:visible');
-        console.log('BULK-APPLY-DEBUG: Found visible rows:', $visibleRows.length);
 
         if ($visibleRows.length === 0) {
-            console.log('BULK-APPLY-DEBUG: ERROR - No visible rows found!');
             showToast('No visible images to apply', 'error');
             return;
         }
@@ -243,41 +229,24 @@ jQuery(document).ready(function ($) {
             // Check if Apply button exists, is visible, and NOT disabled
             if ($applyBtn.length > 0 && $applyBtn.is(':visible') && !$applyBtn.prop('disabled')) {
                 $applicableRows.push($row);
-                console.log(`BULK-APPLY-DEBUG: ✓ Row ${imageId} is APPLICABLE (has enabled Apply button)`);
-            } else {
-                if ($applyBtn.length === 0) {
-                    console.log(`BULK-APPLY-DEBUG: ✗ Row ${imageId} SKIPPED (no Apply button)`);
-                } else if (!$applyBtn.is(':visible')) {
-                    console.log(`BULK-APPLY-DEBUG: ✗ Row ${imageId} SKIPPED (Apply button hidden)`);
-                } else if ($applyBtn.prop('disabled')) {
-                    console.log(`BULK-APPLY-DEBUG: ✗ Row ${imageId} SKIPPED (Apply button disabled)`);
-                }
             }
         });
 
-        console.log('BULK-APPLY-DEBUG: Applicable rows with enabled Apply buttons:', $applicableRows.length);
-
         if ($applicableRows.length === 0) {
-            console.log('BULK-APPLY-DEBUG: ERROR - No rows with enabled Apply buttons!');
             showToast('No images ready to apply. Generate or edit alt text first, then click Apply on individual rows.', 'warning');
             return;
         }
 
         // Confirm
         if (!confirm(`Apply alt text changes for ${$applicableRows.length} visible images?`)) {
-            console.log('BULK-APPLY-DEBUG: User cancelled');
             return;
         }
-
-        console.log('BULK-APPLY-DEBUG: User confirmed - triggering Apply buttons');
 
         // Click Apply button on each row
         let clickedCount = 0;
         $applicableRows.forEach(($row, index) => {
             const imageId = $row.data('attachment-id');
             const $applyBtn = $row.find('.apply-btn');
-
-            console.log(`BULK-APPLY-DEBUG: [${index + 1}/${$applicableRows.length}] Clicking Apply for image ${imageId}`);
 
             // Delay between clicks to avoid overwhelming server
             setTimeout(() => {
@@ -287,9 +256,7 @@ jQuery(document).ready(function ($) {
             clickedCount++;
         });
 
-        console.log(`BULK-APPLY-DEBUG: Triggered ${clickedCount} Apply buttons`);
         showToast(`Applying changes to ${clickedCount} images...`, 'info');
-        console.log('====== BULK APPLY DEBUG END ======');
     });
 
     // ===== UX REDESIGN: REMOVED OLD 4 BULK GENERATION BUTTONS =====
@@ -783,29 +750,18 @@ jQuery(document).ready(function ($) {
             type: 'POST',
             data: ajaxData,
             success: function (response) {
-                // 🔍 DEBUG: Log complete AJAX response
-                console.log('🔍 SCAN-AJAX-DEBUG: Batch offset:', offset);
-                console.log('🔍 SCAN-AJAX-DEBUG: Response success:', response.success);
-                console.log('🔍 SCAN-AJAX-DEBUG: Response data:', response.data);
-
                 if (response.success) {
                     const results = response.data.results;
-                    console.log('🔍 SCAN-AJAX-DEBUG: Results count:', results.length);
-                    console.log('🔍 SCAN-AJAX-DEBUG: Has more:', response.data.hasMore);
-                    console.log('🔍 SCAN-AJAX-DEBUG: Next offset:', response.data.offset);
 
                     scannedImages = scannedImages.concat(results);
                     window.scannedImages = scannedImages; // Keep global ref in sync
-                    console.log('🔍 SCAN-AJAX-DEBUG: Total scanned so far:', scannedImages.length);
 
                     if (offset === 0 && response.data.stats) {
                         globalStats = response.data.stats;
-                        console.log('🔍 SCAN-AJAX-DEBUG: Stats received:', globalStats);
 
-                        // 🎯 NEW: Store total image count for accurate progress calculation
+                        // Store total image count for accurate progress calculation
                         if (response.data.total_images) {
                             window.totalImages = response.data.total_images;
-                            console.log('🔍 SCAN-AJAX-DEBUG: Total images in DB:', window.totalImages);
                         }
                     }
 
@@ -844,74 +800,21 @@ jQuery(document).ready(function ($) {
 
                     // Continue scanning if there are more
                     if (response.data.hasMore) {
-
-                        scanBatch(response.data.offset); // UX-IMPROVEMENT: No status filter
+                        scanBatch(response.data.offset);
                     } else {
-                        console.log('No more batches, finishing scan...');
-
-                        // 🎯 UX IMPROVEMENT: Show 100% completion before hiding
+                        // Show 100% completion before hiding
                         const parentWidth = $progressFill.parent().width();
                         const widthInPixels = parentWidth; // 100% = full width
 
                         $progressFill[0].style.width = widthInPixels + 'px';
                         $('#progress-percentage').text('100%');
 
-
                         // Wait 800ms to let user see 100% completion, then render results
                         setTimeout(() => {
-                            console.log('Calling renderResults with', scannedImages.length, 'images');
-                            console.log('Global stats:', globalStats);
 
 
 
-                            // Categorize each image by status
-                            let categories = {
-                                optimal: [],
-                                low_score_with_alt: [],
-                                low_score_empty: [],
-                                generate: [],
-                                other: []
-                            };
 
-                            scannedImages.forEach(img => {
-                                // Use ONLY the backend status - don't recalculate!
-                                const hasAlt = img.current_alt && img.current_alt.trim() !== '';
-                                const score = img.seo_score || 0;
-                                const status = img.status || 'unknown';
-                                const issue_type = img.issue_type || 'none';
-
-                                // CRITICAL: Trust the backend's status classification
-                                // Backend already calculated score and set correct status
-                                if (status === 'optimal' || status === 'optimized') {
-                                    categories.optimal.push({ id: img.id, score, alt: img.current_alt?.substring(0, 30), status, issue_type });
-                                } else if (status === 'blank' && hasAlt && issue_type !== 'empty' && issue_type !== 'generic') {
-                                    // Low score WITH alt text (backend verified this)
-                                    categories.low_score_with_alt.push({ id: img.id, score, alt: img.current_alt?.substring(0, 30), status, issue_type });
-                                } else if (status === 'blank' && !hasAlt) {
-                                    categories.low_score_empty.push({ id: img.id, score, status, issue_type });
-                                } else if (status === 'generate') {
-                                    categories.generate.push({ id: img.id, score, status, issue_type });
-                                } else {
-                                    categories.other.push({ id: img.id, score, alt: img.current_alt?.substring(0, 30), status, issue_type });
-                                }
-                            });
-
-
-                            // Find the problematic images
-                            const problematic = scannedImages.filter(img => {
-                                const hasAlt = img.current_alt && img.current_alt.trim() !== '';
-                                const score = img.seo_score || 0;
-                                const status = img.status || 'unknown';
-                                // Images with score=100 but status='blank'
-                                return status === 'blank' && score >= 75;
-                            });
-
-                            if (problematic.length > 0) {
-                                console.error('🐛 FOUND PROBLEMATIC IMAGES: score≥75 but status=blank');
-                                problematic.forEach(img => {
-                                    console.error(`  ⚠️ ID=${img.id} score=${img.seo_score} status="${img.status}" alt="${img.current_alt?.substring(0, 40)}"`);
-                                });
-                            }
 
 
                             renderResults(scannedImages);
@@ -919,7 +822,6 @@ jQuery(document).ready(function ($) {
 
                             // ENSURE Export Changes button is visible after renderResults
                             $exportFilterCsvBtn.show().prop('disabled', filterChanges.length === 0);
-                            console.log('EXPORT-CHANGES-DEBUG: Button re-shown after renderResults, disabled:', $exportFilterCsvBtn.prop('disabled'));
 
                             // RE-ENABLE RADIO BUTTONS after scan completes
                             $('input[name="image-filter"]').prop('disabled', false);
