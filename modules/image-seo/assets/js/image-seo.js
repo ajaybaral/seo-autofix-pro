@@ -1158,17 +1158,7 @@ jQuery(document).ready(function ($) {
      */
     function addResultRow(image, rowNumber) {
         // USAGE TRACKING DEBUG - Show detailed usage information
-        console.log('🔍 Image:', image.filename, '(ID:', image.id + ')');
-        console.log('   Used in posts:', image.used_in_posts || 0, '| Used in pages:', image.used_in_pages || 0);
 
-        if (image.usage_details && image.usage_details.length > 0) {
-            console.log('   ✅ Used in', image.usage_details.length, 'posts/pages:');
-            image.usage_details.forEach((detail, idx) => {
-                console.log(`      ${idx + 1}. ${detail.type}: "${detail.title}"`);
-            });
-        } else {
-            console.log('   ❌ Not used anywhere');
-        }
 
         // Determine if delete button should be visible
         const isUnused = (!image.used_in_posts && !image.used_in_pages);
