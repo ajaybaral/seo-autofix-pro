@@ -20,6 +20,13 @@ jQuery(document).ready(function ($) {
     let filterChanges = [];  // Track changes made in current filter
     let currentFilterValue = null;  // Track which filter is active
 
+    // Background Pre-Scan State
+    let backgroundScanInProgress = false;
+    let backgroundScanComplete = false;
+    let backgroundScanResults = [];
+    let backgroundScanStats = null;
+    let backgroundAbortController = null;
+
     // Elements
     const $scanBtn = $('#scan-btn');
     const $exportBtn = $('#export-csv-btn');
@@ -115,6 +122,16 @@ jQuery(document).ready(function ($) {
 
                 } else {
                     // Keep stats hidden until first scan
+                }
+
+                // Auto-start background scan if there are images to scan
+                if (response.success && response.data && response.data.stats) {
+                    const stats = response.data.stats;
+                    // Only start if there are images in the library
+                    if (stats.total && stats.total > 0) {
+                        console.log('📊 INIT-ST ATS: Found', stats.total, 'total images - starting background scan');
+                        setTimeout(() => startBackgroundScan(), 500); // Small delay to let page finish loading
+                    }
                 }
             },
             error: function (xhr, status, error) {
@@ -676,15 +693,181 @@ jQuery(document).ready(function ($) {
         exportToCSV();
     });
 
+    // ========== BACKGROUND PRE-SCAN FEATURE ==========
+    /**
+     * Start background scan silently (no UI updates)
+     * This runs automatically on page load to pre-cache results
+     */
+    function startBackgroundScan() {
+        // Don't start if already scanning or complete
+        if (backgroundScanInProgress || backgroundScanComplete) {
+            return;
+        }
+
+        console.log('🚀 BACKGROUND-SCAN: Starting silent pre-scan...');
+        backgroundScanInProgress = true;
+        backgroundScanResults = [];
+        backgroundScanStats = null;
+
+        // Create abort controller for cancellation on page reload
+        if (window.AbortController) {
+            backgroundAbortController = new AbortController();
+        }
+
+        // Start scanning in background (batch 0)
+        scanBatchInBackground(0);
+    }
 
     /**
-     * Scan all images (UX-IMPROVEMENT: No filtering, loads ALL images)
+     * Scan batch in background (no UI updates, stores in cache)
+     */
+    function scanBatchInBackground(offset = 0) {
+        const ajaxData = {
+            action: 'imageseo_scan',
+            nonce: imageSeoData.nonce,
+            batch_size: 50,
+            offset: offset
+        };
+
+        const ajaxConfig = {
+            url: imageSeoData.ajaxUrl,
+            type: 'POST',
+            data: ajaxData,
+            success: function (response) {
+                if (response.success) {
+                    const results = response.data.results;
+                    backgroundScanResults = backgroundScanResults.concat(results);
+
+                    // Store stats from first batch
+                    if (offset === 0 && response.data.stats) {
+                        backgroundScanStats = response.data.stats;
+                    }
+
+                    // Continue scanning if there are more
+                    if (response.data.hasMore) {
+                        scanBatchInBackground(response.data.offset);
+                    } else {
+                        // Scan complete! Mark as ready
+                        backgroundScanComplete = true;
+                        backgroundScanInProgress = false;
+                        console.log('✅ BACKGROUND-SCAN: Complete! Cached', backgroundScanResults.length, 'images');
+                    }
+                }
+            },
+            error: function () {
+                console.log('❌ BACKGROUND-SCAN: Failed');
+                backgroundScanInProgress = false;
+            }
+        };
+
+        // Add abort signal if supported
+        if (backgroundAbortController && backgroundAbortController.signal) {
+            ajaxConfig.signal = backgroundAbortController.signal;
+        }
+
+        $.ajax(ajaxConfig);
+    }
+
+    /**
+     * Cancel any ongoing background scan (called on page unload or new scan)
+     */
+    function cancelBackgroundScan() {
+        if (backgroundAbortController) {
+            backgroundAbortController.abort();
+            console.log('🛑 BACKGROUND-SCAN: Aborted');
+        }
+        backgroundScanInProgress = false;
+        backgroundScanComplete = false;
+        backgroundScanResults = [];
+        backgroundScanStats = null;
+    }
+
+    // Cancel background scan on page unload
+    $(window).on('beforeunload', function () {
+        cancelBackgroundScan();
+    });
+
+    /**
+     * Scan all images (UX-IMPROVEMENT: Uses cached results if available)
      */
     function scanImages() {
+        // Check if background scan is complete
+        if (backgroundScanComplete && backgroundScanResults.length > 0) {
+            console.log('⚡ INSTANT-SCAN: Using cached background results!');
 
-        scannedImages = [];
-        currentPage = 1; // Reset to first page on new scan
-        $resultsTbody.empty();
+            // Use cached results
+            scannedImages = backgroundScanResults.slice(); // Clone array
+            globalStats = backgroundScanStats;
+            window.scannedImages = scannedImages;
+
+            // Reset UI state
+            currentPage = 1;
+            $resultsTbody.empty();
+            $('input[name="image-filter"]').prop('checked', false).prop('disabled', true);
+
+            // Show progress bar
+            $scanProgress.show();
+            $progressFill.css('width', '0%');
+            $('#progress-percentage').text('0%');
+            $resultsTable.hide();
+            $emptyState.hide();
+            $('.imageseo-filter-controls').hide();
+            $('.imageseo-pagination').hide();
+            $statsSection.hide();
+            $filtersSection.hide();
+            activeFilter = null;
+            $('.stat-card, .stat-subcard').removeClass('active');
+            $scanBtn.prop('disabled', true).text('Scanning...');
+
+            // Animate progress from 0 to 100 in 800ms for UX
+            const parentWidth = $progressFill.parent().width();
+            $progressFill[0].style.width = '0px';
+
+            setTimeout(() => {
+                $progressFill[0].style.width = parentWidth + 'px';
+                $('#progress-percentage').text('100%');
+            }, 50);
+
+            // Wait 800ms to show progress animation, then render
+            setTimeout(() => {
+                renderResults(scannedImages);
+                updateStats();
+
+                // Show all UI elements
+                $exportFilterCsvBtn.show().prop('disabled', filterChanges.length === 0);
+                $('input[name="image-filter"]').prop('disabled', false);
+                $('.imageseo-filter-controls').show();
+                $('.imageseo-pagination').show();
+                $('.imageseo-stats').show();
+                $('.imageseo-results').show();
+                $('#export-csv-btn').show();
+
+                // Initialize filter tracking
+                filterChanges = [];
+                currentFilterValue = 'no_filter';
+                $exportFilterCsvBtn.show().prop('disabled', true);
+                $resultsTable.show();
+
+                // Complete
+                $scanProgress.hide();
+                $scanBtn.prop('disabled', false).html('<span class="dashicons dashicons-search"></span> Scan Images');
+
+                // Clear background cache (force fresh scan next time)
+                backgroundScanComplete = false;
+                backgroundScanResults = [];
+                backgroundScanStats = null;
+
+                console.log('✅ INSTANT-SCAN: Results displayed!');
+            }, 800);
+
+            return; // Exit early - don't run normal scan
+        }
+
+        // Normal scan logic (if no cache available)
+        console.log('🔄 NORMAL-SCAN: Starting fresh scan...');
+
+        // Cancel any ongoing background scan
+        cancelBackgroundScan();
 
 
         // RESET RADIO BUTTONS - UNCHECK ALL (no default filter)
@@ -1157,11 +1340,7 @@ jQuery(document).ready(function ($) {
      * Add a result row to the table
      */
     function addResultRow(image, rowNumber) {
-        // USAGE TRACKING DEBUG - Show detailed usage information
 
-
-        // Determine if delete button should be visible
-        const isUnused = (!image.used_in_posts && !image.used_in_pages);
 
         const template = document.getElementById('result-row-template');
         const clone = template.content.cloneNode(true);
