@@ -52,7 +52,7 @@ class SEOAutoFix_Image_SEO
     /**
      * SEO Scorer instance
      */
-    private $seo_scorer;
+    // private $seo_scorer; // Removed - SEO scoring disabled
 
     /**
      * Usage Tracker instance
@@ -118,7 +118,7 @@ class SEOAutoFix_Image_SEO
         $this->rollback = new Rollback();
         $this->analyzer = new Image_Analyzer();
         $this->alt_generator = new Alt_Generator($this->api_manager);
-        $this->seo_scorer = new SEO_Scorer($this->api_manager);
+        // $this->seo_scorer = new SEO_Scorer($this->api_manager); // Removed - SEO scoring disabled
         $this->usage_tracker = new Image_Usage_Tracker();
         $this->image_history = new Image_History();
     }
@@ -137,7 +137,7 @@ class SEOAutoFix_Image_SEO
         // AJAX actions
         add_action('wp_ajax_imageseo_scan', array($this, 'ajax_scan_images'));
         add_action('wp_ajax_imageseo_generate', array($this, 'ajax_generate_alt'));
-        add_action('wp_ajax_imageseo_score', array($this, 'ajax_score_alt'));
+        // add_action('wp_ajax_imageseo_score', array($this, 'ajax_score_alt')); // Removed - SEO scoring disabled
         add_action('wp_ajax_imageseo_apply', array($this, 'ajax_apply_change'));
         add_action('wp_ajax_imageseo_skip', array($this, 'ajax_skip_image'));
         add_action('wp_ajax_imageseo_bulk_apply', array($this, 'ajax_bulk_apply'));
@@ -520,40 +520,7 @@ class SEOAutoFix_Image_SEO
         }
     }
 
-    /**
-     * AJAX: Score alt text
-     */
-    public function ajax_score_alt()
-    {
-        check_ajax_referer('imageseo_nonce', 'nonce');
-
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error(array('message' => 'Insufficient permissions'));
-        }
-
-        // No API key check needed for scoring as it uses basic local scoring
-
-        $attachment_id = isset($_POST['attachment_id']) ? absint($_POST['attachment_id']) : 0;
-        $alt_text = isset($_POST['alt_text']) ? sanitize_text_field($_POST['alt_text']) : '';
-
-        if (!$attachment_id || empty($alt_text)) {
-            wp_send_json_error(array('message' => 'Invalid data'));
-        }
-
-        try {
-            $context = $this->usage_tracker->get_image_usage($attachment_id);
-            $score = $this->seo_scorer->score_alt_text($alt_text, $context);
-
-            wp_send_json_success(array(
-                'score' => $score,
-                'attachment_id' => $attachment_id
-            ));
-
-        } catch (\Exception $e) {
-            $this->logger->log_error('Scoring failed', $e->getMessage());
-            wp_send_json_error(array('message' => $e->getMessage()));
-        }
-    }
+    // ajax_score_alt() removed - SEO scoring feature removed
 
     /**
      * AJAX: Apply changes

@@ -254,30 +254,7 @@ class Image_Analyzer
             }
         }
 
-        // CRITICAL: Check SEO score - must be > 75 to be considered optimized
-        if (!empty($alt_text)) {
-            require_once IMAGESEO_MODULE_DIR . 'class-seo-scorer.php';
-            require_once IMAGESEO_MODULE_DIR . 'class-api-manager.php';
-            require_once IMAGESEO_MODULE_DIR . 'class-image-usage-tracker.php';
-
-            $api_manager = new API_Manager();
-            $seo_scorer = new SEO_Scorer($api_manager);
-            $usage_tracker = new Image_Usage_Tracker();
-
-            $context = $usage_tracker->get_image_usage($attachment_id);
-            $score_data = $seo_scorer->score_alt_text($alt_text, $context);
-            $score = $score_data['score'];
-
-
-
-            // SCORE MUST BE > 75 (not >= 75, but strictly greater than 75)
-            if ($score <= 75) {
-                $issues[] = 'low_score';
-
-            } else {
-
-            }
-        }
+        // SEO scoring removed - no longer checking scores
 
 
 

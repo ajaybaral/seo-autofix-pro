@@ -1616,63 +1616,9 @@ jQuery(document).ready(function ($) {
         return '';
     }
 
-    /**
-     * Score original alt text
-     */
-    function scoreOriginal(attachmentId, $row) {
-        const originalAlt = $row.find('.row-current-alt .alt-text').text();
+    // scoreOriginal() removed - SEO scoring feature disabled
 
-        if (!originalAlt || originalAlt === 'Empty') {
-            $row.find('.row-score-before').html(getScoreBadge(0));
-            return;
-        }
-
-        // Scoring is now local, so always enabled
-
-        $.ajax({
-            url: imageSeoData.ajaxUrl,
-            type: 'POST',
-            data: {
-                action: 'imageseo_score',
-                nonce: imageSeoData.nonce,
-                attachment_id: attachmentId,
-                alt_text: originalAlt
-            },
-            success: function (response) {
-                if (response.success && response.data.score) {
-                    const scoreData = response.data.score;
-                    const score = scoreData.score || scoreData;
-                    $row.find('.row-score-before').html(getScoreBadge(score));
-                }
-            }
-        });
-    }
-
-    /**
-     * Score suggested alt text
-     */
-    function scoreSuggested(attachmentId, altText, $row) {
-        // Scoring is now local, so always enabled
-
-        $.ajax({
-            url: imageSeoData.ajaxUrl,
-            type: 'POST',
-            data: {
-                action: 'imageseo_score',
-                nonce: imageSeoData.nonce,
-                attachment_id: attachmentId,
-                alt_text: altText
-            },
-            success: function (response) {
-                if (response.success && response.data.score) {
-                    const scoreData = response.data.score;
-                    const score = scoreData.score || scoreData;
-                    $row.find('.row-score-after').html(getScoreBadge(score));
-                    $row.attr('data-score', score);
-                }
-            }
-        });
-    }
+    // scoreSuggested() removed - SEO scoring feature disabled
 
     /**
      * Delete unused image
