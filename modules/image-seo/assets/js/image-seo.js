@@ -742,7 +742,13 @@ jQuery(document).ready(function ($) {
             success: function (response) {
                 if (response.success) {
                     const results = response.data.results;
+
+                    console.log(`📦 BACKGROUND-BATCH-${offset}: Received ${results.length} images from backend`);
+                    console.log(`📦 BACKGROUND-BATCH-${offset}: Current backgroundScanResults.length = ${backgroundScanResults.length}`);
+
                     backgroundScanResults = backgroundScanResults.concat(results);
+
+                    console.log(`📦 BACKGROUND-BATCH-${offset}: After concat, backgroundScanResults.length = ${backgroundScanResults.length}`);
 
                     // Store stats from first batch
                     if (offset === 0 && response.data.stats) {
@@ -957,7 +963,12 @@ jQuery(document).ready(function ($) {
                 if (response.success) {
                     const results = response.data.results;
 
+                    console.log(`📦 NORMAL-BATCH-${offset}: Received ${results.length} images from backend`);
+                    console.log(`📦 NORMAL-BATCH-${offset}: Current scannedImages.length BEFORE concat = ${scannedImages.length}`);
+
                     scannedImages = scannedImages.concat(results);
+
+                    console.log(`📦 NORMAL-BATCH-${offset}: After concat, scannedImages.length = ${scannedImages.length}`);
                     window.scannedImages = scannedImages; // Keep global ref in sync
 
                     if (offset === 0 && response.data.stats) {

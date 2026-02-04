@@ -321,17 +321,15 @@ class SEOAutoFix_Image_SEO
 
 
             // On first batch, populate history table with ALL images
-            // GUARD: Only run once per session (5 minute window) to prevent duplicates
+            // GUARD: Only run if frontend says should_populate=true (session flag)
             if ($offset === 0) {
                 $populate_lock = get_transient('imageseo_populate_lock');
 
-                if (!$populate_lock) {
-                    // Set lock for 5 minutes
-                    set_transient('imageseo_populate_lock', true, 5 * MINUTE_IN_SECONDS);
+                if ($should_populate) {
                     $this->populate_all_images_in_history();
-                    error_log('🔒 POPULATE-LOCK: Created lock, populated history table');
+                    error_log('✅ POPULATE: Running (frontend flag=true)');
                 } else {
-                    error_log('🔒 POPULATE-LOCK: Lock active, skipping populate (prevents duplicates)');
+                    error_log('⏭️ POPULATE: Skipped (frontend flag=false)');
                 }
             }
 
