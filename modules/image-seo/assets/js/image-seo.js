@@ -92,50 +92,6 @@ jQuery(document).ready(function ($) {
         $('#stat-has-alt').text(withAlt);
     }
 
-    /**
-     * Load initial stats from database on page load
-     * This shows existing scan data from previous sessions
-     */
-    function loadInitialStats() {
-
-        $.ajax({
-            url: imageSeoData.ajaxUrl,
-            type: 'POST',
-            data: {
-                action: 'imageseo_get_stats',
-                nonce: imageSeoData.nonce
-            },
-            success: function (response) {
-                console.log('📊 INIT-STATS: Response received:', response);
-
-                if (response.success && response.data.has_data) {
-                    const stats = response.data.stats;
-                    console.log('📊 INIT-STATS: Database has data, updating stats cards');
-                    console.log('📊 INIT-STATS: Stats:', stats);
-
-                    // Update stat cards with database values
-                    $('#stat-total').text(stats.total || 0);
-                    $('#stat-missing-alt').text(stats.without_alt || 0);
-                    $('#stat-has-alt').text(stats.with_alt || 0);
-
-                    // Show stats section since we have data
-                    $statsSection.show();
-
-                } else {
-                    // Keep stats hidden until first scan
-                }
-
-                // DISABLED: Auto-start removed - user controls when to scan
-                // Background scan will start only when user clicks "Scan Images" button
-                console.log('📊 INIT-STATS: Page loaded, ready for user to start scan');
-            },
-            error: function (xhr, status, error) {
-                console.error('❌ INIT-STATS: Failed to load initial stats');
-                console.error('❌ INIT-STATS: Status:', status);
-                console.error('❌ INIT-STATS: Error:', error);
-            }
-        });
-    }
 
     /**
      * Update Bulk Apply button state based on available Apply buttons
@@ -520,9 +476,6 @@ jQuery(document).ready(function ($) {
             }
         });
     }
-
-    // Load stats on page load
-    loadInitialStats();
 
     // Export CSV button - now just downloads
     $('#export-csv-btn').on('click', function () {
