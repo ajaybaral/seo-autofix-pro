@@ -33,6 +33,8 @@ jQuery(document).ready(function ($) {
     const $scanProgress = $('#scan-progress');
     const $progressFill = $('.progress-fill');
 
+    console.log('Timestamp: 10:42');
+
     /**
      * Show toast notification
      */
