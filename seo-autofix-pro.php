@@ -20,7 +20,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('SEOAUTOFIX_VERSION', '1.0.0');
+define('SEOAUTOFIX_VERSION', '1.2.0');
 define('SEOAUTOFIX_PLUGIN_FILE', __FILE__);
 define('SEOAUTOFIX_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('SEOAUTOFIX_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -81,10 +81,8 @@ class SEO_AutoFix_Pro
      */
     public function init()
     {
-        // Prevent caching during development/debug mode
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            $this->disable_caching();
-        }
+        // Always prevent caching for plugin assets to avoid version mismatches
+        $this->disable_caching();
 
         // Load text domain for translations
         load_plugin_textdomain('seo-autofix-pro', false, dirname(SEOAUTOFIX_PLUGIN_BASENAME) . '/languages');
@@ -96,7 +94,7 @@ class SEO_AutoFix_Pro
     private function disable_caching()
     {
         // Send no-cache headers for plugin admin pages
-        add_action('admin_init', function() {
+        add_action('admin_init', function () {
             // Only for our plugin pages
             if (isset($_GET['page']) && strpos($_GET['page'], 'seo-autofix') === 0) {
                 nocache_headers();
