@@ -650,12 +650,10 @@ jQuery(document).ready(function ($) {
     function startBackgroundScan() {
         // Don't start if already scanning or complete
         if (backgroundScanInProgress || backgroundScanComplete) {
-            console.log('⏭️ BG-SCAN: Skipped - already in progress or complete');
             return;
         }
 
-        console.log('🚀 BG-SCAN: Starting silent background pre-scan...');
-        console.log('🚀 BG-SCAN: Time:', new Date().toLocaleTimeString());
+        console.log('🚀 BACKGROUND-SCAN: Starting silent pre-scan...');
         backgroundScanInProgress = true;
         backgroundScanResults = [];
         backgroundScanStats = null;
@@ -673,8 +671,6 @@ jQuery(document).ready(function ($) {
      * Scan batch in background (no UI updates, stores in cache)
      */
     function scanBatchInBackground(offset = 0) {
-        console.log(`📤 BG-BATCH-${offset}: Starting AJAX request at ${new Date().toLocaleTimeString()}`);
-
         const ajaxData = {
             action: 'imageseo_scan',
             nonce: imageSeoData.nonce,
@@ -711,15 +707,12 @@ jQuery(document).ready(function ($) {
 
                     // Continue scanning if there are more
                     if (response.data.hasMore) {
-                        console.log(`➡️ BG-BATCH-${offset}: More data available, continuing to offset ${response.data.offset}`);
                         scanBatchInBackground(response.data.offset);
                     } else {
                         // Scan complete! Mark as ready
                         backgroundScanComplete = true;
                         backgroundScanInProgress = false;
-                        console.log('✅ BG-SCAN: COMPLETE! Time:', new Date().toLocaleTimeString());
-                        console.log('✅ BG-SCAN: Total cached images:', backgroundScanResults.length);
-                        console.log('✅ BG-SCAN: Stats:', backgroundScanStats);
+                        console.log('✅ BACKGROUND-SCAN: Complete! Cached', backgroundScanResults.length, 'images');
                         // Note: Do NOT reset populateAlreadyCalled here - it stays true until page refresh or manual reset
                     }
                 }
@@ -744,8 +737,7 @@ jQuery(document).ready(function ($) {
     function cancelBackgroundScan() {
         if (backgroundAbortController) {
             backgroundAbortController.abort();
-            console.log('🛑 BG-SCAN: CANCELLED/ABORTED at', new Date().toLocaleTimeString());
-            console.log('🛑 BG-SCAN: Was at', backgroundScanResults.length, 'images when cancelled');
+            console.log('🛑 BACKGROUND-SCAN: Aborted');
         }
         // Reset populate flag when canceling
         populateAlreadyCalled = false;
@@ -838,10 +830,9 @@ jQuery(document).ready(function ($) {
         }
 
         // Normal scan logic (if no cache available)
-        console.log('🔄 NORMAL-SCAN: Starting fresh scan at', new Date().toLocaleTimeString());
+        console.log('🔄 NORMAL-SCAN: Starting fresh scan...');
 
         // Cancel any ongoing background scan
-        console.log('🔄 NORMAL-SCAN: Cancelling any ongoing background scan...');
         cancelBackgroundScan();
 
         // CRITICAL: Reset scannedImages array to prevent duplicates
