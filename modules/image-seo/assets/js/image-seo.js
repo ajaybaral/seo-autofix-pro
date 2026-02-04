@@ -637,424 +637,453 @@ jQuery(document).ready(function ($) {
         });
     });
 
-});
 
-$exportBtn.on('click', function () {
-    exportToCSV();
-});
+    $exportBtn.on('click', function () {
+        exportToCSV();
+    });
 
-// ========== BACKGROUND PRE-SCAN FEATURE ==========
-/**
- * Start background scan silently (no UI updates)
- * This runs automatically on page load to pre-cache results
- */
-function startBackgroundScan() {
-    // Don't start if already scanning or complete
-    if (backgroundScanInProgress || backgroundScanComplete) {
-        return;
-    }
-
-    console.log('🚀 BACKGROUND-SCAN: Starting silent pre-scan...');
-    backgroundScanInProgress = true;
-    backgroundScanResults = [];
-    backgroundScanStats = null;
-
-    // Create abort controller for cancellation on page reload
-    if (window.AbortController) {
-        backgroundAbortController = new AbortController();
-    }
-
-    // Start scanning in background (batch 0)
-    scanBatchInBackground(0);
-}
-
-/**
- * Scan batch in background (no UI updates, stores in cache)
- */
-function scanBatchInBackground(offset = 0) {
-    const ajaxData = {
-        action: 'imageseo_scan',
-        nonce: imageSeoData.nonce,
-        batch_size: 50,
-        offset: offset,
-        should_populate: !populateAlreadyCalled  // Only populate if not already called
-    };
-
-    // Mark populate as called after first batch request
-    if (offset === 0 && !populateAlreadyCalled) {
-        populateAlreadyCalled = true;
-        console.log('🚩 POPULATE-FLAG: Set to true, backend will populate once');
-    }
-
-    const ajaxConfig = {
-        url: imageSeoData.ajaxUrl,
-        type: 'POST',
-        data: ajaxData,
-        success: function (response) {
-            if (response.success) {
-                const results = response.data.results;
-
-                console.log(`📦 BACKGROUND-BATCH-${offset}: Received ${results.length} images from backend`);
-                console.log(`📦 BACKGROUND-BATCH-${offset}: Current backgroundScanResults.length = ${backgroundScanResults.length}`);
-
-                backgroundScanResults = backgroundScanResults.concat(results);
-
-                console.log(`📦 BACKGROUND-BATCH-${offset}: After concat, backgroundScanResults.length = ${backgroundScanResults.length}`);
-
-                // Store stats from first batch
-                if (offset === 0 && response.data.stats) {
-                    backgroundScanStats = response.data.stats;
-                }
-
-                // Continue scanning if there are more
-                if (response.data.hasMore) {
-                    scanBatchInBackground(response.data.offset);
-                } else {
-                    // Scan complete! Mark as ready
-                    backgroundScanComplete = true;
-                    backgroundScanInProgress = false;
-                    console.log('✅ BACKGROUND-SCAN: Complete! Cached', backgroundScanResults.length, 'images');
-                    // Note: Do NOT reset populateAlreadyCalled here - it stays true until page refresh or manual reset
-                }
-            }
-        },
-        error: function () {
-            console.log('❌ BACKGROUND-SCAN: Failed');
-            backgroundScanInProgress = false;
+    // ========== BACKGROUND PRE-SCAN FEATURE ==========
+    /**
+     * Start background scan silently (no UI updates)
+     * This runs automatically on page load to pre-cache results
+     */
+    function startBackgroundScan() {
+        // Don't start if already scanning or complete
+        if (backgroundScanInProgress || backgroundScanComplete) {
+            return;
         }
-    };
 
-    // Add abort signal if supported
-    if (backgroundAbortController && backgroundAbortController.signal) {
-        ajaxConfig.signal = backgroundAbortController.signal;
+        console.log('🚀 BACKGROUND-SCAN: Starting silent pre-scan...');
+        backgroundScanInProgress = true;
+        backgroundScanResults = [];
+        backgroundScanStats = null;
+
+        // Create abort controller for cancellation on page reload
+        if (window.AbortController) {
+            backgroundAbortController = new AbortController();
+        }
+
+        // Start scanning in background (batch 0)
+        scanBatchInBackground(0);
     }
 
-    $.ajax(ajaxConfig);
-}
+    /**
+     * Scan batch in background (no UI updates, stores in cache)
+     */
+    function scanBatchInBackground(offset = 0) {
+        const ajaxData = {
+            action: 'imageseo_scan',
+            nonce: imageSeoData.nonce,
+            batch_size: 50,
+            offset: offset,
+            should_populate: !populateAlreadyCalled  // Only populate if not already called
+        };
 
-/**
- * Cancel any ongoing background scan (called on page unload or new scan)
- */
-function cancelBackgroundScan() {
-    if (backgroundAbortController) {
-        backgroundAbortController.abort();
-        console.log('🛑 BACKGROUND-SCAN: Aborted');
+        // Mark populate as called after first batch request
+        if (offset === 0 && !populateAlreadyCalled) {
+            populateAlreadyCalled = true;
+            console.log('🚩 POPULATE-FLAG: Set to true, backend will populate once');
+        }
+
+        const ajaxConfig = {
+            url: imageSeoData.ajaxUrl,
+            type: 'POST',
+            data: ajaxData,
+            success: function (response) {
+                if (response.success) {
+                    const results = response.data.results;
+
+                    console.log(`📦 BACKGROUND-BATCH-${offset}: Received ${results.length} images from backend`);
+                    console.log(`📦 BACKGROUND-BATCH-${offset}: Current backgroundScanResults.length = ${backgroundScanResults.length}`);
+
+                    backgroundScanResults = backgroundScanResults.concat(results);
+
+                    console.log(`📦 BACKGROUND-BATCH-${offset}: After concat, backgroundScanResults.length = ${backgroundScanResults.length}`);
+
+                    // Store stats from first batch
+                    if (offset === 0 && response.data.stats) {
+                        backgroundScanStats = response.data.stats;
+                    }
+
+                    // Continue scanning if there are more
+                    if (response.data.hasMore) {
+                        scanBatchInBackground(response.data.offset);
+                    } else {
+                        // Scan complete! Mark as ready
+                        backgroundScanComplete = true;
+                        backgroundScanInProgress = false;
+                        console.log('✅ BACKGROUND-SCAN: Complete! Cached', backgroundScanResults.length, 'images');
+                        // Note: Do NOT reset populateAlreadyCalled here - it stays true until page refresh or manual reset
+                    }
+                }
+            },
+            error: function () {
+                console.log('❌ BACKGROUND-SCAN: Failed');
+                backgroundScanInProgress = false;
+            }
+        };
+
+        // Add abort signal if supported
+        if (backgroundAbortController && backgroundAbortController.signal) {
+            ajaxConfig.signal = backgroundAbortController.signal;
+        }
+
+        $.ajax(ajaxConfig);
     }
-    // Reset populate flag when canceling
-    populateAlreadyCalled = false;
-    backgroundScanInProgress = false;
-    backgroundScanComplete = false;
-    backgroundScanResults = [];
-    backgroundScanStats = null;
-    console.log('🔄 RESET: Populate flag reset, ready for fresh scan');
-}
 
-// Cancel background scan on page unload
-$(window).on('beforeunload', function () {
-    cancelBackgroundScan();
-});
+    /**
+     * Cancel any ongoing background scan (called on page unload or new scan)
+     */
+    function cancelBackgroundScan() {
+        if (backgroundAbortController) {
+            backgroundAbortController.abort();
+            console.log('🛑 BACKGROUND-SCAN: Aborted');
+        }
+        // Reset populate flag when canceling
+        populateAlreadyCalled = false;
+        backgroundScanInProgress = false;
+        backgroundScanComplete = false;
+        backgroundScanResults = [];
+        backgroundScanStats = null;
+        console.log('🔄 RESET: Populate flag reset, ready for fresh scan');
+    }
 
-/**
- * Scan all images (UX-IMPROVEMENT: Uses cached results if available)
- */
-function scanImages() {
-    // Check if background scan is complete
-    if (backgroundScanComplete && backgroundScanResults.length > 0) {
-        console.log('⚡ INSTANT-SCAN: Using cached background results!');
+    // Cancel background scan on page unload
+    $(window).on('beforeunload', function () {
+        cancelBackgroundScan();
+    });
 
-        // Use cached results
-        scannedImages = backgroundScanResults.slice(); // Clone array
-        globalStats = backgroundScanStats;
-        window.scannedImages = scannedImages;
+    /**
+     * Scan all images (UX-IMPROVEMENT: Uses cached results if available)
+     */
+    function scanImages() {
+        // Check if background scan is complete
+        if (backgroundScanComplete && backgroundScanResults.length > 0) {
+            console.log('⚡ INSTANT-SCAN: Using cached background results!');
 
-        // Reset UI state
-        currentPage = 1;
+            // Use cached results
+            scannedImages = backgroundScanResults.slice(); // Clone array
+            globalStats = backgroundScanStats;
+            window.scannedImages = scannedImages;
+
+            // Reset UI state
+            currentPage = 1;
+            $resultsTbody.empty();
+            $('input[name="image-filter"]').prop('checked', false).prop('disabled', true);
+
+            // Show progress bar
+            $scanProgress.show();
+            $progressFill.css('width', '0%');
+            $('#progress-percentage').text('0%');
+            $resultsTable.hide();
+            $emptyState.hide();
+            $('.imageseo-filter-controls').hide();
+            $('.imageseo-pagination').hide();
+            $statsSection.hide();
+            $filtersSection.hide();
+            activeFilter = null;
+            $('.stat-card, .stat-subcard').removeClass('active');
+            $scanBtn.prop('disabled', true).text('Scanning...');
+
+            // Animate progress from 0 to 100 in 800ms for UX
+            const parentWidth = $progressFill.parent().width();
+            $progressFill[0].style.width = '0px';
+
+            setTimeout(() => {
+                $progressFill[0].style.width = parentWidth + 'px';
+                $('#progress-percentage').text('100%');
+            }, 50);
+
+            // Wait 800ms to show progress animation, then render
+            setTimeout(() => {
+                renderResults(scannedImages);
+                updateStats();
+
+                // Show all UI elements
+                $exportFilterCsvBtn.show().prop('disabled', filterChanges.length === 0);
+                $('input[name="image-filter"]').prop('disabled', false);
+                $('.imageseo-filter-controls').show();
+                $('.imageseo-pagination').show();
+                $('.imageseo-stats').show();
+                $('.imageseo-results').show();
+                $('#export-csv-btn').show();
+
+                // Initialize filter tracking
+                filterChanges = [];
+                currentFilterValue = 'no_filter';
+                $exportFilterCsvBtn.show().prop('disabled', true);
+                $resultsTable.show();
+
+                // Complete
+                $scanProgress.hide();
+                $scanBtn.prop('disabled', false).html('<span class="dashicons dashicons-search"></span> Scan Images');
+
+                // Clear background cache (force fresh scan next time)
+                backgroundScanComplete = false;
+                backgroundScanResults = [];
+                backgroundScanStats = null;
+
+                console.log('✅ INSTANT-SCAN: Results displayed!');
+            }, 800);
+
+            return; // Exit early - don't run normal scan
+        }
+
+        // Normal scan logic (if no cache available)
+        console.log('🔄 NORMAL-SCAN: Starting fresh scan...');
+
+        // Cancel any ongoing background scan
+        cancelBackgroundScan();
+
+        // CRITICAL: Reset scannedImages array to prevent duplicates
+        scannedImages = [];
+        currentPage = 1; // Reset to first page on new scan
         $resultsTbody.empty();
-        $('input[name="image-filter"]').prop('checked', false).prop('disabled', true);
 
-        // Show progress bar
+        // RESET RADIO BUTTONS - UNCHECK ALL (no default filter)
+        console.log('SCAN-DEBUG: Unchecking all radio buttons');
+        $('input[name="image-filter"]').prop('checked', false); // No default selection
+        $('input[name="image-filter"]').prop('disabled', true); // Disable all during scan
+
+        // Show progress, hide results
         $scanProgress.show();
+
+        // 🔧 FIX: Reset progress bar width to 0% to ensure it updates on first scan
         $progressFill.css('width', '0%');
-        $('#progress-percentage').text('0%');
+        console.log('🔧 PROGRESS-FIX: Reset progress bar width to 0%');
+
         $resultsTable.hide();
         $emptyState.hide();
+
+        // HIDE filter controls and pagination during scan for cleaner UX
         $('.imageseo-filter-controls').hide();
         $('.imageseo-pagination').hide();
+        console.log('SCAN-DEBUG: Hidden filter controls and pagination during scan');
+
+        // Stats section should remain HIDDEN until scan completes
+        // User wants stats to appear only after scan is done
         $statsSection.hide();
+        console.log('SCAN-DEBUG: Stats section hidden - will show after scan completes');
+
+        // Reset percentage
+        $('#progress-percentage').text('0%');
+
         $filtersSection.hide();
+
+        // Reset active filter when new scan starts
         activeFilter = null;
         $('.stat-card, .stat-subcard').removeClass('active');
+
+        // Update button state
         $scanBtn.prop('disabled', true).text('Scanning...');
 
-        // Animate progress from 0 to 100 in 800ms for UX
-        const parentWidth = $progressFill.parent().width();
-        $progressFill[0].style.width = '0px';
+        console.log('UX-IMPROVEMENT-DEBUG: [Frontend] Starting batch scan...');
 
-        setTimeout(() => {
-            $progressFill[0].style.width = parentWidth + 'px';
-            $('#progress-percentage').text('100%');
-        }, 50);
+        // Start scanning (no filter parameter)
+        scanBatch(0);
+    }
 
-        // Wait 800ms to show progress animation, then render
-        setTimeout(() => {
-            renderResults(scannedImages);
-            updateStats();
+    /**
+     * Scan a batch of images (UX-IMPROVEMENT: No status filter)
+     */
+    function scanBatch(offset = 0) {
 
-            // Show all UI elements
-            $exportFilterCsvBtn.show().prop('disabled', filterChanges.length === 0);
-            $('input[name="image-filter"]').prop('disabled', false);
-            $('.imageseo-filter-controls').show();
-            $('.imageseo-pagination').show();
-            $('.imageseo-stats').show();
-            $('.imageseo-results').show();
-            $('#export-csv-btn').show();
+        ;
+        const ajaxData = {
+            action: 'imageseo_scan',
+            nonce: imageSeoData.nonce,
+            batch_size: 50,
+            offset: offset,
+            should_populate: !populateAlreadyCalled  // Only populate if not already called
+            // UX-IMPROVEMENT: No status_filter parameter - backend returns ALL
+        };
 
-            // Initialize filter tracking
-            filterChanges = [];
-            currentFilterValue = 'no_filter';
-            $exportFilterCsvBtn.show().prop('disabled', true);
-            $resultsTable.show();
+        // Mark populate as called after first batch request
+        if (offset === 0 && !populateAlreadyCalled) {
+            populateAlreadyCalled = true;
+            console.log('🚩 POPULATE-FLAG: Set to true, backend will populate once');
+        }
+        ;
 
-            // Complete
+        $.ajax({
+            url: imageSeoData.ajaxUrl,
+            type: 'POST',
+            data: ajaxData,
+            success: function (response) {
+                if (response.success) {
+                    const results = response.data.results;
+
+                    console.log(`📦 NORMAL-BATCH-${offset}: Received ${results.length} images from backend`);
+                    console.log(`📦 NORMAL-BATCH-${offset}: Current scannedImages.length BEFORE concat = ${scannedImages.length}`);
+
+                    scannedImages = scannedImages.concat(results);
+
+                    console.log(`📦 NORMAL-BATCH-${offset}: After concat, scannedImages.length = ${scannedImages.length}`);
+                    window.scannedImages = scannedImages; // Keep global ref in sync
+
+                    if (offset === 0 && response.data.stats) {
+                        globalStats = response.data.stats;
+
+                        // Store total image count for accurate progress calculation
+                        if (response.data.total_images) {
+                            window.totalImages = response.data.total_images;
+                        }
+                    }
+
+                    // Update progress with percentage display
+                    // 🎯 NEW: Use actual total from backend instead of assuming 500
+                    const totalImages = window.totalImages || 500; // Fallback to 500 if not set
+                    const scannedSoFar = offset + results.length;
+                    const progress = Math.min(100, (scannedSoFar / totalImages) * 100);
+
+                    // 🔍 COMPREHENSIVE DEBUG: Log EVERYTHING about progress bar
+
+                    const $progressBar = $progressFill.parent();
+
+                    if ($progressFill[0]) {
+                        // 🔧 FIX: Calculate width in PIXELS instead of percentage
+                        // Browser wasn't computing percentage correctly (showed 0px)
+                        const parentWidth = $progressBar.width(); // Get parent width in pixels
+                        const widthInPixels = (progress / 100) * parentWidth;
+
+
+                        $progressFill[0].style.width = widthInPixels + 'px';
+
+                    } else {
+
+                    }
+
+
+                    $('#progress-percentage').text(Math.round(progress) + '%');
+
+
+                    // FIX: Update stats in real-time after each batch
+                    if (scannedImages.length > 0) {
+                        updateStats();
+
+                    }
+
+                    // Continue scanning if there are more
+                    if (response.data.hasMore) {
+                        scanBatch(response.data.offset);
+                    } else {
+                        // Show 100% completion before hiding
+                        const parentWidth = $progressFill.parent().width();
+                        const widthInPixels = parentWidth; // 100% = full width
+
+                        $progressFill[0].style.width = widthInPixels + 'px';
+                        $('#progress-percentage').text('100%');
+
+                        // Wait 800ms to let user see 100% completion, then render results
+                        setTimeout(() => {
+
+
+
+
+
+
+                            renderResults(scannedImages);
+                            updateStats(); // Recalculate from scannedImages array
+
+                            // ENSURE Export Changes button is visible after renderResults
+                            $exportFilterCsvBtn.show().prop('disabled', filterChanges.length === 0);
+
+                            // RE-ENABLE RADIO BUTTONS after scan completes
+                            $('input[name="image-filter"]').prop('disabled', false);
+
+                            // SHOW filter controls and pagination after scan completes
+                            $('.imageseo-filter-controls').show();
+                            $('.imageseo-pagination').show();
+
+                            // SHOW Stats and Results Table (which were hidden initially)
+                            $('.imageseo-stats').show();
+                            $('.imageseo-results').show();
+
+                            // SHOW Export CSV button after scan completes
+                            $('#export-csv-btn').show();
+
+                            // FIXED: Initialize filter changes tracking for new scan
+                            filterChanges = []; // Clear any previous changes
+                            currentFilterValue = 'no_filter'; // Initial state is "no filter"
+                            console.log('FILTER-CSV: Initialized - empty changes, currentFilter:', currentFilterValue);
+
+                            // SHOW Export Changes in CSV button (disabled until changes are made)
+                            $exportFilterCsvBtn.show().prop('disabled', true);
+                            console.log('EXPORT-CHANGES-DEBUG: Button shown after scan completion, disabled:', $exportFilterCsvBtn.prop('disabled'));
+
+                            $resultsTable.show();
+
+                            console.log('SCAN-DEBUG: Showing filter controls, stats, and results after scan');
+                        }, 800); // 800ms delay to show 100% completion
+                    }
+                } else {
+                    showError('Scan failed: ' + (response.data.message || 'Unknown error'));
+                    resetUI();
+                }
+            },
+            error: function () {
+                showError('Network error occurred during scan');
+                resetUI();
+            }
+        });
+    }
+
+    /**
+     * Render paginated results
+     */
+    function renderResults(images, shouldGroup = false) {
+
+        if (!images || images.length === 0) {
+
+            // Hide scan progress and reset button
             $scanProgress.hide();
             $scanBtn.prop('disabled', false).html('<span class="dashicons dashicons-search"></span> Scan Images');
 
-            // Clear background cache (force fresh scan next time)
-            backgroundScanComplete = false;
-            backgroundScanResults = [];
-            backgroundScanStats = null;
+            // Determine WHY it's empty
 
-            console.log('✅ INSTANT-SCAN: Results displayed!');
-        }, 800);
-
-        return; // Exit early - don't run normal scan
-    }
-
-    // Normal scan logic (if no cache available)
-    console.log('🔄 NORMAL-SCAN: Starting fresh scan...');
-
-    // Cancel any ongoing background scan
-    cancelBackgroundScan();
-
-    // CRITICAL: Reset scannedImages array to prevent duplicates
-    scannedImages = [];
-    currentPage = 1; // Reset to first page on new scan
-    $resultsTbody.empty();
-
-    // RESET RADIO BUTTONS - UNCHECK ALL (no default filter)
-    console.log('SCAN-DEBUG: Unchecking all radio buttons');
-    $('input[name="image-filter"]').prop('checked', false); // No default selection
-    $('input[name="image-filter"]').prop('disabled', true); // Disable all during scan
-
-    // Show progress, hide results
-    $scanProgress.show();
-
-    // 🔧 FIX: Reset progress bar width to 0% to ensure it updates on first scan
-    $progressFill.css('width', '0%');
-    console.log('🔧 PROGRESS-FIX: Reset progress bar width to 0%');
-
-    $resultsTable.hide();
-    $emptyState.hide();
-
-    // HIDE filter controls and pagination during scan for cleaner UX
-    $('.imageseo-filter-controls').hide();
-    $('.imageseo-pagination').hide();
-    console.log('SCAN-DEBUG: Hidden filter controls and pagination during scan');
-
-    // Stats section should remain HIDDEN until scan completes
-    // User wants stats to appear only after scan is done
-    $statsSection.hide();
-    console.log('SCAN-DEBUG: Stats section hidden - will show after scan completes');
-
-    // Reset percentage
-    $('#progress-percentage').text('0%');
-
-    $filtersSection.hide();
-
-    // Reset active filter when new scan starts
-    activeFilter = null;
-    $('.stat-card, .stat-subcard').removeClass('active');
-
-    // Update button state
-    $scanBtn.prop('disabled', true).text('Scanning...');
-
-    console.log('UX-IMPROVEMENT-DEBUG: [Frontend] Starting batch scan...');
-
-    // Start scanning (no filter parameter)
-    scanBatch(0);
-}
-
-/**
- * Scan a batch of images (UX-IMPROVEMENT: No status filter)
- */
-function scanBatch(offset = 0) {
-
-    ;
-    const ajaxData = {
-        action: 'imageseo_scan',
-        nonce: imageSeoData.nonce,
-        batch_size: 50,
-        offset: offset,
-        should_populate: !populateAlreadyCalled  // Only populate if not already called
-        // UX-IMPROVEMENT: No status_filter parameter - backend returns ALL
-    };
-
-    // Mark populate as called after first batch request
-    if (offset === 0 && !populateAlreadyCalled) {
-        populateAlreadyCalled = true;
-        console.log('🚩 POPULATE-FLAG: Set to true, backend will populate once');
-    }
-    ;
-
-    $.ajax({
-        url: imageSeoData.ajaxUrl,
-        type: 'POST',
-        data: ajaxData,
-        success: function (response) {
-            if (response.success) {
-                const results = response.data.results;
-
-                console.log(`📦 NORMAL-BATCH-${offset}: Received ${results.length} images from backend`);
-                console.log(`📦 NORMAL-BATCH-${offset}: Current scannedImages.length BEFORE concat = ${scannedImages.length}`);
-
-                scannedImages = scannedImages.concat(results);
-
-                console.log(`📦 NORMAL-BATCH-${offset}: After concat, scannedImages.length = ${scannedImages.length}`);
-                window.scannedImages = scannedImages; // Keep global ref in sync
-
-                if (offset === 0 && response.data.stats) {
-                    globalStats = response.data.stats;
-
-                    // Store total image count for accurate progress calculation
-                    if (response.data.total_images) {
-                        window.totalImages = response.data.total_images;
-                    }
-                }
-
-                // Update progress with percentage display
-                // 🎯 NEW: Use actual total from backend instead of assuming 500
-                const totalImages = window.totalImages || 500; // Fallback to 500 if not set
-                const scannedSoFar = offset + results.length;
-                const progress = Math.min(100, (scannedSoFar / totalImages) * 100);
-
-                // 🔍 COMPREHENSIVE DEBUG: Log EVERYTHING about progress bar
-
-                const $progressBar = $progressFill.parent();
-
-                if ($progressFill[0]) {
-                    // 🔧 FIX: Calculate width in PIXELS instead of percentage
-                    // Browser wasn't computing percentage correctly (showed 0px)
-                    const parentWidth = $progressBar.width(); // Get parent width in pixels
-                    const widthInPixels = (progress / 100) * parentWidth;
-
-
-                    $progressFill[0].style.width = widthInPixels + 'px';
-
-                } else {
-
-                }
-
-
-                $('#progress-percentage').text(Math.round(progress) + '%');
-
-
-                // FIX: Update stats in real-time after each batch
-                if (scannedImages.length > 0) {
-                    updateStats();
-
-                }
-
-                // Continue scanning if there are more
-                if (response.data.hasMore) {
-                    scanBatch(response.data.offset);
-                } else {
-                    // Show 100% completion before hiding
-                    const parentWidth = $progressFill.parent().width();
-                    const widthInPixels = parentWidth; // 100% = full width
-
-                    $progressFill[0].style.width = widthInPixels + 'px';
-                    $('#progress-percentage').text('100%');
-
-                    // Wait 800ms to let user see 100% completion, then render results
-                    setTimeout(() => {
-
-
-
-
-
-
-                        renderResults(scannedImages);
-                        updateStats(); // Recalculate from scannedImages array
-
-                        // ENSURE Export Changes button is visible after renderResults
-                        $exportFilterCsvBtn.show().prop('disabled', filterChanges.length === 0);
-
-                        // RE-ENABLE RADIO BUTTONS after scan completes
-                        $('input[name="image-filter"]').prop('disabled', false);
-
-                        // SHOW filter controls and pagination after scan completes
-                        $('.imageseo-filter-controls').show();
-                        $('.imageseo-pagination').show();
-
-                        // SHOW Stats and Results Table (which were hidden initially)
-                        $('.imageseo-stats').show();
-                        $('.imageseo-results').show();
-
-                        // SHOW Export CSV button after scan completes
-                        $('#export-csv-btn').show();
-
-                        // FIXED: Initialize filter changes tracking for new scan
-                        filterChanges = []; // Clear any previous changes
-                        currentFilterValue = 'no_filter'; // Initial state is "no filter"
-                        console.log('FILTER-CSV: Initialized - empty changes, currentFilter:', currentFilterValue);
-
-                        // SHOW Export Changes in CSV button (disabled until changes are made)
-                        $exportFilterCsvBtn.show().prop('disabled', true);
-                        console.log('EXPORT-CHANGES-DEBUG: Button shown after scan completion, disabled:', $exportFilterCsvBtn.prop('disabled'));
-
-                        $resultsTable.show();
-
-                        console.log('SCAN-DEBUG: Showing filter controls, stats, and results after scan');
-                    }, 800); // 800ms delay to show 100% completion
-                }
+            // Check if there are truly no images in the library vs all optimized
+            if (globalStats && globalStats.total === 0) {
+                console.log('RENDER-DEBUG: [Frontend] Reason: No images in media library (globalStats.total = 0)');
+                // No images in media library at all
+                $emptyState.find('h2').text('No Images Found');
+                $emptyState.find('p').text('Your media library is empty. Upload some images to start optimizing their SEO!');
+            } else if (scannedImages.length === 0) {
+                console.log('RENDER-DEBUG: [Frontend] Reason: No scan performed yet (scannedImages is empty)');
+                // NO SCAN HAS BEEN PERFORMED YET
+                $emptyState.find('h2').text('No Issues Found');
+                $emptyState.find('p').text('Click "Scan Images" to analyze your media library for SEO issues.');
             } else {
-                showError('Scan failed: ' + (response.data.message || 'Unknown error'));
-                resetUI();
+                console.log('RENDER-DEBUG: [Frontend] Reason: All images filtered out or optimized');
+
+                // Check if a filter is active
+                const activeFilter = $('input[name="image-filter"]:checked').val();
+
+                if (activeFilter) {
+                    // Filter is active = no images match this filter
+                    $emptyState.find('h2').text('No Images Found');
+                    $emptyState.find('p').text('No images match the selected filter. Try a different filter or click Reset to view all images.');
+                } else {
+                    // No filter active = media library is empty
+                    $emptyState.find('h2').text('No Images Found in the Media');
+                    $emptyState.find('p').text('Your media library appears to be empty. Upload some images to get started.');
+                }
             }
-        },
-        error: function () {
-            showError('Network error occurred during scan');
-            resetUI();
+
+            $resultsTable.hide();
+            $emptyState.show();
+            console.log('RENDER-DEBUG: [Frontend] Showing empty state with message');
+            return;
         }
-    });
-}
 
-/**
- * Render paginated results
- */
-function renderResults(images, shouldGroup = false) {
 
-    if (!images || images.length === 0) {
 
-        // Hide scan progress and reset button
         $scanProgress.hide();
         $scanBtn.prop('disabled', false).html('<span class="dashicons dashicons-search"></span> Scan Images');
 
-        // Determine WHY it's empty
+        $resultsTbody.empty();
 
-        // Check if there are truly no images in the library vs all optimized
-        if (globalStats && globalStats.total === 0) {
-            console.log('RENDER-DEBUG: [Frontend] Reason: No images in media library (globalStats.total = 0)');
-            // No images in media library at all
-            $emptyState.find('h2').text('No Images Found');
-            $emptyState.find('p').text('Your media library is empty. Upload some images to start optimizing their SEO!');
-        } else if (scannedImages.length === 0) {
-            console.log('RENDER-DEBUG: [Frontend] Reason: No scan performed yet (scannedImages is empty)');
-            // NO SCAN HAS BEEN PERFORMED YET
-            $emptyState.find('h2').text('No Issues Found');
-            $emptyState.find('p').text('Click "Scan Images" to analyze your media library for SEO issues.');
-        } else {
-            console.log('RENDER-DEBUG: [Frontend] Reason: All images filtered out or optimized');
+        if (!images || images.length === 0) {
+            console.log('No images to render!');
 
             // Check if a filter is active
             const activeFilter = $('input[name="image-filter"]:checked').val();
@@ -1068,176 +1097,146 @@ function renderResults(images, shouldGroup = false) {
                 $emptyState.find('h2').text('No Images Found in the Media');
                 $emptyState.find('p').text('Your media library appears to be empty. Upload some images to get started.');
             }
-        }
 
-        $resultsTable.hide();
-        $emptyState.show();
-        console.log('RENDER-DEBUG: [Frontend] Showing empty state with message');
-        return;
-    }
-
-
-
-    $scanProgress.hide();
-    $scanBtn.prop('disabled', false).html('<span class="dashicons dashicons-search"></span> Scan Images');
-
-    $resultsTbody.empty();
-
-    if (!images || images.length === 0) {
-        console.log('No images to render!');
-
-        // Check if a filter is active
-        const activeFilter = $('input[name="image-filter"]:checked').val();
-
-        if (activeFilter) {
-            // Filter is active = no images match this filter
-            $emptyState.find('h2').text('No Images Found');
-            $emptyState.find('p').text('No images match the selected filter. Try a different filter or click Reset to view all images.');
-        } else {
-            // No filter active = media library is empty
-            $emptyState.find('h2').text('No Images Found in the Media');
-            $emptyState.find('p').text('Your media library appears to be empty. Upload some images to get started.');
-        }
-
-        $emptyState.show();
-        $resultsTable.hide();
-        $filtersSection.hide();
-        $statsSection.show(); // Still show stats even if no issues
-        return;
-    }
-
-    // Show results table, filters, and AI controls
-    $resultsTable.show();
-    $filtersSection.show();
-    $statsSection.show();
-    $('.imageseo-ai-controls').show();
-    $emptyState.hide();
-
-    // Calculate pagination
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = Math.min(startIndex + itemsPerPage, images.length);
-    const pageImages = images.slice(startIndex, endIndex);
-
-    console.log('Rendering images from index', startIndex, 'to', endIndex, '=', pageImages.length, 'images');
-
-    // Render with or without grouping
-    if (shouldGroup) {
-        console.log('GROUPING-DEBUG: [Frontend] Grouping mode active - grouping images by post/page');
-        renderGroupedImages(pageImages, startIndex);
-    } else {
-        console.log('GROUPING-DEBUG: [Frontend] Flat mode - rendering images without grouping');
-        // Render only current page images
-        pageImages.forEach((image, index) => {
-            const rowNumber = startIndex + index + 1;
-            addResultRow(image, rowNumber);
-        });
-    }
-
-    renderPagination(images);
-
-
-    // NO PLACEHOLDER TEXT - inputs start empty
-    $resultsTbody.find('tr').each(function () {
-        const $row = $(this);
-        $row.find('.loading-indicator').hide();
-
-        // Start with empty input (already set in addResultRow, just make sure it's editable)
-        $row.find('.alt-text-editable')
-            .attr('contenteditable', 'true')
-            .show();
-
-        // Apply button already managed by updateBulkApplyButtonState
-        // clickable-for-ai class already added in addResultRow
-    });
-
-    // Update Bulk Apply button state based on ready rows
-    updateBulkApplyButtonState();
-}
-
-/**
- * Render images grouped by post/page
- */
-function renderGroupedImages(images, startIndex) {
-    console.log('GROUPING-DEBUG: [Frontend] === renderGroupedImages() called with', images.length, 'images ===');
-
-    // Group images by post/page
-    const groups = groupImagesByPostPage(images);
-    console.log('GROUPING-DEBUG: [Frontend] Created', Object.keys(groups).length, 'groups');
-
-    let globalRowNumber = startIndex;
-
-    // Render each group
-    Object.keys(groups).forEach(groupKey => {
-        const group = groups[groupKey];
-        console.log('GROUPING-DEBUG: [Frontend] Rendering group:', groupKey, '- Title:', group.title, '- Images:', group.images.length);
-
-        // Add heading row with URL and title
-        addHeadingRow(group.title, group.url, group.type);
-
-        // Add image rows for this group
-        group.images.forEach((image) => {
-            globalRowNumber++;
-            addResultRow(image, globalRowNumber);
-        });
-    });
-
-    console.log('GROUPING-DEBUG: [Frontend] Finished rendering all groups. Total rows rendered:', globalRowNumber - startIndex);
-}
-
-/**
- * Group images by the posts/pages they appear in
- */
-function groupImagesByPostPage(images) {
-    console.log('GROUPING-DEBUG: [Frontend] === groupImagesByPostPage() called ===');
-    const groups = {};
-
-    images.forEach(image => {
-        console.log('GROUPING-DEBUG: [Frontend] Processing image ID:', image.id);
-        console.log('GROUPING-DEBUG: [Frontend] usage_details:', image.usage_details);
-
-        // Check if image has usage details
-        if (!image.usage_details || image.usage_details.length === 0) {
-            console.log('GROUPING-DEBUG: [Frontend] No usage_details for image', image.id, '- skipping');
+            $emptyState.show();
+            $resultsTable.hide();
+            $filtersSection.hide();
+            $statsSection.show(); // Still show stats even if no issues
             return;
         }
 
-        // Image can appear in multiple posts/pages
-        image.usage_details.forEach(detail => {
-            const groupKey = detail.type + '_' + detail.post_id;
+        // Show results table, filters, and AI controls
+        $resultsTable.show();
+        $filtersSection.show();
+        $statsSection.show();
+        $('.imageseo-ai-controls').show();
+        $emptyState.hide();
 
-            if (!groups[groupKey]) {
-                groups[groupKey] = {
-                    title: detail.title,
-                    url: detail.url || '',  // Capture URL for heading display
-                    type: detail.type,
-                    post_id: detail.post_id,
-                    images: []
-                };
-                console.log('GROUPING-DEBUG: [Frontend] Created new group:', groupKey, '- Title:', detail.title, '- URL:', detail.url);
+        // Calculate pagination
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const endIndex = Math.min(startIndex + itemsPerPage, images.length);
+        const pageImages = images.slice(startIndex, endIndex);
+
+        console.log('Rendering images from index', startIndex, 'to', endIndex, '=', pageImages.length, 'images');
+
+        // Render with or without grouping
+        if (shouldGroup) {
+            console.log('GROUPING-DEBUG: [Frontend] Grouping mode active - grouping images by post/page');
+            renderGroupedImages(pageImages, startIndex);
+        } else {
+            console.log('GROUPING-DEBUG: [Frontend] Flat mode - rendering images without grouping');
+            // Render only current page images
+            pageImages.forEach((image, index) => {
+                const rowNumber = startIndex + index + 1;
+                addResultRow(image, rowNumber);
+            });
+        }
+
+        renderPagination(images);
+
+
+        // NO PLACEHOLDER TEXT - inputs start empty
+        $resultsTbody.find('tr').each(function () {
+            const $row = $(this);
+            $row.find('.loading-indicator').hide();
+
+            // Start with empty input (already set in addResultRow, just make sure it's editable)
+            $row.find('.alt-text-editable')
+                .attr('contenteditable', 'true')
+                .show();
+
+            // Apply button already managed by updateBulkApplyButtonState
+            // clickable-for-ai class already added in addResultRow
+        });
+
+        // Update Bulk Apply button state based on ready rows
+        updateBulkApplyButtonState();
+    }
+
+    /**
+     * Render images grouped by post/page
+     */
+    function renderGroupedImages(images, startIndex) {
+        console.log('GROUPING-DEBUG: [Frontend] === renderGroupedImages() called with', images.length, 'images ===');
+
+        // Group images by post/page
+        const groups = groupImagesByPostPage(images);
+        console.log('GROUPING-DEBUG: [Frontend] Created', Object.keys(groups).length, 'groups');
+
+        let globalRowNumber = startIndex;
+
+        // Render each group
+        Object.keys(groups).forEach(groupKey => {
+            const group = groups[groupKey];
+            console.log('GROUPING-DEBUG: [Frontend] Rendering group:', groupKey, '- Title:', group.title, '- Images:', group.images.length);
+
+            // Add heading row with URL and title
+            addHeadingRow(group.title, group.url, group.type);
+
+            // Add image rows for this group
+            group.images.forEach((image) => {
+                globalRowNumber++;
+                addResultRow(image, globalRowNumber);
+            });
+        });
+
+        console.log('GROUPING-DEBUG: [Frontend] Finished rendering all groups. Total rows rendered:', globalRowNumber - startIndex);
+    }
+
+    /**
+     * Group images by the posts/pages they appear in
+     */
+    function groupImagesByPostPage(images) {
+        console.log('GROUPING-DEBUG: [Frontend] === groupImagesByPostPage() called ===');
+        const groups = {};
+
+        images.forEach(image => {
+            console.log('GROUPING-DEBUG: [Frontend] Processing image ID:', image.id);
+            console.log('GROUPING-DEBUG: [Frontend] usage_details:', image.usage_details);
+
+            // Check if image has usage details
+            if (!image.usage_details || image.usage_details.length === 0) {
+                console.log('GROUPING-DEBUG: [Frontend] No usage_details for image', image.id, '- skipping');
+                return;
             }
 
-            groups[groupKey].images.push(image);
+            // Image can appear in multiple posts/pages
+            image.usage_details.forEach(detail => {
+                const groupKey = detail.type + '_' + detail.post_id;
+
+                if (!groups[groupKey]) {
+                    groups[groupKey] = {
+                        title: detail.title,
+                        url: detail.url || '',  // Capture URL for heading display
+                        type: detail.type,
+                        post_id: detail.post_id,
+                        images: []
+                    };
+                    console.log('GROUPING-DEBUG: [Frontend] Created new group:', groupKey, '- Title:', detail.title, '- URL:', detail.url);
+                }
+
+                groups[groupKey].images.push(image);
+            });
         });
-    });
 
-    console.log('GROUPING-DEBUG: [Frontend] Final groups structure:', groups);
-    return groups;
-}
+        console.log('GROUPING-DEBUG: [Frontend] Final groups structure:', groups);
+        return groups;
+    }
 
-/**
- * Add a heading row for a post/page group
- * @param {string} title - Page/post title 
- * @param {string} url - Page/post URL
- * @param {string} type - 'post' or 'page'
- */
-function addHeadingRow(title, url, type) {
-    console.log('GROUPING-DEBUG: [Frontend] Adding heading row - Title:', title, 'URL:', url, 'Type:', type);
+    /**
+     * Add a heading row for a post/page group
+     * @param {string} title - Page/post title 
+     * @param {string} url - Page/post URL
+     * @param {string} type - 'post' or 'page'
+     */
+    function addHeadingRow(title, url, type) {
+        console.log('GROUPING-DEBUG: [Frontend] Adding heading row - Title:', title, 'URL:', url, 'Type:', type);
 
-    const typeLabel = type === 'post' ? 'Post' : 'Page';
-    const cssClass = type === 'post' ? 'post-type' : 'page-type';
+        const typeLabel = type === 'post' ? 'Post' : 'Page';
+        const cssClass = type === 'post' ? 'post-type' : 'page-type';
 
-    // Build heading with URL as main text and title as subtitle
-    const $headingRow = $(`
+        // Build heading with URL as main text and title as subtitle
+        const $headingRow = $(`
             <tr class="post-page-heading ${cssClass}">
                 <td colspan="5">
                     <div class="page-header-content">
@@ -1249,1102 +1248,1102 @@ function addHeadingRow(title, url, type) {
             </tr>
         `);
 
-    $resultsTbody.append($headingRow);
-    console.log('GROUPING-DEBUG: [Frontend] Heading row added successfully');
-}
+        $resultsTbody.append($headingRow);
+        console.log('GROUPING-DEBUG: [Frontend] Heading row added successfully');
+    }
 
-/**
- * Render pagination controls
- */
-function renderPagination(images) {
-    console.log('FEATURE-DEBUG: === renderPagination() called ===');
+    /**
+     * Render pagination controls
+     */
+    function renderPagination(images) {
+        console.log('FEATURE-DEBUG: === renderPagination() called ===');
 
-    const totalPages = Math.ceil(images.length / itemsPerPage);
+        const totalPages = Math.ceil(images.length / itemsPerPage);
 
-    if (totalPages <= 1) {
+        if (totalPages <= 1) {
+            $('#pagination-controls').remove();
+            return;
+        }
+
+        let paginationHtml = '<div id="pagination-controls" style="margin-top: 20px; text-align: center;">';
+        paginationHtml += '<div class="tablenav"><div class="tablenav-pages">';
+        paginationHtml += '<span class="displaying-num">' + images.length + ' items</span>';
+
+        // Previous button
+        if (currentPage > 1) {
+            paginationHtml += '<a class="prev-page button" data-page="' + (currentPage - 1) + '">‹ Previous</a>';
+        } else {
+            paginationHtml += '<span class="prev-page button disabled">‹ Previous</span>';
+        }
+
+        // Page numbers
+        paginationHtml += '<span class="paging-input">';
+        paginationHtml += '<label for="current-page-selector" class="screen-reader-text">Current Page</label>';
+        paginationHtml += '<input class="current-page" id="current-page-selector" type="text" name="paged" value="' + currentPage + '" size="2" aria-describedby="table-paging">';
+        paginationHtml += '<span class="tablenav-paging-text"> of <span class="total-pages">' + totalPages + '</span></span>';
+        paginationHtml += '</span>';
+
+        // Next button  
+        if (currentPage < totalPages) {
+            paginationHtml += '<a class="next-page button" data-page="' + (currentPage + 1) + '">Next ›</a>';
+        } else {
+            paginationHtml += '<span class="next-page button disabled">Next ›</span>';
+        }
+
+        paginationHtml += '</div></div></div>';
+
+        // Remove existing pagination and add new
         $('#pagination-controls').remove();
-        return;
-    }
+        $resultsTable.after(paginationHtml);
 
-    let paginationHtml = '<div id="pagination-controls" style="margin-top: 20px; text-align: center;">';
-    paginationHtml += '<div class="tablenav"><div class="tablenav-pages">';
-    paginationHtml += '<span class="displaying-num">' + images.length + ' items</span>';
-
-    // Previous button
-    if (currentPage > 1) {
-        paginationHtml += '<a class="prev-page button" data-page="' + (currentPage - 1) + '">‹ Previous</a>';
-    } else {
-        paginationHtml += '<span class="prev-page button disabled">‹ Previous</span>';
-    }
-
-    // Page numbers
-    paginationHtml += '<span class="paging-input">';
-    paginationHtml += '<label for="current-page-selector" class="screen-reader-text">Current Page</label>';
-    paginationHtml += '<input class="current-page" id="current-page-selector" type="text" name="paged" value="' + currentPage + '" size="2" aria-describedby="table-paging">';
-    paginationHtml += '<span class="tablenav-paging-text"> of <span class="total-pages">' + totalPages + '</span></span>';
-    paginationHtml += '</span>';
-
-    // Next button  
-    if (currentPage < totalPages) {
-        paginationHtml += '<a class="next-page button" data-page="' + (currentPage + 1) + '">Next ›</a>';
-    } else {
-        paginationHtml += '<span class="next-page button disabled">Next ›</span>';
-    }
-
-    paginationHtml += '</div></div></div>';
-
-    // Remove existing pagination and add new
-    $('#pagination-controls').remove();
-    $resultsTable.after(paginationHtml);
-
-    // Bind click events
-    $('.prev-page, .next-page').on('click', function (e) {
-        e.preventDefault();
-        if (!$(this).hasClass('disabled')) {
-            currentPage = parseInt($(this).data('page'));
-            renderResults(images);
-            $('html, body').animate({ scrollTop: $resultsTable.offset().top - 100 }, 300);
-        }
-    });
-
-    // Page input change
-    $('#current-page-selector').on('change', function () {
-        const newPage = parseInt($(this).val());
-        if (newPage >= 1 && newPage <= totalPages) {
-            currentPage = newPage;
-            renderResults(images);
-            $('html, body').animate({ scrollTop: $resultsTable.offset().top - 100 }, 300);
-        } else {
-            $(this).val(currentPage);
-        }
-    });
-}
-/**
- * Add a result row to the table
- */
-function addResultRow(image, rowNumber) {
-
-
-    const template = document.getElementById('result-row-template');
-    const clone = template.content.cloneNode(true);
-    const $row = $(clone.querySelector('.result-row'));
-
-    // Set data
-    $row.attr('data-attachment-id', image.id);
-    $row.attr('data-issue-type', image.issue_type);
-    $row.find('.row-number').text(rowNumber);
-    $row.find('.attachment-thumbnail').attr('src', image.thumbnail);
-    $row.find('.image-filename').text(image.filename);
-    $row.find('.row-current-alt .alt-text').text(image.current_alt || 'Empty');
-
-    // Store original alt text in row data for live updates
-    $row.data('original-alt', image.current_alt || 'Empty');
-
-    // CRITICAL: Restore AI suggestion from array if it exists (persists across filter changes)
-    if (image.ai_suggestion) {
-        $row.find('.alt-text-editable').text(image.ai_suggestion);
-        $row.find('.char-count').text(image.ai_suggestion.length);
-        $row.find('.apply-btn').prop('disabled', false); // Enable Apply button
-        $row.find('.loading-indicator').hide();
-        $row.data('ai-suggestion', image.ai_suggestion); // Store for validation skip
-    } else {
-        // No suggestion yet - START WITH EMPTY INPUT (no placeholder)
-        $row.find('.alt-text-editable').text(''); // Empty, not placeholder
-        $row.find('.apply-btn').prop('disabled', true);
-        $row.find('.loading-indicator').show();
-    }
-
-    // Append to table (score columns removed)
-    $resultsTbody.append($row);
-
-    // Attach event handlers (all images treated equally now)
-    attachRowHandlers($row, image);
-}
-
-/**
- * Attach event handlers to a row
- */
-function attachRowHandlers($row, image) {
-    const attachmentId = image.id;
-
-    // Apply button
-    $row.find('.apply-btn').on('click', function () {
-        const $btn = $(this);
-        const altText = $row.find('.alt-text-editable').text().trim();
-
-        // Double-check text exists
-        if (!altText || altText.length === 0) {
-            showToast('Please enter alt text before applying', 'error');
-            return;
-        }
-
-        applyAltText(attachmentId, altText, $row, $btn);
-    });
-
-    // Generate button - NEW INDIVIDUAL GENERATE FEATURE
-    // Disable if no API key
-    if (!imageSeoData.hasApiKey) {
-        $row.find('.generate-btn').prop('disabled', true).css('opacity', '0.5');
-    }
-
-    $row.find('.generate-btn').on('click', function () {
-        // Check if API key is configured
-        if (!imageSeoData.hasApiKey) {
-            showToast('OpenAI API key not configured', 'error');
-            return;
-        }
-
-        // Check if already generating
-        if ($row.find('.loading-indicator').is(':visible')) {
-            return;
-        }
-
-        const $editable = $row.find('.alt-text-editable');
-        const $generateBtn = $(this);
-
-        // Disable button and show loading
-        $generateBtn.prop('disabled', true);
-        $editable.html('');
-        $row.find('.loading-indicator').show();
-
-        // Generate AI suggestion (FORCE REFRESH = true)
-        generateSuggestion(attachmentId, $row, true);
-    });
-
-    // Skip button
-    $row.find('.skip-btn').on('click', function () {
-        skipImage(attachmentId, $row);
-    });
-
-    // UX-IMPROVEMENT: Removed click-on-row feature to generate AI
-
-    // Delete button click handler
-    $row.find('.delete-btn').on('click', function () {
-        const imageUrl = $row.find('.attachment-thumbnail').attr('src');
-        const imageTitle = $row.find('.attachment-title').text();
-
-        const message = `Are you sure you want to delete "${imageTitle}"?\n\nDownload image first (recommended):\n${imageUrl}\n\nThis action cannot be undone.`;
-
-        if (confirm(message)) {
-            deleteImage(attachmentId, $row);
-        }
-    });
-
-    // Editable alt text input handling
-    const $editable = $row.find('.alt-text-editable');
-
-    $editable.on('input', function () {
-        const text = $(this).text();
-        const charCount = text.length;
-        $row.find('.char-count').text(charCount);
-
-        // LIVE UPDATE: Show typed text in "Current Alt Text" column
-        const $currentAltDisplay = $row.find('.row-current-alt .alt-text');
-        if (text.trim().length > 0) {
-            $currentAltDisplay.text(text);
-            $currentAltDisplay.css('color', '#2271b1'); // Blue to indicate it's being edited
-        } else {
-            // If empty, show original alt text
-            const originalAlt = $row.data('original-alt') || 'Empty';
-            $currentAltDisplay.text(originalAlt);
-            $currentAltDisplay.css('color', ''); // Reset to default color
-        }
-
-        // Enable/disable Apply button based on content
-        $row.find('.apply-btn').prop('disabled', charCount === 0);
-
-        // Update Bulk Apply button state
-        updateBulkApplyButtonState();
-    });
-
-    $editable.on('blur', function () {
-        const altText = $(this).text().trim();
-        if (altText) {
-            rescoreAltText(attachmentId, altText, $row);
-        }
-    });
-}
-
-/**
- * Generate AI suggestions for all images
-
-
-/**
-
-/**
- * Generate AI suggestion for an image
- */
-function generateSuggestion(attachmentId, $row, force = false) {
-    console.log(`DEBUG-FLOW: === generateSuggestion(force=${force}) ===`);
-
-    // Skip if no API key
-    if (!imageSeoData.hasApiKey) {
-        $row.find('.loading-indicator').hide();
-        $row.find('.alt-text-editable')
-            .html('<em style="color: #999;">Manual entry required (no API key)</em>')
-            .show();
-        $row.find('.apply-btn').prop('disabled', false);
-        // Re-enable generate button
-        $row.find('.generate-btn').prop('disabled', false);
-        return;
-    }
-
-    $.ajax({
-        url: imageSeoData.ajaxUrl,
-        type: 'POST',
-        data: {
-            action: 'imageseo_generate',
-            nonce: imageSeoData.nonce,
-            attachment_id: attachmentId,
-            force: force // Send force parameter
-        },
-        success: function (response) {
-            if (response.success) {
-                const altText = response.data.alt_text;
-                $row.find('.loading-indicator').hide();
-                $row.find('.alt-text-editable').text(altText).show();
-                $row.find('.char-count').text(altText.length);
-
-                // Enable Apply button now that suggestion is ready
-                $row.find('.apply-btn').prop('disabled', false);
-
-                // Update Bulk Apply button state
-                updateBulkApplyButtonState();
-
-                // Score both original and suggested
-                scoreOriginal(attachmentId, $row);
-                scoreSuggested(attachmentId, altText, $row);
-            } else {
-                $row.find('.loading-indicator').hide();
-                $row.find('.alt-text-editable').text('Error generating suggestion').show();
+        // Bind click events
+        $('.prev-page, .next-page').on('click', function (e) {
+            e.preventDefault();
+            if (!$(this).hasClass('disabled')) {
+                currentPage = parseInt($(this).data('page'));
+                renderResults(images);
+                $('html, body').animate({ scrollTop: $resultsTable.offset().top - 100 }, 300);
             }
-            // Re-enable generate button
-            $row.find('.generate-btn').prop('disabled', false);
-        },
-        error: function () {
+        });
+
+        // Page input change
+        $('#current-page-selector').on('change', function () {
+            const newPage = parseInt($(this).val());
+            if (newPage >= 1 && newPage <= totalPages) {
+                currentPage = newPage;
+                renderResults(images);
+                $('html, body').animate({ scrollTop: $resultsTable.offset().top - 100 }, 300);
+            } else {
+                $(this).val(currentPage);
+            }
+        });
+    }
+    /**
+     * Add a result row to the table
+     */
+    function addResultRow(image, rowNumber) {
+
+
+        const template = document.getElementById('result-row-template');
+        const clone = template.content.cloneNode(true);
+        const $row = $(clone.querySelector('.result-row'));
+
+        // Set data
+        $row.attr('data-attachment-id', image.id);
+        $row.attr('data-issue-type', image.issue_type);
+        $row.find('.row-number').text(rowNumber);
+        $row.find('.attachment-thumbnail').attr('src', image.thumbnail);
+        $row.find('.image-filename').text(image.filename);
+        $row.find('.row-current-alt .alt-text').text(image.current_alt || 'Empty');
+
+        // Store original alt text in row data for live updates
+        $row.data('original-alt', image.current_alt || 'Empty');
+
+        // CRITICAL: Restore AI suggestion from array if it exists (persists across filter changes)
+        if (image.ai_suggestion) {
+            $row.find('.alt-text-editable').text(image.ai_suggestion);
+            $row.find('.char-count').text(image.ai_suggestion.length);
+            $row.find('.apply-btn').prop('disabled', false); // Enable Apply button
             $row.find('.loading-indicator').hide();
-            $row.find('.alt-text-editable').text('Error generating suggestion').show();
+            $row.data('ai-suggestion', image.ai_suggestion); // Store for validation skip
+        } else {
+            // No suggestion yet - START WITH EMPTY INPUT (no placeholder)
+            $row.find('.alt-text-editable').text(''); // Empty, not placeholder
+            $row.find('.apply-btn').prop('disabled', true);
+            $row.find('.loading-indicator').show();
+        }
+
+        // Append to table (score columns removed)
+        $resultsTbody.append($row);
+
+        // Attach event handlers (all images treated equally now)
+        attachRowHandlers($row, image);
+    }
+
+    /**
+     * Attach event handlers to a row
+     */
+    function attachRowHandlers($row, image) {
+        const attachmentId = image.id;
+
+        // Apply button
+        $row.find('.apply-btn').on('click', function () {
+            const $btn = $(this);
+            const altText = $row.find('.alt-text-editable').text().trim();
+
+            // Double-check text exists
+            if (!altText || altText.length === 0) {
+                showToast('Please enter alt text before applying', 'error');
+                return;
+            }
+
+            applyAltText(attachmentId, altText, $row, $btn);
+        });
+
+        // Generate button - NEW INDIVIDUAL GENERATE FEATURE
+        // Disable if no API key
+        if (!imageSeoData.hasApiKey) {
+            $row.find('.generate-btn').prop('disabled', true).css('opacity', '0.5');
+        }
+
+        $row.find('.generate-btn').on('click', function () {
+            // Check if API key is configured
+            if (!imageSeoData.hasApiKey) {
+                showToast('OpenAI API key not configured', 'error');
+                return;
+            }
+
+            // Check if already generating
+            if ($row.find('.loading-indicator').is(':visible')) {
+                return;
+            }
+
+            const $editable = $row.find('.alt-text-editable');
+            const $generateBtn = $(this);
+
+            // Disable button and show loading
+            $generateBtn.prop('disabled', true);
+            $editable.html('');
+            $row.find('.loading-indicator').show();
+
+            // Generate AI suggestion (FORCE REFRESH = true)
+            generateSuggestion(attachmentId, $row, true);
+        });
+
+        // Skip button
+        $row.find('.skip-btn').on('click', function () {
+            skipImage(attachmentId, $row);
+        });
+
+        // UX-IMPROVEMENT: Removed click-on-row feature to generate AI
+
+        // Delete button click handler
+        $row.find('.delete-btn').on('click', function () {
+            const imageUrl = $row.find('.attachment-thumbnail').attr('src');
+            const imageTitle = $row.find('.attachment-title').text();
+
+            const message = `Are you sure you want to delete "${imageTitle}"?\n\nDownload image first (recommended):\n${imageUrl}\n\nThis action cannot be undone.`;
+
+            if (confirm(message)) {
+                deleteImage(attachmentId, $row);
+            }
+        });
+
+        // Editable alt text input handling
+        const $editable = $row.find('.alt-text-editable');
+
+        $editable.on('input', function () {
+            const text = $(this).text();
+            const charCount = text.length;
+            $row.find('.char-count').text(charCount);
+
+            // LIVE UPDATE: Show typed text in "Current Alt Text" column
+            const $currentAltDisplay = $row.find('.row-current-alt .alt-text');
+            if (text.trim().length > 0) {
+                $currentAltDisplay.text(text);
+                $currentAltDisplay.css('color', '#2271b1'); // Blue to indicate it's being edited
+            } else {
+                // If empty, show original alt text
+                const originalAlt = $row.data('original-alt') || 'Empty';
+                $currentAltDisplay.text(originalAlt);
+                $currentAltDisplay.css('color', ''); // Reset to default color
+            }
+
+            // Enable/disable Apply button based on content
+            $row.find('.apply-btn').prop('disabled', charCount === 0);
+
+            // Update Bulk Apply button state
+            updateBulkApplyButtonState();
+        });
+
+        $editable.on('blur', function () {
+            const altText = $(this).text().trim();
+            if (altText) {
+                rescoreAltText(attachmentId, altText, $row);
+            }
+        });
+    }
+
+    /**
+     * Generate AI suggestions for all images
+    
+    
+    /**
+    
+    /**
+     * Generate AI suggestion for an image
+     */
+    function generateSuggestion(attachmentId, $row, force = false) {
+        console.log(`DEBUG-FLOW: === generateSuggestion(force=${force}) ===`);
+
+        // Skip if no API key
+        if (!imageSeoData.hasApiKey) {
+            $row.find('.loading-indicator').hide();
+            $row.find('.alt-text-editable')
+                .html('<em style="color: #999;">Manual entry required (no API key)</em>')
+                .show();
+            $row.find('.apply-btn').prop('disabled', false);
             // Re-enable generate button
             $row.find('.generate-btn').prop('disabled', false);
-        }
-    });
-}
-
-/**
- * Start bulk generation with progress tracking
- */
-function startBulkGeneration(imagesToGenerate) {
-    console.log('BULK-GEN: Starting PARALLEL generation for', imagesToGenerate.length, 'images');
-
-    // Reset state
-    isGenerating = true;
-    generationCancelled = false;
-    totalToGenerate = imagesToGenerate.length;
-    generatedCount = 0;
-
-    // Disable filter radio buttons
-    $('input[name="image-filter"]').prop('disabled', true);
-    console.log('BULK-GEN: Disabled filter radio buttons');
-
-    // Show progress bar
-    $('#bulk-generation-progress').show();
-    updateProgress();
-
-    // Generate ALL images in PARALLEL
-    generateAllImagesParallel(imagesToGenerate);
-}
-
-/**
- * Generate ALL images in parallel for faster processing
- */
-function generateAllImagesParallel(images) {
-    console.log('BULK-GEN-PARALLEL: Sending', images.length, 'API requests simultaneously');
-
-    let completedCount = 0;
-
-    images.forEach((image, index) => {
-        // Check if already cancelled before starting
-        if (generationCancelled) {
             return;
         }
 
-        const $row = $resultsTbody.find(`tr[data-attachment-id="${image.id}"]`);
-
-        // Show loading state
-        $row.find('.alt-text-editable').text('');
-        $row.find('.loading-indicator').show();
-
-        // Send API request (all run in parallel)
         $.ajax({
             url: imageSeoData.ajaxUrl,
             type: 'POST',
             data: {
                 action: 'imageseo_generate',
                 nonce: imageSeoData.nonce,
-                attachment_id: image.id
+                attachment_id: attachmentId,
+                force: force // Send force parameter
             },
             success: function (response) {
-                completedCount++;
-
-                if (response.success && !generationCancelled) {
+                if (response.success) {
                     const altText = response.data.alt_text;
-
-                    // Update row
                     $row.find('.loading-indicator').hide();
-                    $row.find('.alt-text-editable').text(altText);
+                    $row.find('.alt-text-editable').text(altText).show();
+                    $row.find('.char-count').text(altText.length);
+
+                    // Enable Apply button now that suggestion is ready
                     $row.find('.apply-btn').prop('disabled', false);
-                    $row.data('ai-suggestion', altText);
 
-                    // Update image in scannedImages array
-                    const imgIndex = scannedImages.findIndex(img => parseInt(img.id) === parseInt(image.id));
-                    if (imgIndex !== -1) {
-                        scannedImages[imgIndex].ai_suggestion = altText;
-                    }
-
-                    generatedCount++;
-                    updateProgress();
+                    // Update Bulk Apply button state
                     updateBulkApplyButtonState();
 
-                    console.log(`BULK-GEN-PARALLEL: Completed ${completedCount}/${images.length} (${generatedCount} successful)`);
+                    // Score both original and suggested
+                    scoreOriginal(attachmentId, $row);
+                    scoreSuggested(attachmentId, altText, $row);
+                } else {
+                    $row.find('.loading-indicator').hide();
+                    $row.find('.alt-text-editable').text('Error generating suggestion').show();
                 }
-
-                // Check if all are complete
-                if (completedCount >= images.length) {
-                    console.log('BULK-GEN-PARALLEL: All requests completed!');
-                    endBulkGeneration(false);
-                    showToast(`Generated alt text for ${completedCount} images`, 'success');
-                }
+                // Re-enable generate button
+                $row.find('.generate-btn').prop('disabled', false);
             },
             error: function () {
-                completedCount++;
-                console.error('BULK-GEN-PARALLEL: Error generating for image', image.id);
                 $row.find('.loading-indicator').hide();
-                $row.find('.alt-text-editable').text('Error');
+                $row.find('.alt-text-editable').text('Error generating suggestion').show();
+                // Re-enable generate button
+                $row.find('.generate-btn').prop('disabled', false);
+            }
+        });
+    }
 
-                // Check if all are complete (even with errors)
-                if (completedCount >= images.length) {
-                    console.log('BULK-GEN-PARALLEL: All requests completed (with some errors)!');
-                    endBulkGeneration(false);
-                    showToast(`Generated alt text for ${generatedCount} images`, 'success');
+    /**
+     * Start bulk generation with progress tracking
+     */
+    function startBulkGeneration(imagesToGenerate) {
+        console.log('BULK-GEN: Starting PARALLEL generation for', imagesToGenerate.length, 'images');
+
+        // Reset state
+        isGenerating = true;
+        generationCancelled = false;
+        totalToGenerate = imagesToGenerate.length;
+        generatedCount = 0;
+
+        // Disable filter radio buttons
+        $('input[name="image-filter"]').prop('disabled', true);
+        console.log('BULK-GEN: Disabled filter radio buttons');
+
+        // Show progress bar
+        $('#bulk-generation-progress').show();
+        updateProgress();
+
+        // Generate ALL images in PARALLEL
+        generateAllImagesParallel(imagesToGenerate);
+    }
+
+    /**
+     * Generate ALL images in parallel for faster processing
+     */
+    function generateAllImagesParallel(images) {
+        console.log('BULK-GEN-PARALLEL: Sending', images.length, 'API requests simultaneously');
+
+        let completedCount = 0;
+
+        images.forEach((image, index) => {
+            // Check if already cancelled before starting
+            if (generationCancelled) {
+                return;
+            }
+
+            const $row = $resultsTbody.find(`tr[data-attachment-id="${image.id}"]`);
+
+            // Show loading state
+            $row.find('.alt-text-editable').text('');
+            $row.find('.loading-indicator').show();
+
+            // Send API request (all run in parallel)
+            $.ajax({
+                url: imageSeoData.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'imageseo_generate',
+                    nonce: imageSeoData.nonce,
+                    attachment_id: image.id
+                },
+                success: function (response) {
+                    completedCount++;
+
+                    if (response.success && !generationCancelled) {
+                        const altText = response.data.alt_text;
+
+                        // Update row
+                        $row.find('.loading-indicator').hide();
+                        $row.find('.alt-text-editable').text(altText);
+                        $row.find('.apply-btn').prop('disabled', false);
+                        $row.data('ai-suggestion', altText);
+
+                        // Update image in scannedImages array
+                        const imgIndex = scannedImages.findIndex(img => parseInt(img.id) === parseInt(image.id));
+                        if (imgIndex !== -1) {
+                            scannedImages[imgIndex].ai_suggestion = altText;
+                        }
+
+                        generatedCount++;
+                        updateProgress();
+                        updateBulkApplyButtonState();
+
+                        console.log(`BULK-GEN-PARALLEL: Completed ${completedCount}/${images.length} (${generatedCount} successful)`);
+                    }
+
+                    // Check if all are complete
+                    if (completedCount >= images.length) {
+                        console.log('BULK-GEN-PARALLEL: All requests completed!');
+                        endBulkGeneration(false);
+                        showToast(`Generated alt text for ${completedCount} images`, 'success');
+                    }
+                },
+                error: function () {
+                    completedCount++;
+                    console.error('BULK-GEN-PARALLEL: Error generating for image', image.id);
+                    $row.find('.loading-indicator').hide();
+                    $row.find('.alt-text-editable').text('Error');
+
+                    // Check if all are complete (even with errors)
+                    if (completedCount >= images.length) {
+                        console.log('BULK-GEN-PARALLEL: All requests completed (with some errors)!');
+                        endBulkGeneration(false);
+                        showToast(`Generated alt text for ${generatedCount} images`, 'success');
+                    }
+                }
+            });
+        });
+    }
+
+    /**
+     * Update progress bar and counter
+     */
+    function updateProgress() {
+        const percentage = totalToGenerate > 0 ? (generatedCount / totalToGenerate) * 100 : 0;
+
+        $('#progress-text').text(`Generating: ${generatedCount} of ${totalToGenerate} images`);
+        $('#progress-bar-fill').css('width', percentage + '%');
+
+        console.log('BULK-GEN: Progress:', generatedCount, '/', totalToGenerate, '(' + percentage.toFixed(1) + '%)');
+    }
+
+    /**
+     * End bulk generation and clean up
+     */
+    function endBulkGeneration(wasCancelled) {
+        console.log('BULK-GEN: Ending generation, cancelled:', wasCancelled);
+
+        // Reset state
+        isGenerating = false;
+        generationCancelled = false;
+        totalToGenerate = 0;
+        generatedCount = 0;
+
+        // Hide progress bar
+        $('#bulk-generation-progress').hide();
+        $('#progress-bar-fill').css('width', '0%');
+
+        // Re-enable filter radio buttons
+        $('input[name="image-filter"]').prop('disabled', false);
+        console.log('BULK-GEN: Re-enabled filter radio buttons');
+
+        // Show Clear All button container if generation completed successfully (not cancelled)
+        if (!wasCancelled && checkForUnsavedSuggestions()) {
+            $('#clear-suggestions-container').show();
+            console.log('BULK-GEN: Showing Clear All button');
+        }
+
+        // Update Bulk Apply button state
+        updateBulkApplyButtonState();
+    }
+
+    /**
+     * Clear all generated suggestions (on cancel)
+     */
+
+
+    /**
+     * Check if there are any unsaved AI suggestions
+     */
+    function checkForUnsavedSuggestions() {
+        let unsavedCount = 0;
+
+        $resultsTbody.find('tr.result-row:visible').each(function () {
+            const $row = $(this);
+            const aiSuggestion = $row.data('ai-suggestion');
+            const currentAlt = $row.data('original-alt') || '';
+
+            // Only count as unsaved if:
+            // 1. AI suggestion exists
+            // 2. It's different from the current alt text (hasn't been applied)
+            if (aiSuggestion && aiSuggestion.length > 0 && aiSuggestion !== currentAlt) {
+                unsavedCount++;
+            }
+        });
+
+        console.log('UNSAVED-CHECK: Found', unsavedCount, 'unsaved AI suggestions');
+        return unsavedCount > 0;
+    }
+
+    /**
+     * Clear ALL AI suggestions and hide Clear button
+     */
+    function clearAllAISuggestions() {
+        console.log('CLEAR-ALL: Clearing all AI suggestions from table and memory');
+
+        let clearedCount = 0;
+
+        // Clear from ALL rows (visible or not)
+        $resultsTbody.find('tr.result-row').each(function () {
+            const $row = $(this);
+
+            if ($row.data('ai-suggestion')) {
+                $row.find('.alt-text-editable').text('');
+                $row.find('.apply-btn').prop('disabled', true);
+                $row.data('ai-suggestion', '');
+                $row.find('.loading-indicator').hide();
+
+                clearedCount++;
+            }
+        });
+
+        // Clear from scannedImages array
+        scannedImages.forEach(img => {
+            if (img.ai_suggestion) {
+                delete img.ai_suggestion;
+            }
+        });
+
+        console.log('CLEAR-ALL: Cleared', clearedCount, 'suggestions');
+
+        // Hide Clear All button container
+        $('#clear-suggestions-container').hide();
+
+        // Update Bulk Apply button state
+        updateBulkApplyButtonState();
+    }
+
+    /**
+     * Get the last NON-EMPTY alt text from an image's history
+     * This is critical for CSV export - we want the last actual value, not empty states
+     */
+    function getLastNonEmptyAltText(attachmentId) {
+        const imgIndex = scannedImages.findIndex(img => parseInt(img.id) === parseInt(attachmentId));
+
+        if (imgIndex === -1) {
+            return '';  // Image not found
+        }
+
+        const image = scannedImages[imgIndex];
+
+        // Current alt text (before applying new one)
+        const currentAlt = image.current_alt || '';
+
+        // If current is not empty, use it
+        if (currentAlt.trim().length > 0) {
+            return currentAlt;
+        }
+
+        // Otherwise, check if there's a history
+        // NOTE: In the current implementation, we don't store full history in scannedImages
+        // So if current is empty, we return empty
+        // The backend should handle this via the database history
+        return '';
+    }
+
+    // scoreOriginal() removed - SEO scoring feature disabled
+
+    // scoreSuggested() removed - SEO scoring feature disabled
+
+    /**
+     * Delete unused image
+     */
+    function deleteImage(attachmentId, $row) {
+        console.log('FEATURE-DELETE: Deleting image ID:', attachmentId);
+        $row.find('.action-status').html('<span class="spinner is-active"></span> Deleting...');
+
+        $.ajax({
+            url: imageSeoData.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'imageseo_delete_image',
+                nonce: imageSeoData.nonce,
+                attachment_id: attachmentId
+            },
+            beforeSend: function (xhr, settings) {
+                console.log('FEATURE-DELETE: AJAX request starting...');
+                console.log('FEATURE-DELETE: Request data:', settings.data);
+            },
+            success: function (response) {
+
+                if (response.success) {
+                    console.log('FEATURE-DELETE: Backend confirmed deletion');
+
+                    // Remove from scannedImages array
+                    scannedImages = scannedImages.filter(img => img.id !== attachmentId);
+                    console.log('FEATURE-DELETE: Removed from scannedImages array. New count:', scannedImages.length);
+
+                    // Remove row from UI
+                    $row.fadeOut(300, function () {
+                        $(this).remove();
+                    });
+
+                    showToast('Image deleted successfully', 'success');
+
+                    // Refresh stats after deletion
+                    console.log('FEATURE-DELETE: Refreshing stats...');
+                    loadInitialStats();
+                } else {
+                    console.error('FEATURE-DELETE: Backend returned error:', response.data);
+                    showToast('Failed to delete: ' + (response.data.message || 'Unknown error'), 'error');
+                }
+                $row.find('.action-status').html('');
+            },
+            error: function (xhr, status, error) {
+                console.error('FEATURE-DELETE: AJAX error occurred');
+                console.error('FEATURE-DELETE: XHR status:', status);
+                console.error('FEATURE-DELETE: Error:', error);
+                console.error('FEATURE-DELETE: XHR response:', xhr.responseText);
+                console.error('FEATURE-DELETE: XHR full object:', xhr);
+                showToast('Failed to delete image', 'error');
+                $row.find('.action-status').html('');
+            }
+        });
+    }
+
+    /**
+     * Re-score alt text after editing
+     */
+    function rescoreAltText(attachmentId, altText, $row) {
+        // Scoring is now local, so always enabled
+
+        $row.find('.row-score-after').html('<span class="spinner is-active"></span>');
+
+        $.ajax({
+            url: imageSeoData.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'imageseo_score',
+                nonce: imageSeoData.nonce,
+                attachment_id: attachmentId,
+                alt_text: altText
+            },
+            success: function (response) {
+                if (response.success && response.data.score) {
+                    const scoreData = response.data.score;
+                    const score = scoreData.score || scoreData;
+                    $row.find('.row-score-after').html(getScoreBadge(score));
+                    $row.attr('data-score', score);
                 }
             }
         });
-    });
-}
-
-/**
- * Update progress bar and counter
- */
-function updateProgress() {
-    const percentage = totalToGenerate > 0 ? (generatedCount / totalToGenerate) * 100 : 0;
-
-    $('#progress-text').text(`Generating: ${generatedCount} of ${totalToGenerate} images`);
-    $('#progress-bar-fill').css('width', percentage + '%');
-
-    console.log('BULK-GEN: Progress:', generatedCount, '/', totalToGenerate, '(' + percentage.toFixed(1) + '%)');
-}
-
-/**
- * End bulk generation and clean up
- */
-function endBulkGeneration(wasCancelled) {
-    console.log('BULK-GEN: Ending generation, cancelled:', wasCancelled);
-
-    // Reset state
-    isGenerating = false;
-    generationCancelled = false;
-    totalToGenerate = 0;
-    generatedCount = 0;
-
-    // Hide progress bar
-    $('#bulk-generation-progress').hide();
-    $('#progress-bar-fill').css('width', '0%');
-
-    // Re-enable filter radio buttons
-    $('input[name="image-filter"]').prop('disabled', false);
-    console.log('BULK-GEN: Re-enabled filter radio buttons');
-
-    // Show Clear All button container if generation completed successfully (not cancelled)
-    if (!wasCancelled && checkForUnsavedSuggestions()) {
-        $('#clear-suggestions-container').show();
-        console.log('BULK-GEN: Showing Clear All button');
     }
 
-    // Update Bulk Apply button state
-    updateBulkApplyButtonState();
-}
+    /**
+     * Apply alt text with intelligent validation
+     */
+    function applyAltText(attachmentId, altText, $row, $btn) {
 
-/**
- * Clear all generated suggestions (on cancel)
- */
-
-
-/**
- * Check if there are any unsaved AI suggestions
- */
-function checkForUnsavedSuggestions() {
-    let unsavedCount = 0;
-
-    $resultsTbody.find('tr.result-row:visible').each(function () {
-        const $row = $(this);
-        const aiSuggestion = $row.data('ai-suggestion');
-        const currentAlt = $row.data('original-alt') || '';
-
-        // Only count as unsaved if:
-        // 1. AI suggestion exists
-        // 2. It's different from the current alt text (hasn't been applied)
-        if (aiSuggestion && aiSuggestion.length > 0 && aiSuggestion !== currentAlt) {
-            unsavedCount++;
-        }
-    });
-
-    console.log('UNSAVED-CHECK: Found', unsavedCount, 'unsaved AI suggestions');
-    return unsavedCount > 0;
-}
-
-/**
- * Clear ALL AI suggestions and hide Clear button
- */
-function clearAllAISuggestions() {
-    console.log('CLEAR-ALL: Clearing all AI suggestions from table and memory');
-
-    let clearedCount = 0;
-
-    // Clear from ALL rows (visible or not)
-    $resultsTbody.find('tr.result-row').each(function () {
-        const $row = $(this);
-
-        if ($row.data('ai-suggestion')) {
-            $row.find('.alt-text-editable').text('');
-            $row.find('.apply-btn').prop('disabled', true);
-            $row.data('ai-suggestion', '');
-            $row.find('.loading-indicator').hide();
-
-            clearedCount++;
-        }
-    });
-
-    // Clear from scannedImages array
-    scannedImages.forEach(img => {
-        if (img.ai_suggestion) {
-            delete img.ai_suggestion;
-        }
-    });
-
-    console.log('CLEAR-ALL: Cleared', clearedCount, 'suggestions');
-
-    // Hide Clear All button container
-    $('#clear-suggestions-container').hide();
-
-    // Update Bulk Apply button state
-    updateBulkApplyButtonState();
-}
-
-/**
- * Get the last NON-EMPTY alt text from an image's history
- * This is critical for CSV export - we want the last actual value, not empty states
- */
-function getLastNonEmptyAltText(attachmentId) {
-    const imgIndex = scannedImages.findIndex(img => parseInt(img.id) === parseInt(attachmentId));
-
-    if (imgIndex === -1) {
-        return '';  // Image not found
+        // SIMPLIFIED: Always apply directly without validation
+        console.log('APPLY-DEBUG: [Frontend] Applying alt text directly (no validation)');
+        applyAltTextDirect(attachmentId, altText, $row, $btn, 0);
     }
 
-    const image = scannedImages[imgIndex];
+    /**
+     * Apply low-score alt text (no validation, keep in table)
+     */
 
-    // Current alt text (before applying new one)
-    const currentAlt = image.current_alt || '';
+    /**
+     * Apply high-score alt text with AI validation
+     */
 
-    // If current is not empty, use it
-    if (currentAlt.trim().length > 0) {
-        return currentAlt;
-    }
 
-    // Otherwise, check if there's a history
-    // NOTE: In the current implementation, we don't store full history in scannedImages
-    // So if current is empty, we return empty
-    // The backend should handle this via the database history
-    return '';
-}
+    /**
+     * Apply alt text directly (validation passed or not required)
+     */
+    function applyAltTextDirect(attachmentId, altText, $row, $btn) {
+        console.log('========================================');
+        console.log('🔵 APPLY-DEBUG: applyAltTextDirect() called');
+        console.log('🔵 APPLY-DEBUG: Attachment ID:', attachmentId);
+        console.log('🔵 APPLY-DEBUG: Alt text:', altText);
+        console.log('🔵 APPLY-DEBUG: Button element:', $btn);
+        console.log('🔵 APPLY-DEBUG: Row element:', $row);
+        console.log('========================================');
 
-// scoreOriginal() removed - SEO scoring feature disabled
+        // Update button
+        $btn.prop('disabled', true).text('Applying...');
+        console.log('🔵 APPLY-DEBUG: Button disabled and text set to "Applying..."');
 
-// scoreSuggested() removed - SEO scoring feature disabled
-
-/**
- * Delete unused image
- */
-function deleteImage(attachmentId, $row) {
-    console.log('FEATURE-DELETE: Deleting image ID:', attachmentId);
-    $row.find('.action-status').html('<span class="spinner is-active"></span> Deleting...');
-
-    $.ajax({
-        url: imageSeoData.ajaxUrl,
-        type: 'POST',
-        data: {
-            action: 'imageseo_delete_image',
-            nonce: imageSeoData.nonce,
-            attachment_id: attachmentId
-        },
-        beforeSend: function (xhr, settings) {
-            console.log('FEATURE-DELETE: AJAX request starting...');
-            console.log('FEATURE-DELETE: Request data:', settings.data);
-        },
-        success: function (response) {
-
-            if (response.success) {
-                console.log('FEATURE-DELETE: Backend confirmed deletion');
-
-                // Remove from scannedImages array
-                scannedImages = scannedImages.filter(img => img.id !== attachmentId);
-                console.log('FEATURE-DELETE: Removed from scannedImages array. New count:', scannedImages.length);
-
-                // Remove row from UI
-                $row.fadeOut(300, function () {
-                    $(this).remove();
-                });
-
-                showToast('Image deleted successfully', 'success');
-
-                // Refresh stats after deletion
-                console.log('FEATURE-DELETE: Refreshing stats...');
-                loadInitialStats();
-            } else {
-                console.error('FEATURE-DELETE: Backend returned error:', response.data);
-                showToast('Failed to delete: ' + (response.data.message || 'Unknown error'), 'error');
-            }
-            $row.find('.action-status').html('');
-        },
-        error: function (xhr, status, error) {
-            console.error('FEATURE-DELETE: AJAX error occurred');
-            console.error('FEATURE-DELETE: XHR status:', status);
-            console.error('FEATURE-DELETE: Error:', error);
-            console.error('FEATURE-DELETE: XHR response:', xhr.responseText);
-            console.error('FEATURE-DELETE: XHR full object:', xhr);
-            showToast('Failed to delete image', 'error');
-            $row.find('.action-status').html('');
-        }
-    });
-}
-
-/**
- * Re-score alt text after editing
- */
-function rescoreAltText(attachmentId, altText, $row) {
-    // Scoring is now local, so always enabled
-
-    $row.find('.row-score-after').html('<span class="spinner is-active"></span>');
-
-    $.ajax({
-        url: imageSeoData.ajaxUrl,
-        type: 'POST',
-        data: {
-            action: 'imageseo_score',
+        const ajaxData = {
+            action: 'imageseo_apply',
             nonce: imageSeoData.nonce,
             attachment_id: attachmentId,
             alt_text: altText
-        },
-        success: function (response) {
-            if (response.success && response.data.score) {
-                const scoreData = response.data.score;
-                const score = scoreData.score || scoreData;
-                $row.find('.row-score-after').html(getScoreBadge(score));
-                $row.attr('data-score', score);
-            }
-        }
-    });
-}
+        };
 
-/**
- * Apply alt text with intelligent validation
- */
-function applyAltText(attachmentId, altText, $row, $btn) {
+        console.log('🔵 APPLY-DEBUG: AJAX URL:', imageSeoData.ajaxUrl);
+        console.log('🔵 APPLY-DEBUG: AJAX Data:', JSON.stringify(ajaxData, null, 2));
+        console.log('🔵 APPLY-DEBUG: Sending AJAX request NOW...');
 
-    // SIMPLIFIED: Always apply directly without validation
-    console.log('APPLY-DEBUG: [Frontend] Applying alt text directly (no validation)');
-    applyAltTextDirect(attachmentId, altText, $row, $btn, 0);
-}
+        $.ajax({
+            url: imageSeoData.ajaxUrl,
+            type: 'POST',
+            data: ajaxData,
+            success: function (response) {
+                console.log('========================================');
+                console.log('✅ APPLY-DEBUG: AJAX SUCCESS callback triggered');
+                console.log('✅ APPLY-DEBUG: Full response:', JSON.stringify(response, null, 2));
+                console.log('✅ APPLY-DEBUG: response.success:', response.success);
+                console.log('✅ APPLY-DEBUG: response.data:', response.data);
+                console.log('========================================');
 
-/**
- * Apply low-score alt text (no validation, keep in table)
- */
+                if (response.success) {
+                    console.log('DIRECT-APPLY: [Frontend] Applied successfully');
+                    // Show success toast
+                    showToast('✓ Alt text applied!', 'success');
 
-/**
- * Apply high-score alt text with AI validation
- */
+                    // SMART REMOVAL LOGIC
+                    // 1. If we are in "Without Alt" filter, the image no longer matches the filter criteria → REMOVE
+                    // 2. If we are in "With Alt" filter, the image still matches → KEEP & UPDATE
 
+                    const currentFilter = $('input[name="image-filter"]:checked').val();
+                    const isWithoutAltFilter = currentFilter && currentFilter.includes('without-alt');
 
-/**
- * Apply alt text directly (validation passed or not required)
- */
-function applyAltTextDirect(attachmentId, altText, $row, $btn) {
-    console.log('========================================');
-    console.log('🔵 APPLY-DEBUG: applyAltTextDirect() called');
-    console.log('🔵 APPLY-DEBUG: Attachment ID:', attachmentId);
-    console.log('🔵 APPLY-DEBUG: Alt text:', altText);
-    console.log('🔵 APPLY-DEBUG: Button element:', $btn);
-    console.log('🔵 APPLY-DEBUG: Row element:', $row);
-    console.log('========================================');
+                    if (isWithoutAltFilter) {
+                        console.log('DIRECT-APPLY: [Frontend] Current filter is "Without Alt" - Removing row as it now has text');
+                        $row.fadeOut(400, function () {
+                            $(this).remove();
+                            updateBulkApplyButtonState();
 
-    // Update button
-    $btn.prop('disabled', true).text('Applying...');
-    console.log('🔵 APPLY-DEBUG: Button disabled and text set to "Applying..."');
+                            // Check empty state
+                            if ($resultsTbody.find('tr').length === 0) {
+                                $resultsTable.hide(); // Allow re-scan but hide empty table
+                                // Don't hide filters, let user switch
+                            }
+                        });
+                    } else {
+                        console.log('DIRECT-APPLY: [Frontend] Keeping row visible (matches current filter)');
 
-    const ajaxData = {
-        action: 'imageseo_apply',
-        nonce: imageSeoData.nonce,
-        attachment_id: attachmentId,
-        alt_text: altText
-    };
+                        // Update the "Current Alt Text" column to show the new value
+                        $row.find('.row-current-alt .alt-text').text(altText);
+                        $row.find('.row-current-alt .alt-text').css('color', ''); // Reset color if it was blue
 
-    console.log('🔵 APPLY-DEBUG: AJAX URL:', imageSeoData.ajaxUrl);
-    console.log('🔵 APPLY-DEBUG: AJAX Data:', JSON.stringify(ajaxData, null, 2));
-    console.log('🔵 APPLY-DEBUG: Sending AJAX request NOW...');
+                        // Update data attribute
+                        $row.data('original-alt', altText);
 
-    $.ajax({
-        url: imageSeoData.ajaxUrl,
-        type: 'POST',
-        data: ajaxData,
-        success: function (response) {
-            console.log('========================================');
-            console.log('✅ APPLY-DEBUG: AJAX SUCCESS callback triggered');
-            console.log('✅ APPLY-DEBUG: Full response:', JSON.stringify(response, null, 2));
-            console.log('✅ APPLY-DEBUG: response.success:', response.success);
-            console.log('✅ APPLY-DEBUG: response.data:', response.data);
-            console.log('========================================');
+                        // Change Apply button state to indicate success
+                        $btn.text('Applied').prop('disabled', true);
+                    }
 
-            if (response.success) {
-                console.log('DIRECT-APPLY: [Frontend] Applied successfully');
-                // Show success toast
-                showToast('✓ Alt text applied!', 'success');
+                    // Update internal data store regardless of UI state
+                    // Find image in array
+                    const imgIndex = scannedImages.findIndex(img => parseInt(img.id) === parseInt(attachmentId));
+                    if (imgIndex !== -1) {
+                        scannedImages[imgIndex].current_alt = altText;
+                        scannedImages[imgIndex].status = 'optimized'; // Mark as optimized
 
-                // SMART REMOVAL LOGIC
-                // 1. If we are in "Without Alt" filter, the image no longer matches the filter criteria → REMOVE
-                // 2. If we are in "With Alt" filter, the image still matches → KEEP & UPDATE
+                        // FIX: Track changes for CSV export regardless of filter state
+                        const image = scannedImages[imgIndex];
 
-                const currentFilter = $('input[name="image-filter"]:checked').val();
-                const isWithoutAltFilter = currentFilter && currentFilter.includes('without-alt');
+                        // Get previous alt text (last non-empty value before this change)
+                        const previousAlt = getLastNonEmptyAltText(attachmentId);
 
-                if (isWithoutAltFilter) {
-                    console.log('DIRECT-APPLY: [Frontend] Current filter is "Without Alt" - Removing row as it now has text');
-                    $row.fadeOut(400, function () {
-                        $(this).remove();
-                        updateBulkApplyButtonState();
+                        filterChanges.push({
+                            attachment_id: attachmentId,
+                            filename: image.filename || '',
+                            thumbnail: image.thumbnail || '',
+                            previous_alt: previousAlt,
+                            new_alt: altText,
+                            filter: currentFilterValue || 'no_filter'
+                        });
 
-                        // Check empty state
-                        if ($resultsTbody.find('tr').length === 0) {
-                            $resultsTable.hide(); // Allow re-scan but hide empty table
-                            // Don't hide filters, let user switch
-                        }
-                    });
+                        console.log('FILTER-CSV: Tracked change', filterChanges.length, '- Previous:', previousAlt, '→ New:', altText);
+
+                        // Enable and show the Export button now that we have changes
+                        $exportFilterCsvBtn.show().prop('disabled', false).removeClass('disabled');
+                        console.log('EXPORT-BTN: Enabled after apply - ' + filterChanges.length + ' changes tracked');
+                    }
+
+                    // Update stats cards in real-time - fetch fresh from backend
+                    loadInitialStats();
+
+                    // Update Bulk Apply button state
+                    updateBulkApplyButtonState();
                 } else {
-                    console.log('DIRECT-APPLY: [Frontend] Keeping row visible (matches current filter)');
-
-                    // Update the "Current Alt Text" column to show the new value
-                    $row.find('.row-current-alt .alt-text').text(altText);
-                    $row.find('.row-current-alt .alt-text').css('color', ''); // Reset color if it was blue
-
-                    // Update data attribute
-                    $row.data('original-alt', altText);
-
-                    // Change Apply button state to indicate success
-                    $btn.text('Applied').prop('disabled', true);
+                    console.log('========================================');
+                    console.log('❌ APPLY-DEBUG: Backend returned success=false');
+                    console.log('❌ APPLY-DEBUG: Error message:', response.data ? response.data.message : 'No message');
+                    console.log('========================================');
+                    showToast(' Failed to apply: ' + (response.data.message || 'Unknown error'), 'error');
+                    $btn.prop('disabled', false).text('Apply');
                 }
-
-                // Update internal data store regardless of UI state
-                // Find image in array
-                const imgIndex = scannedImages.findIndex(img => parseInt(img.id) === parseInt(attachmentId));
-                if (imgIndex !== -1) {
-                    scannedImages[imgIndex].current_alt = altText;
-                    scannedImages[imgIndex].status = 'optimized'; // Mark as optimized
-
-                    // FIX: Track changes for CSV export regardless of filter state
-                    const image = scannedImages[imgIndex];
-
-                    // Get previous alt text (last non-empty value before this change)
-                    const previousAlt = getLastNonEmptyAltText(attachmentId);
-
-                    filterChanges.push({
-                        attachment_id: attachmentId,
-                        filename: image.filename || '',
-                        thumbnail: image.thumbnail || '',
-                        previous_alt: previousAlt,
-                        new_alt: altText,
-                        filter: currentFilterValue || 'no_filter'
-                    });
-
-                    console.log('FILTER-CSV: Tracked change', filterChanges.length, '- Previous:', previousAlt, '→ New:', altText);
-
-                    // Enable and show the Export button now that we have changes
-                    $exportFilterCsvBtn.show().prop('disabled', false).removeClass('disabled');
-                    console.log('EXPORT-BTN: Enabled after apply - ' + filterChanges.length + ' changes tracked');
-                }
-
-                // Update stats cards in real-time - fetch fresh from backend
-                loadInitialStats();
-
-                // Update Bulk Apply button state
-                updateBulkApplyButtonState();
-            } else {
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
                 console.log('========================================');
-                console.log('❌ APPLY-DEBUG: Backend returned success=false');
-                console.log('❌ APPLY-DEBUG: Error message:', response.data ? response.data.message : 'No message');
+                console.log('❌ APPLY-DEBUG: AJAX ERROR callback triggered');
+                console.log('❌ APPLY-DEBUG: textStatus:', textStatus);
+                console.log('❌ APPLY-DEBUG: errorThrown:', errorThrown);
+                console.log('❌ APPLY-DEBUG: jqXHR.status:', jqXHR.status);
+                console.log('❌ APPLY-DEBUG: jqXHR.statusText:', jqXHR.statusText);
+                console.log('❌ APPLY-DEBUG: jqXHR.responseText:', jqXHR.responseText);
+                console.log('❌ APPLY-DEBUG: Full jqXHR object:', jqXHR);
                 console.log('========================================');
-                showToast(' Failed to apply: ' + (response.data.message || 'Unknown error'), 'error');
+                showToast(' Network error occurred', 'error');
                 $btn.prop('disabled', false).text('Apply');
             }
-        },
-        error: function (jqXHR, textStatus, errorThrown) {
-            console.log('========================================');
-            console.log('❌ APPLY-DEBUG: AJAX ERROR callback triggered');
-            console.log('❌ APPLY-DEBUG: textStatus:', textStatus);
-            console.log('❌ APPLY-DEBUG: errorThrown:', errorThrown);
-            console.log('❌ APPLY-DEBUG: jqXHR.status:', jqXHR.status);
-            console.log('❌ APPLY-DEBUG: jqXHR.statusText:', jqXHR.statusText);
-            console.log('❌ APPLY-DEBUG: jqXHR.responseText:', jqXHR.responseText);
-            console.log('❌ APPLY-DEBUG: Full jqXHR object:', jqXHR);
-            console.log('========================================');
-            showToast(' Network error occurred', 'error');
-            $btn.prop('disabled', false).text('Apply');
-        }
-    });
-}
-
-/**
- * Email CSV to WordPress admin
- */
-function emailCSV() {
-    console.log('FEATURE-EMAIL: Emailing CSV to admin...');
-    showToast('Sending email...', 'info');
-
-    $.ajax({
-        url: imageSeoData.ajaxUrl,
-        type: 'POST',
-        data: {
-            action: 'imageseo_email_csv',
-            nonce: imageSeoData.nonce
-        },
-        success: function (response) {
-            if (response.success) {
-                console.log('FEATURE-EMAIL: Email sent successfully');
-                showToast('CSV emailed to ' + imageSeoData.adminEmail, 'success');
-            } else {
-                console.log('FEATURE-EMAIL: Email failed:', response.data.message);
-                showToast('Failed to send email: ' + response.data.message, 'error');
-            }
-        },
-        error: function () {
-            console.log('FEATURE-EMAIL: AJAX error');
-            showToast('Error sending email', 'error');
-        }
-    });
-}
-
-/**
- * Skip image (session only - does not update database)
- */
-function skipImage(attachmentId, $row) {
-    console.log('SKIP-DEBUG: [Frontend] Skip clicked for image ID:', attachmentId);
-    console.log('SKIP-DEBUG: [Frontend] This is session-only - just hiding row, NOT updating database');
-
-    // Show success toast
-    showToast('Image skipped for this session', 'success');
-
-    // NO DATABASE UPDATE - just remove from current view
-    // On next scan, if image still has issues, it will appear again
-
-    // Remove row with fade animation
-    $row.fadeOut(400, function () {
-        $(this).remove();
-
-        console.log('SKIP-DEBUG: [Frontend] Row removed from table');
-        console.log('SKIP-DEBUG: [Frontend] Image will reappear on next scan if still has issues');
-
-        // Update Bulk Apply button state (might now be disabled if no rows left)
-        updateBulkApplyButtonState();
-
-        // Check if no rows left
-        if ($resultsTbody.find('tr').length === 0) {
-            $resultsTable.hide();
-            $filtersSection.hide();
-            $emptyState.find('h2').text('All Done!');
-            $emptyState.find('p').text('All visible images have been processed for this session.');
-            $emptyState.show();
-            console.log('SKIP-DEBUG: [Frontend] No more rows in table - showing empty state');
-        }
-    });
-}
-
-/**
- * Bulk apply high confidence suggestions
- */
-
-
-
-
-/**
- * Get score badge HTML
- */
-function getScoreBadge(score) {
-    let cssClass = 'score-empty';
-
-    if (score === 0) {
-        cssClass = 'score-empty';
-    } else if (score < 50) {
-        cssClass = 'score-poor';
-    } else if (score < 80) {
-        cssClass = 'score-fair';
-    } else {
-        cssClass = 'score-good';
+        });
     }
 
-    return `<div class="score-badge ${cssClass}">${score}</div>`;
-}
+    /**
+     * Email CSV to WordPress admin
+     */
+    function emailCSV() {
+        console.log('FEATURE-EMAIL: Emailing CSV to admin...');
+        showToast('Sending email...', 'info');
 
-/**
- * Filter results by issue type
- 
-
-/**
- * Export results to CSV
- */
-function exportToCSV() {
-
-
-    // Direct download (separate Email button exists now)
-    downloadCSV();
-}
-
-/**
- * Download CSV to user's computer
- */
-function downloadCSV() {
-    console.log('FEATURE-EMAIL: Downloading CSV...');
-
-    $.ajax({
-        url: imageSeoData.ajaxUrl,
-        type: 'POST',
-        data: {
-            action: 'imageseo_export_audit',
-            nonce: imageSeoData.nonce
-        },
-        success: function (response) {
-            console.log('CSV Export response received:', response);
-
-            if (response.success) {
-                console.log('CSV data length:', response.data.csv ? response.data.csv.length : 'undefined');
-                console.log('Filename:', response.data.filename);
-                console.log('Record count:', response.data.count);
-
-                // Download CSV
-                const blob = new Blob([response.data.csv], { type: 'text/csv' });
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = response.data.filename;
-                a.click();
-                window.URL.revokeObjectURL(url);
-
-                console.log('CSV download initiated');
-                showToast(` Exported ${response.data.count} records`, 'success');
-            } else {
-                console.error('CSV export failed:', response.data);
-                showToast(+ (response.data.message || 'No change history found'), 'error');
+        $.ajax({
+            url: imageSeoData.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'imageseo_email_csv',
+                nonce: imageSeoData.nonce
+            },
+            success: function (response) {
+                if (response.success) {
+                    console.log('FEATURE-EMAIL: Email sent successfully');
+                    showToast('CSV emailed to ' + imageSeoData.adminEmail, 'success');
+                } else {
+                    console.log('FEATURE-EMAIL: Email failed:', response.data.message);
+                    showToast('Failed to send email: ' + response.data.message, 'error');
+                }
+            },
+            error: function () {
+                console.log('FEATURE-EMAIL: AJAX error');
+                showToast('Error sending email', 'error');
             }
-        },
-        error: function (xhr, status, error) {
-            console.error('CSV export Ajax error:', { xhr, status, error });
-            showToast(' CSV Export failed', 'error');
-        }
-    });
-}
-
-/**
- * Show error message
- */
-function showError(message) {
-    alert('Error: ' + message);
-}
-
-/**
- * Reset UI
- */
-function resetUI() {
-    $scanProgress.hide();
-    $scanBtn.prop('disabled', false).html('<span class="dashicons dashicons-search"></span> Scan Images');
-    $emptyState.show();
-}
-
-
-// ========== FILTER-SCOPED CSV EXPORT ==========
-
-$exportFilterCsvBtn.on('click', function () {
-    if (filterChanges.length === 0) {
-        showToast('No changes to export', 'warning');
-        return;
+        });
     }
 
-    console.log('FILTER-CSV: Exporting', filterChanges.length, 'changes from filter:', currentFilterValue);
+    /**
+     * Skip image (session only - does not update database)
+     */
+    function skipImage(attachmentId, $row) {
+        console.log('SKIP-DEBUG: [Frontend] Skip clicked for image ID:', attachmentId);
+        console.log('SKIP-DEBUG: [Frontend] This is session-only - just hiding row, NOT updating database');
 
-    const $btn = $(this);
-    $btn.prop('disabled', true).html('<span class="dashicons dashicons-update-alt" style="animation: spin 1s linear infinite;"></span> Generating CSV...');
+        // Show success toast
+        showToast('Image skipped for this session', 'success');
 
-    $.ajax({
-        url: imageSeoData.ajaxUrl,
-        type: 'POST',
-        data: {
-            action: 'imageseo_export_filter_csv',
+        // NO DATABASE UPDATE - just remove from current view
+        // On next scan, if image still has issues, it will appear again
+
+        // Remove row with fade animation
+        $row.fadeOut(400, function () {
+            $(this).remove();
+
+            console.log('SKIP-DEBUG: [Frontend] Row removed from table');
+            console.log('SKIP-DEBUG: [Frontend] Image will reappear on next scan if still has issues');
+
+            // Update Bulk Apply button state (might now be disabled if no rows left)
+            updateBulkApplyButtonState();
+
+            // Check if no rows left
+            if ($resultsTbody.find('tr').length === 0) {
+                $resultsTable.hide();
+                $filtersSection.hide();
+                $emptyState.find('h2').text('All Done!');
+                $emptyState.find('p').text('All visible images have been processed for this session.');
+                $emptyState.show();
+                console.log('SKIP-DEBUG: [Frontend] No more rows in table - showing empty state');
+            }
+        });
+    }
+
+    /**
+     * Bulk apply high confidence suggestions
+     */
+
+
+
+
+    /**
+     * Get score badge HTML
+     */
+    function getScoreBadge(score) {
+        let cssClass = 'score-empty';
+
+        if (score === 0) {
+            cssClass = 'score-empty';
+        } else if (score < 50) {
+            cssClass = 'score-poor';
+        } else if (score < 80) {
+            cssClass = 'score-fair';
+        } else {
+            cssClass = 'score-good';
+        }
+
+        return `<div class="score-badge ${cssClass}">${score}</div>`;
+    }
+
+    /**
+     * Filter results by issue type
+     
+    
+    /**
+     * Export results to CSV
+     */
+    function exportToCSV() {
+
+
+        // Direct download (separate Email button exists now)
+        downloadCSV();
+    }
+
+    /**
+     * Download CSV to user's computer
+     */
+    function downloadCSV() {
+        console.log('FEATURE-EMAIL: Downloading CSV...');
+
+        $.ajax({
+            url: imageSeoData.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'imageseo_export_audit',
+                nonce: imageSeoData.nonce
+            },
+            success: function (response) {
+                console.log('CSV Export response received:', response);
+
+                if (response.success) {
+                    console.log('CSV data length:', response.data.csv ? response.data.csv.length : 'undefined');
+                    console.log('Filename:', response.data.filename);
+                    console.log('Record count:', response.data.count);
+
+                    // Download CSV
+                    const blob = new Blob([response.data.csv], { type: 'text/csv' });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = response.data.filename;
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+
+                    console.log('CSV download initiated');
+                    showToast(` Exported ${response.data.count} records`, 'success');
+                } else {
+                    console.error('CSV export failed:', response.data);
+                    showToast(+ (response.data.message || 'No change history found'), 'error');
+                }
+            },
+            error: function (xhr, status, error) {
+                console.error('CSV export Ajax error:', { xhr, status, error });
+                showToast(' CSV Export failed', 'error');
+            }
+        });
+    }
+
+    /**
+     * Show error message
+     */
+    function showError(message) {
+        alert('Error: ' + message);
+    }
+
+    /**
+     * Reset UI
+     */
+    function resetUI() {
+        $scanProgress.hide();
+        $scanBtn.prop('disabled', false).html('<span class="dashicons dashicons-search"></span> Scan Images');
+        $emptyState.show();
+    }
+
+
+    // ========== FILTER-SCOPED CSV EXPORT ==========
+
+    $exportFilterCsvBtn.on('click', function () {
+        if (filterChanges.length === 0) {
+            showToast('No changes to export', 'warning');
+            return;
+        }
+
+        console.log('FILTER-CSV: Exporting', filterChanges.length, 'changes from filter:', currentFilterValue);
+
+        const $btn = $(this);
+        $btn.prop('disabled', true).html('<span class="dashicons dashicons-update-alt" style="animation: spin 1s linear infinite;"></span> Generating CSV...');
+
+        $.ajax({
+            url: imageSeoData.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'imageseo_export_filter_csv',
+                nonce: imageSeoData.nonce,
+                changes: JSON.stringify(filterChanges),
+                filter: currentFilterValue
+            },
+            success: function (response) {
+                if (response.success) {
+                    // Trigger CSV download
+                    const blob = new Blob([response.data.csv], { type: 'text/csv' });
+                    const link = document.createElement('a');
+                    link.href = window.URL.createObjectURL(blob);
+                    link.download = response.data.filename;
+                    link.click();
+
+                    showToast(`✓ Exported ${filterChanges.length} changes to CSV`, 'success');
+                    console.log('FILTER-CSV: Export successful -', response.data.filename);
+                } else {
+                    showToast('Failed to export CSV: ' + response.data.message, 'error');
+                }
+            },
+            error: function () {
+                showToast('Error exporting CSV', 'error');
+            },
+            complete: function () {
+                $btn.prop('disabled', false).html('<span class="dashicons dashicons-download"></span> Export Changes in CSV');
+            }
+        });
+    });
+
+    // ========== CLEANUP & DELETE TAB HANDLERS ==========
+
+    // Remove All Alt Texts
+    $('#remove-all-alt-btn').on('click', function () {
+        if (!confirm('⚠️ WARNING: Remove ALL alt text from ALL images?\n\nThis cannot be undone!')) return;
+        if (!confirm('FINAL CONFIRMATION: Click OK to proceed.')) return;
+
+        const $btn = $(this);
+        $btn.prop('disabled', true).text('Removing...');
+
+        $.post(imageSeoData.ajaxUrl, {
+            action: 'imageseo_remove_all_alt',
+            nonce: imageSeoData.nonce
+        }, function (response) {
+            if (response.success) {
+                showToast(`Removed alt text from ${response.data.removed_count} images`, 'success');
+                // Refresh stats cards immediately
+                loadInitialStats();
+            } else {
+                showToast('Failed: ' + response.data.message, 'error');
+            }
+        }).fail(function () {
+            showToast('Error removing alt texts', 'error');
+        }).always(function () {
+            $btn.prop('disabled', false).html('<span class="dashicons dashicons-warning"></span> Remove All Alt Texts');
+        });
+    });
+
+    // Delete by URL
+    $('#delete-by-url-btn').on('click', function () {
+        console.log('====== DELETE BY URL DEBUG START ======');
+
+        const urls = $('#delete-urls-input').val().trim();
+        console.log('DELETE-URL-DEBUG: Raw textarea value:', urls);
+        console.log('DELETE-URL-DEBUG: Textarea value length:', urls.length);
+
+        if (!urls) {
+            console.log('DELETE-URL-DEBUG: ERROR - No URLs provided');
+            showToast('Please enter at least one URL', 'warning');
+            return;
+        }
+
+        const urlArray = urls.split('\n').filter(u => u.trim());
+        console.log('DELETE-URL-DEBUG: URL array after split:', urlArray);
+        console.log('DELETE-URL-DEBUG: URL count:', urlArray.length);
+
+        urlArray.forEach((url, index) => {
+            console.log(`DELETE-URL-DEBUG: URL[${index}]:`, url);
+        });
+
+        if (urlArray.length > 50) {
+            console.log('DELETE-URL-DEBUG: ERROR - Too many URLs:', urlArray.length);
+            showToast('Maximum 50 URLs allowed', 'error');
+            return;
+        }
+
+        if (!confirm(`⚠️ Delete ${urlArray.length} images?\n\nThis cannot be undone!`)) {
+            console.log('DELETE-URL-DEBUG: User cancelled');
+            return;
+        }
+
+        console.log('DELETE-URL-DEBUG: User confirmed - sending AJAX request');
+        console.log('DELETE-URL-DEBUG: AJAX URL:', imageSeoData.ajaxUrl);
+        console.log('DELETE-URL-DEBUG: Nonce:', imageSeoData.nonce);
+        console.log('DELETE-URL-DEBUG: URLs being sent:', urls);
+
+        const $btn = $(this);
+        $btn.prop('disabled', true).text('Deleting...');
+
+        $.post(imageSeoData.ajaxUrl, {
+            action: 'imageseo_delete_by_url',
             nonce: imageSeoData.nonce,
-            changes: JSON.stringify(filterChanges),
-            filter: currentFilterValue
-        },
-        success: function (response) {
+            urls: urls
+        }, function (response) {
+            console.log('DELETE-URL-DEBUG: AJAX response received:', response);
+            console.log('DELETE-URL-DEBUG: Response success:', response.success);
+
             if (response.success) {
-                // Trigger CSV download
-                const blob = new Blob([response.data.csv], { type: 'text/csv' });
-                const link = document.createElement('a');
-                link.href = window.URL.createObjectURL(blob);
-                link.download = response.data.filename;
-                link.click();
+                console.log('DELETE-URL-DEBUG: Deleted count:', response.data.deleted);
+                console.log('DELETE-URL-DEBUG: Skipped count:', response.data.skipped);
+                console.log('DELETE-URL-DEBUG: Errors:', response.data.errors);
 
-                showToast(`✓ Exported ${filterChanges.length} changes to CSV`, 'success');
-                console.log('FILTER-CSV: Export successful -', response.data.filename);
+                let msg = `Deleted ${response.data.deleted}, skipped ${response.data.skipped}`;
+                let toastType = 'success';
+
+                // If items were skipped, show error details
+                if (response.data.skipped > 0 && response.data.errors && response.data.errors.length > 0) {
+                    toastType = 'warning';
+                    // Show first error as example
+                    msg = `Deleted ${response.data.deleted}, skipped ${response.data.skipped}: ${response.data.errors[0]}`;
+
+                    // Log all errors to console
+                    console.log('DELETE-URL-DEBUG: Skip reasons:');
+                    response.data.errors.forEach((err, idx) => {
+                        console.log(`  [${idx}]:`, err);
+                    });
+                }
+
+                showToast(msg, toastType);
+                $('#delete-urls-input').val('');
+                // Refresh stats cards immediately
+                loadInitialStats();
             } else {
-                showToast('Failed to export CSV: ' + response.data.message, 'error');
+                console.log('DELETE-URL-DEBUG: Request failed:', response.data.message);
+                showToast('Failed: ' + response.data.message, 'error');
             }
-        },
-        error: function () {
-            showToast('Error exporting CSV', 'error');
-        },
-        complete: function () {
-            $btn.prop('disabled', false).html('<span class="dashicons dashicons-download"></span> Export Changes in CSV');
-        }
+        }).fail(function (xhr, status, error) {
+            console.log('DELETE-URL-DEBUG: AJAX error');
+            console.log('DELETE-URL-DEBUG: XHR:', xhr);
+            console.log('DELETE-URL-DEBUG: Status:', status);
+            console.log('DELETE-URL-DEBUG: Error:', error);
+            showToast('Error deleting images', 'error');
+        }).always(function () {
+            $btn.prop('disabled', false).html('<span class="dashicons dashicons-trash"></span> Delete Images by URL');
+            console.log('====== DELETE BY URL DEBUG END ======');
+        });
     });
+
+    // ========== INITIALIZATION ==========
+    // Load initial stats from database on page load
+    console.log('Timestamp: 12:00');
+    console.log('🚀 PAGE-LOAD: Calling loadInitialStats()...');
+    loadInitialStats();
+
 });
-
-// ========== CLEANUP & DELETE TAB HANDLERS ==========
-
-// Remove All Alt Texts
-$('#remove-all-alt-btn').on('click', function () {
-    if (!confirm('⚠️ WARNING: Remove ALL alt text from ALL images?\n\nThis cannot be undone!')) return;
-    if (!confirm('FINAL CONFIRMATION: Click OK to proceed.')) return;
-
-    const $btn = $(this);
-    $btn.prop('disabled', true).text('Removing...');
-
-    $.post(imageSeoData.ajaxUrl, {
-        action: 'imageseo_remove_all_alt',
-        nonce: imageSeoData.nonce
-    }, function (response) {
-        if (response.success) {
-            showToast(`Removed alt text from ${response.data.removed_count} images`, 'success');
-            // Refresh stats cards immediately
-            loadInitialStats();
-        } else {
-            showToast('Failed: ' + response.data.message, 'error');
-        }
-    }).fail(function () {
-        showToast('Error removing alt texts', 'error');
-    }).always(function () {
-        $btn.prop('disabled', false).html('<span class="dashicons dashicons-warning"></span> Remove All Alt Texts');
-    });
-});
-
-// Delete by URL
-$('#delete-by-url-btn').on('click', function () {
-    console.log('====== DELETE BY URL DEBUG START ======');
-
-    const urls = $('#delete-urls-input').val().trim();
-    console.log('DELETE-URL-DEBUG: Raw textarea value:', urls);
-    console.log('DELETE-URL-DEBUG: Textarea value length:', urls.length);
-
-    if (!urls) {
-        console.log('DELETE-URL-DEBUG: ERROR - No URLs provided');
-        showToast('Please enter at least one URL', 'warning');
-        return;
-    }
-
-    const urlArray = urls.split('\n').filter(u => u.trim());
-    console.log('DELETE-URL-DEBUG: URL array after split:', urlArray);
-    console.log('DELETE-URL-DEBUG: URL count:', urlArray.length);
-
-    urlArray.forEach((url, index) => {
-        console.log(`DELETE-URL-DEBUG: URL[${index}]:`, url);
-    });
-
-    if (urlArray.length > 50) {
-        console.log('DELETE-URL-DEBUG: ERROR - Too many URLs:', urlArray.length);
-        showToast('Maximum 50 URLs allowed', 'error');
-        return;
-    }
-
-    if (!confirm(`⚠️ Delete ${urlArray.length} images?\n\nThis cannot be undone!`)) {
-        console.log('DELETE-URL-DEBUG: User cancelled');
-        return;
-    }
-
-    console.log('DELETE-URL-DEBUG: User confirmed - sending AJAX request');
-    console.log('DELETE-URL-DEBUG: AJAX URL:', imageSeoData.ajaxUrl);
-    console.log('DELETE-URL-DEBUG: Nonce:', imageSeoData.nonce);
-    console.log('DELETE-URL-DEBUG: URLs being sent:', urls);
-
-    const $btn = $(this);
-    $btn.prop('disabled', true).text('Deleting...');
-
-    $.post(imageSeoData.ajaxUrl, {
-        action: 'imageseo_delete_by_url',
-        nonce: imageSeoData.nonce,
-        urls: urls
-    }, function (response) {
-        console.log('DELETE-URL-DEBUG: AJAX response received:', response);
-        console.log('DELETE-URL-DEBUG: Response success:', response.success);
-
-        if (response.success) {
-            console.log('DELETE-URL-DEBUG: Deleted count:', response.data.deleted);
-            console.log('DELETE-URL-DEBUG: Skipped count:', response.data.skipped);
-            console.log('DELETE-URL-DEBUG: Errors:', response.data.errors);
-
-            let msg = `Deleted ${response.data.deleted}, skipped ${response.data.skipped}`;
-            let toastType = 'success';
-
-            // If items were skipped, show error details
-            if (response.data.skipped > 0 && response.data.errors && response.data.errors.length > 0) {
-                toastType = 'warning';
-                // Show first error as example
-                msg = `Deleted ${response.data.deleted}, skipped ${response.data.skipped}: ${response.data.errors[0]}`;
-
-                // Log all errors to console
-                console.log('DELETE-URL-DEBUG: Skip reasons:');
-                response.data.errors.forEach((err, idx) => {
-                    console.log(`  [${idx}]:`, err);
-                });
-            }
-
-            showToast(msg, toastType);
-            $('#delete-urls-input').val('');
-            // Refresh stats cards immediately
-            loadInitialStats();
-        } else {
-            console.log('DELETE-URL-DEBUG: Request failed:', response.data.message);
-            showToast('Failed: ' + response.data.message, 'error');
-        }
-    }).fail(function (xhr, status, error) {
-        console.log('DELETE-URL-DEBUG: AJAX error');
-        console.log('DELETE-URL-DEBUG: XHR:', xhr);
-        console.log('DELETE-URL-DEBUG: Status:', status);
-        console.log('DELETE-URL-DEBUG: Error:', error);
-        showToast('Error deleting images', 'error');
-    }).always(function () {
-        $btn.prop('disabled', false).html('<span class="dashicons dashicons-trash"></span> Delete Images by URL');
-        console.log('====== DELETE BY URL DEBUG END ======');
-    });
-});
-
-// ========== INITIALIZATION ==========
-// Load initial stats from database on page load
-console.log('Timestamp: 11:49');
-console.log('🚀 PAGE-LOAD: Calling loadInitialStats()...');
-loadInitialStats();
-
-})
