@@ -319,18 +319,9 @@ class SEOAutoFix_Image_SEO
                 }
             }
 
-
             // On first batch, populate history table with ALL images
-            // GUARD: Only run if frontend says should_populate=true (session flag)
             if ($offset === 0) {
-                $should_populate = isset($_POST['should_populate']) ? filter_var($_POST['should_populate'], FILTER_VALIDATE_BOOLEAN) : false;
-
-                if ($should_populate) {
-                    $this->populate_all_images_in_history();
-                    error_log('✅ POPULATE: Running (frontend flag=true)');
-                } else {
-                    error_log('⏭️ POPULATE: Skipped (frontend flag=false)');
-                }
+                $this->populate_all_images_in_history();
             }
 
             $response_data = array(

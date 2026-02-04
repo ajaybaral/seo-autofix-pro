@@ -20,14 +20,6 @@ jQuery(document).ready(function ($) {
     let filterChanges = [];  // Track changes made in current filter
     let currentFilterValue = null;  // Track which filter is active
 
-    // Background Pre-Scan State
-    let backgroundScanInProgress = false;
-    let backgroundScanComplete = false;
-    let backgroundScanResults = [];
-    let backgroundScanStats = null;
-    let backgroundAbortController = null;
-    let populateAlreadyCalled = false; // Tracks if populate_all_images_in_history() was called this session
-
     // Elements
     const $scanBtn = $('#scan-btn');
     const $exportBtn = $('#export-csv-btn');
@@ -92,6 +84,46 @@ jQuery(document).ready(function ($) {
         $('#stat-has-alt').text(withAlt);
     }
 
+    /**
+     * Load initial stats from database on page load
+     * This shows existing scan data from previous sessions
+     */
+    function loadInitialStats() {
+
+        $.ajax({
+            url: imageSeoData.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'imageseo_get_stats',
+                nonce: imageSeoData.nonce
+            },
+            success: function (response) {
+                console.log('📊 INIT-STATS: Response received:', response);
+
+                if (response.success && response.data.has_data) {
+                    const stats = response.data.stats;
+                    console.log('📊 INIT-STATS: Database has data, updating stats cards');
+                    console.log('📊 INIT-STATS: Stats:', stats);
+
+                    // Update stat cards with database values
+                    $('#stat-total').text(stats.total || 0);
+                    $('#stat-missing-alt').text(stats.without_alt || 0);
+                    $('#stat-has-alt').text(stats.with_alt || 0);
+
+                    // Show stats section since we have data
+                    $statsSection.show();
+
+                } else {
+                    // Keep stats hidden until first scan
+                }
+            },
+            error: function (xhr, status, error) {
+                console.error('❌ INIT-STATS: Failed to load initial stats');
+                console.error('❌ INIT-STATS: Status:', status);
+                console.error('❌ INIT-STATS: Error:', error);
+            }
+        });
+    }
 
     /**
      * Update Bulk Apply button state based on available Apply buttons
@@ -477,6 +509,9 @@ jQuery(document).ready(function ($) {
         });
     }
 
+    // Load stats on page load
+    loadInitialStats();
+
     // Export CSV button - now just downloads
     $('#export-csv-btn').on('click', function () {
         console.log('FEATURE-EMAIL: Export CSV button clicked - DOWNLOAD only');
@@ -637,208 +672,20 @@ jQuery(document).ready(function ($) {
         });
     });
 
-
     $exportBtn.on('click', function () {
         exportToCSV();
     });
 
-    // ========== BACKGROUND PRE-SCAN FEATURE ==========
-    /**
-     * Start background scan silently (no UI updates)
-     * This runs automatically on page load to pre-cache results
-     */
-    function startBackgroundScan() {
-        // Don't start if already scanning or complete
-        if (backgroundScanInProgress || backgroundScanComplete) {
-            return;
-        }
-
-        console.log('🚀 BACKGROUND-SCAN: Starting silent pre-scan...');
-        backgroundScanInProgress = true;
-        backgroundScanResults = [];
-        backgroundScanStats = null;
-
-        // Create abort controller for cancellation on page reload
-        if (window.AbortController) {
-            backgroundAbortController = new AbortController();
-        }
-
-        // Start scanning in background (batch 0)
-        scanBatchInBackground(0);
-    }
 
     /**
-     * Scan batch in background (no UI updates, stores in cache)
-     */
-    function scanBatchInBackground(offset = 0) {
-        const ajaxData = {
-            action: 'imageseo_scan',
-            nonce: imageSeoData.nonce,
-            batch_size: 50,
-            offset: offset,
-            should_populate: !populateAlreadyCalled  // Only populate if not already called
-        };
-
-        // Mark populate as called after first batch request
-        if (offset === 0 && !populateAlreadyCalled) {
-            populateAlreadyCalled = true;
-            console.log('🚩 POPULATE-FLAG: Set to true, backend will populate once');
-        }
-
-        const ajaxConfig = {
-            url: imageSeoData.ajaxUrl,
-            type: 'POST',
-            data: ajaxData,
-            success: function (response) {
-                if (response.success) {
-                    const results = response.data.results;
-
-                    console.log(`📦 BACKGROUND-BATCH-${offset}: Received ${results.length} images from backend`);
-                    console.log(`📦 BACKGROUND-BATCH-${offset}: Current backgroundScanResults.length = ${backgroundScanResults.length}`);
-
-                    backgroundScanResults = backgroundScanResults.concat(results);
-
-                    console.log(`📦 BACKGROUND-BATCH-${offset}: After concat, backgroundScanResults.length = ${backgroundScanResults.length}`);
-
-                    // Store stats from first batch
-                    if (offset === 0 && response.data.stats) {
-                        backgroundScanStats = response.data.stats;
-                    }
-
-                    // Continue scanning if there are more
-                    if (response.data.hasMore) {
-                        scanBatchInBackground(response.data.offset);
-                    } else {
-                        // Scan complete! Mark as ready
-                        backgroundScanComplete = true;
-                        backgroundScanInProgress = false;
-                        console.log('✅ BACKGROUND-SCAN: Complete! Cached', backgroundScanResults.length, 'images');
-                        // Note: Do NOT reset populateAlreadyCalled here - it stays true until page refresh or manual reset
-                    }
-                }
-            },
-            error: function () {
-                console.log('❌ BACKGROUND-SCAN: Failed');
-                backgroundScanInProgress = false;
-            }
-        };
-
-        // Add abort signal if supported
-        if (backgroundAbortController && backgroundAbortController.signal) {
-            ajaxConfig.signal = backgroundAbortController.signal;
-        }
-
-        $.ajax(ajaxConfig);
-    }
-
-    /**
-     * Cancel any ongoing background scan (called on page unload or new scan)
-     */
-    function cancelBackgroundScan() {
-        if (backgroundAbortController) {
-            backgroundAbortController.abort();
-            console.log('🛑 BACKGROUND-SCAN: Aborted');
-        }
-        // Reset populate flag when canceling
-        populateAlreadyCalled = false;
-        backgroundScanInProgress = false;
-        backgroundScanComplete = false;
-        backgroundScanResults = [];
-        backgroundScanStats = null;
-        console.log('🔄 RESET: Populate flag reset, ready for fresh scan');
-    }
-
-    // Cancel background scan on page unload
-    $(window).on('beforeunload', function () {
-        cancelBackgroundScan();
-    });
-
-    /**
-     * Scan all images (UX-IMPROVEMENT: Uses cached results if available)
+     * Scan all images (UX-IMPROVEMENT: No filtering, loads ALL images)
      */
     function scanImages() {
-        // Check if background scan is complete
-        if (backgroundScanComplete && backgroundScanResults.length > 0) {
-            console.log('⚡ INSTANT-SCAN: Using cached background results!');
 
-            // Use cached results
-            scannedImages = backgroundScanResults.slice(); // Clone array
-            globalStats = backgroundScanStats;
-            window.scannedImages = scannedImages;
-
-            // Reset UI state
-            currentPage = 1;
-            $resultsTbody.empty();
-            $('input[name="image-filter"]').prop('checked', false).prop('disabled', true);
-
-            // Show progress bar
-            $scanProgress.show();
-            $progressFill.css('width', '0%');
-            $('#progress-percentage').text('0%');
-            $resultsTable.hide();
-            $emptyState.hide();
-            $('.imageseo-filter-controls').hide();
-            $('.imageseo-pagination').hide();
-            $statsSection.hide();
-            $filtersSection.hide();
-            activeFilter = null;
-            $('.stat-card, .stat-subcard').removeClass('active');
-            $scanBtn.prop('disabled', true).text('Scanning...');
-
-            // Animate progress from 0 to 100 in 800ms for UX
-            const parentWidth = $progressFill.parent().width();
-            $progressFill[0].style.width = '0px';
-
-            setTimeout(() => {
-                $progressFill[0].style.width = parentWidth + 'px';
-                $('#progress-percentage').text('100%');
-            }, 50);
-
-            // Wait 800ms to show progress animation, then render
-            setTimeout(() => {
-                renderResults(scannedImages);
-                updateStats();
-
-                // Show all UI elements
-                $exportFilterCsvBtn.show().prop('disabled', filterChanges.length === 0);
-                $('input[name="image-filter"]').prop('disabled', false);
-                $('.imageseo-filter-controls').show();
-                $('.imageseo-pagination').show();
-                $('.imageseo-stats').show();
-                $('.imageseo-results').show();
-                $('#export-csv-btn').show();
-
-                // Initialize filter tracking
-                filterChanges = [];
-                currentFilterValue = 'no_filter';
-                $exportFilterCsvBtn.show().prop('disabled', true);
-                $resultsTable.show();
-
-                // Complete
-                $scanProgress.hide();
-                $scanBtn.prop('disabled', false).html('<span class="dashicons dashicons-search"></span> Scan Images');
-
-                // Clear background cache (force fresh scan next time)
-                backgroundScanComplete = false;
-                backgroundScanResults = [];
-                backgroundScanStats = null;
-
-                console.log('✅ INSTANT-SCAN: Results displayed!');
-            }, 800);
-
-            return; // Exit early - don't run normal scan
-        }
-
-        // Normal scan logic (if no cache available)
-        console.log('🔄 NORMAL-SCAN: Starting fresh scan...');
-
-        // Cancel any ongoing background scan
-        cancelBackgroundScan();
-
-        // CRITICAL: Reset scannedImages array to prevent duplicates
         scannedImages = [];
         currentPage = 1; // Reset to first page on new scan
         $resultsTbody.empty();
+
 
         // RESET RADIO BUTTONS - UNCHECK ALL (no default filter)
         console.log('SCAN-DEBUG: Unchecking all radio buttons');
@@ -893,16 +740,9 @@ jQuery(document).ready(function ($) {
             action: 'imageseo_scan',
             nonce: imageSeoData.nonce,
             batch_size: 50,
-            offset: offset,
-            should_populate: !populateAlreadyCalled  // Only populate if not already called
+            offset: offset
             // UX-IMPROVEMENT: No status_filter parameter - backend returns ALL
         };
-
-        // Mark populate as called after first batch request
-        if (offset === 0 && !populateAlreadyCalled) {
-            populateAlreadyCalled = true;
-            console.log('🚩 POPULATE-FLAG: Set to true, backend will populate once');
-        }
         ;
 
         $.ajax({
@@ -913,12 +753,7 @@ jQuery(document).ready(function ($) {
                 if (response.success) {
                     const results = response.data.results;
 
-                    console.log(`📦 NORMAL-BATCH-${offset}: Received ${results.length} images from backend`);
-                    console.log(`📦 NORMAL-BATCH-${offset}: Current scannedImages.length BEFORE concat = ${scannedImages.length}`);
-
                     scannedImages = scannedImages.concat(results);
-
-                    console.log(`📦 NORMAL-BATCH-${offset}: After concat, scannedImages.length = ${scannedImages.length}`);
                     window.scannedImages = scannedImages; // Keep global ref in sync
 
                     if (offset === 0 && response.data.stats) {
@@ -1466,10 +1301,10 @@ jQuery(document).ready(function ($) {
 
     /**
      * Generate AI suggestions for all images
-    
-    
+
+
     /**
-    
+
     /**
      * Generate AI suggestion for an image
      */
@@ -2103,8 +1938,8 @@ jQuery(document).ready(function ($) {
 
     /**
      * Filter results by issue type
-     
-    
+ 
+
     /**
      * Export results to CSV
      */
@@ -2342,8 +2177,8 @@ jQuery(document).ready(function ($) {
 
     // ========== INITIALIZATION ==========
     // Load initial stats from database on page load
-    console.log('Timestamp: 12:00');
+    console.log('Timestamp: 10:42');
     console.log('🚀 PAGE-LOAD: Calling loadInitialStats()...');
     loadInitialStats();
 
-});
+})
