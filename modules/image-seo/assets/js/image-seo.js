@@ -873,6 +873,10 @@ jQuery(document).ready(function ($) {
         // Cancel any ongoing background scan
         cancelBackgroundScan();
 
+        // CRITICAL: Reset scannedImages array to prevent duplicates
+        scannedImages = [];
+        currentPage = 1; // Reset to first page on new scan
+        $resultsTbody.empty();
 
         // RESET RADIO BUTTONS - UNCHECK ALL (no default filter)
         console.log('SCAN-DEBUG: Unchecking all radio buttons');
