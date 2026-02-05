@@ -340,6 +340,9 @@ class SEOAutoFix_Broken_Url_Management
         // Get results
         add_action('wp_ajax_seoautofix_broken_links_get_results', array($this, 'ajax_get_results'));
 
+        // Get grouped results (NEW - with pagination and filtering)
+        add_action('wp_ajax_seoautofix_broken_links_get_grouped_results', array($this, 'ajax_get_grouped_scan_results'));
+
         // Update suggestion
         add_action('wp_ajax_seoautofix_broken_links_update_suggestion', array($this, 'ajax_update_suggestion'));
 
@@ -988,6 +991,275 @@ class SEOAutoFix_Broken_Url_Management
             'stats' => $stats
         ));
     }
+
+    /**
+     * AJAX: Get grouped scan results with pagination and filtering
+     * Enhanced version of ajax_group_by_url that returns paginated, filtered grouped results
+     */
+    public function ajax_get_grouped_scan_results()
+    {
+        error_log('==========================================================');
+        error_log('[GROUPED_RESULTS] 🔍 Getting grouped results endpoint called');
+        error_log('[GROUPED_RESULTS] Timestamp: ' . current_time('mysql'));
+
+        check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
+        error_log('[GROUPED_RESULTS] ✅ Nonce verified');
+
+        if (!current_user_can('manage_options')) {
+            error_log('[GROUPED_RESULTS] ❌ User unauthorized');
+            wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
+        }
+
+        // Get parameters
+        $scan_id = isset($_GET['scan_id']) ? sanitize_text_field($_GET['scan_id']) : '';
+        $page = isset($_GET['page']) ? intval($_GET['page']) : 1;
+        $per_page = isset($_GET['per_page']) ? intval($_GET['per_page']) : 25;
+        $error_type = isset($_GET['error_type']) ? sanitize_text_field($_GET['error_type']) : 'all';
+        $location = isset($_GET['location']) ? sanitize_text_field($_GET['location']) : 'all';
+        $search = isset($_GET['search']) ? sanitize_text_field($_GET['search']) : '';
+
+        error_log('[GROUPED_RESULTS] 📊 Parameters received:');
+        error_log('[GROUPED_RESULTS]   └─ scan_id: ' . $scan_id);
+        error_log('[GROUPED_RESULTS]   └─ page: ' . $page);
+        error_log('[GROUPED_RESULTS]   └─ per_page: ' . $per_page);
+        error_log('[GROUPED_RESULTS]   └─ error_type: ' . $error_type);
+        error_log('[GROUPED_RESULTS]   └─ location: ' . $location);
+        error_log('[GROUPED_RESULTS]   └─ search: ' . $search);
+
+        if (empty($scan_id)) {
+            error_log('[GROUPED_RESULTS] ❌ Scan ID missing');
+            wp_send_json_error(array('message' => __('Scan ID required', 'seo-autofix-pro')));
+        }
+
+        try {
+            // Initialize managers
+            $occurrences_manager = new Occurrences_Manager();
+            error_log('[GROUPED_RESULTS] 🔧 Occurrences manager initialized');
+
+            // Get grouped results
+            $grouped_results = $occurrences_manager->group_by_broken_url($scan_id);
+            error_log('[GROUPED_RESULTS] 📊 Total unique broken URLs found: ' . count($grouped_results));
+
+            // Get occurrence details for each grouped URL
+            foreach ($grouped_results as &$result) {
+                error_log('[GROUPED_RESULTS] 🔗 Processing URL: ' . $result['broken_url']);
+                error_log('[GROUPED_RESULTS]   └─ Occurrence count: ' . $result['occurrence_count']);
+
+                // Get detailed occurrences
+                $occurrences = $occurrences_manager->get_occurrences(
+                    $result['broken_url'],
+                    $scan_id
+                );
+
+                $result['occurrences'] = $occurrences;
+                $result['is_grouped'] = true;
+
+                error_log('[GROUPED_RESULTS]   └─ Detailed occurrences loaded: ' . count($occurrences));
+            }
+            unset($result); // Break reference
+
+            error_log('[GROUPED_RESULTS] 🔍 Applying filters...');
+
+            // Apply filters
+            $filtered_results = $this->apply_grouped_filters(
+                $grouped_results,
+                $error_type,
+                $location,
+                $search
+            );
+
+            error_log('[GROUPED_RESULTS] 📉 After filtering: ' . count($filtered_results) . ' URLs');
+
+            // Apply pagination
+            $total_items = count($filtered_results);
+            $total_pages = ceil($total_items / $per_page);
+            $offset = ($page - 1) * $per_page;
+            $paginated_results = array_slice($filtered_results, $offset, $per_page);
+
+            error_log('[GROUPED_RESULTS] 📄 Pagination applied:');
+            error_log('[GROUPED_RESULTS]   └─ Total items: ' . $total_items);
+            error_log('[GROUPED_RESULTS]   └─ Total pages: ' . $total_pages);
+            error_log('[GROUPED_RESULTS]   └─ Current page: ' . $page);
+            error_log('[GROUPED_RESULTS]   └─ Items on this page: ' . count($paginated_results));
+
+            // Calculate statistics
+            $stats = $this->calculate_grouped_stats($grouped_results, $filtered_results);
+            error_log('[GROUPED_RESULTS] 📈 Stats calculated');
+
+            $response = array(
+                'results' => $paginated_results,
+                'total_items' => $total_items,
+                'total_pages' => $total_pages,
+                'current_page' => $page,
+                'per_page' => $per_page,
+                'is_grouped_view' => true,
+                'stats' => $stats
+            );
+
+            error_log('[GROUPED_RESULTS] ✅ Sending successful response');
+            error_log('[GROUPED_RESULTS] ==========================================================');
+
+            wp_send_json_success($response);
+
+        } catch (\Exception $e) {
+            error_log('[GROUPED_RESULTS] ❌ EXCEPTION: ' . $e->getMessage());
+            error_log('[GROUPED_RESULTS] Stack trace: ' . $e->getTraceAsString());
+            error_log('[GROUPED_RESULTS] ==========================================================');
+            wp_send_json_error(array('message' => $e->getMessage()));
+        }
+    }
+
+    /**
+     * Apply filters to grouped results
+     * 
+     * @param array $results Grouped results
+     * @param string $error_type Error type filter
+     * @param string $location Location filter
+     * @param string $search Search query
+     * @return array Filtered results
+     */
+    private function apply_grouped_filters($results, $error_type, $location, $search)
+    {
+        error_log('[FILTER] 🔍 Applying filters to ' . count($results) . ' results');
+        error_log('[FILTER]   └─ error_type: ' . $error_type);
+        error_log('[FILTER]   └─ location: ' . $location);
+        error_log('[FILTER]   └─ search: ' . $search);
+
+        $filtered = array_filter($results, function ($result) use ($error_type, $location, $search) {
+
+            // Filter by error type
+            if ($error_type !== 'all') {
+                if ($result['error_type'] !== $error_type) {
+                    error_log('[FILTER]   ✗ Filtered out ' . $result['broken_url'] . ' - error_type mismatch');
+                    return false;
+                }
+            }
+
+            // Filter by location - check if ANY occurrence has this location
+            if ($location !== 'all') {
+                $has_location = false;
+                foreach ($result['occurrences'] as $occ) {
+                    if ($occ['link_location'] === $location) {
+                        $has_location = true;
+                        break;
+                    }
+                }
+                if (!$has_location) {
+                    error_log('[FILTER]   ✗ Filtered out ' . $result['broken_url'] . ' - location not found');
+                    return false;
+                }
+            }
+
+            // Filter by search query
+            if (!empty($search)) {
+                $search_lower = strtolower($search);
+                $url_match = stripos($result['broken_url'], $search) !== false;
+
+                // Also search in page titles
+                $page_match = false;
+                foreach ($result['occurrences'] as $occ) {
+                    if (stripos($occ['found_on_page_title'], $search) !== false) {
+                        $page_match = true;
+                        break;
+                    }
+                }
+
+                if (!$url_match && !$page_match) {
+                    error_log('[FILTER]   ✗ Filtered out ' . $result['broken_url'] . ' - search not found');
+                    return false;
+                }
+            }
+
+            error_log('[FILTER]   ✓ Kept ' . $result['broken_url']);
+            return true;
+        });
+
+        $filtered = array_values($filtered); // Re-index array
+        error_log('[FILTER] ✅ Filtering complete: ' . count($filtered) . ' results remaining');
+
+        return $filtered;
+    }
+
+    /**
+     * Calculate statistics for grouped results
+     * 
+     * @param array $all_results All grouped results
+     * @param array $filtered_results Filtered grouped results
+     * @return array Statistics
+     */
+    private function calculate_grouped_stats($all_results, $filtered_results)
+    {
+        error_log('[STATS] 📊 Calculating grouped statistics');
+
+        $total_unique_urls = count($all_results);
+        $filtered_unique_urls = count($filtered_results);
+
+        // Calculate total occurrences
+        $total_occurrences = 0;
+        $filtered_occurrences = 0;
+
+        foreach ($all_results as $result) {
+            $total_occurrences += $result['occurrence_count'];
+        }
+
+        foreach ($filtered_results as $result) {
+            $filtered_occurrences += $result['occurrence_count'];
+        }
+
+        // Count by error type
+        $error_type_counts = array(
+            '4xx' => 0,
+            '5xx' => 0,
+            'timeout' => 0,
+            'dns' => 0
+        );
+
+        foreach ($filtered_results as $result) {
+            if (isset($error_type_counts[$result['error_type']])) {
+                $error_type_counts[$result['error_type']]++;
+            }
+        }
+
+        // Count by location (count unique URLs that have occurrences in each location)
+        $location_counts = array(
+            'header' => 0,
+            'footer' => 0,
+            'content' => 0,
+            'sidebar' => 0,
+            'image' => 0
+        );
+
+        foreach ($filtered_results as $result) {
+            $locations_found = array();
+            foreach ($result['occurrences'] as $occ) {
+                $locations_found[$occ['link_location']] = true;
+            }
+            foreach ($locations_found as $loc => $found) {
+                if (isset($location_counts[$loc])) {
+                    $location_counts[$loc]++;
+                }
+            }
+        }
+
+        $stats = array(
+            'total_unique_urls' => $total_unique_urls,
+            'filtered_unique_urls' => $filtered_unique_urls,
+            'total_occurrences' => $total_occurrences,
+            'filtered_occurrences' => $filtered_occurrences,
+            'error_types' => $error_type_counts,
+            'locations' => $location_counts
+        );
+
+        error_log('[STATS] 📈 Statistics:');
+        error_log('[STATS]   └─ Total unique URLs: ' . $total_unique_urls);
+        error_log('[STATS]   └─ Filtered unique URLs: ' . $filtered_unique_urls);
+        error_log('[STATS]   └─ Total occurrences: ' . $total_occurrences);
+        error_log('[STATS]   └─ Filtered occurrences: ' . $filtered_occurrences);
+        error_log('[STATS] ✅ Stats calculation complete');
+
+        return $stats;
+    }
+
 
     /**
      * AJAX: Generate fix plan

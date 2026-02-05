@@ -295,6 +295,71 @@
         $('#export-report-btn').on('click', downloadReport); // Export ALL broken links
         $('#download-report-btn, #download-report-empty-btn').on('click', downloadActivityLog); // Download FIXED links
         $('#email-report-btn, #email-report-empty-btn').on('click', emailActivityLog); // Email FIXED links
+
+        // ========== GROUPED VIEW EVENT HANDLERS ==========
+
+        /**
+         * Expand/collapse toggle for grouped occurrences
+         * 
+         * FLOW:
+         * 1. Listen for click on expand button
+         * 2. Find corresponding detail row
+         * 3. Toggle visibility
+         * 4. Rotate arrow icon
+         */
+        $(document).on('click', '.expand-toggle', function () {
+            const groupId = $(this).data('group-id');
+            const detailRow = $(`.occurrences-detail-row[data-group-id="${groupId}"]`);
+            const icon = $(this).find('.dashicons');
+
+            if (detailRow.is(':visible')) {
+                console.log(`🔼 [EXPAND/COLLAPSE] Collapsing group: ${groupId}`);
+                detailRow.slideUp(200);
+                icon.removeClass('dashicons-arrow-down').addClass('dashicons-arrow-right');
+            } else {
+                console.log(`🔽 [EXPAND/COLLAPSE] Expanding group: ${groupId}`);
+                detailRow.slideDown(200);
+                icon.removeClass('dashicons-arrow-right').addClass('dashicons-arrow-down');
+
+                // Log visible occurrences
+                const occurrences = detailRow.find('li').length;
+                console.log(`  └─ [EXPAND/COLLAPSE] Showing ${occurrences} occurrences`);
+            }
+        });
+
+        /**
+         * Fix all occurrences of grouped URL
+         * 
+         * FLOW:
+         * 1. Get all entry IDs for this group
+         * 2. Confirm with user (show count)
+         * 3. Send AJAX request to fix all
+         * 4. Remove entire group row on success
+         * 5. Update stats
+         */
+        $(document).on('click', '.fix-all-occurrences', function () {
+            const groupId = $(this).data('group-id');
+            const brokenUrl = $(this).data('broken-url');
+            const entryIds = $(this).data('entry-ids').toString().split(',').map(id => parseInt(id));
+
+            console.log('═══════════════════════════════════════════════════════');
+            console.log('🔧 [FIX ALL] Fixing all occurrences of:', brokenUrl);
+            console.log('  └─ [FIX ALL] Group ID:', groupId);
+            console.log('  └─ [FIX ALL] Entry IDs:', entryIds);
+            console.log('  └─ [FIX ALL] Total to fix:', entryIds.length);
+
+            const confirmMessage = `Fix this broken link on ${entryIds.length} page(s)?\n\nBroken URL: ${brokenUrl}\n\nThis will fix all occurrences at once.`;
+
+            if (!confirm(confirmMessage)) {
+                console.log('  ❌ [FIX ALL] User cancelled');
+                return;
+            }
+
+            console.log('  ⏳ [FIX ALL] Sending fix request...');
+
+            // Call the existing applySelectedFixes function with all entry IDs
+            applySelectedFixes(entryIds);
+        });
     }
 
     /**
@@ -609,19 +674,27 @@
     }
 
     /**
-     * Load scan results
+     * Load scan results (GROUPED VIEW)
+     * 
+     * FLOW:
+     * 1. Show loading state
+     * 2. Make AJAX call to 'get_grouped_scan_results'
+     * 3. Receive grouped data
+     * 4. Call displayGroupedResults()
+     * 5. Update pagination and stats
      */
     function loadScanResults(scanId) {
-        console.log('[LOAD SCAN RESULTS] Called with scanId:', scanId);
+        console.log('═══════════════════════════════════════════════════════');
+        console.log('🔄 [GROUPED LOAD] Loading grouped results for scan:', scanId);
+        console.log('📄 [GROUPED LOAD] Page:', currentPage, '| Per page:', perPage);
+
         currentScanId = scanId;
 
         // Get filter values from dropdowns
-        const pageType = $('#filter-page-type').val() || 'all';
         const errorType = $('#filter-error-type').val() || 'all';
         const location = $('#filter-location').val() || 'all';
 
-        console.log('[LOAD SCAN RESULTS] Filter values:', {
-            pageType,
+        console.log('[GROUPED LOAD] Filter values:', {
             errorType,
             location,
             currentPage,
@@ -629,15 +702,16 @@
             currentSearch
         });
 
+        // Show loading state
+        $('#results-table-body').html('<tr><td colspan="6" class="text-center">Loading grouped results...</td></tr>');
+
         $.ajax({
             url: seoautofixBrokenUrls.ajaxUrl,
             method: 'GET',
             data: {
-                action: 'seoautofix_broken_links_get_results',
+                action: 'seoautofix_broken_links_get_grouped_results',
                 nonce: seoautofixBrokenUrls.nonce,
                 scan_id: scanId,
-                filter: currentFilter, // Keep for backward compatibility
-                page_type: pageType,
                 error_type: errorType,
                 location: location,
                 search: currentSearch,
@@ -645,13 +719,39 @@
                 per_page: perPage
             },
             success: function (response) {
+                console.log('✅ [GROUPED LOAD] Received grouped results:', response.data);
                 if (response.success) {
-                    displayResults(response.data);
+                    console.log('📊 [GROUPED LOAD] Unique URLs:', response.data.results.length);
+                    console.log('📈 [GROUPED LOAD] Total items:', response.data.total_items);
+
+                    // Calculate total occurrences
+                    let totalOccurrences = 0;
+                    response.data.results.forEach(result => {
+                        totalOccurrences += result.occurrence_count;
+                        console.log(`  └─ ${result.broken_url}: ${result.occurrence_count} occurrences`);
+                    });
+                    console.log('📊 [GROUPED LOAD] Total occurrences across all URLs:', totalOccurrences);
+
+                    // Check if this is grouped view data
+                    if (response.data.is_grouped_view) {
+                        console.log('🎯 [GROUPED LOAD] Grouped view detected - using displayGroupedResults()');
+                        displayGroupedResults(response.data);
+                    } else {
+                        console.log('⚠️ [GROUPED LOAD] Non-grouped data - falling back to displayResults()');
+                        displayResults(response.data);
+                    }
+
+                    updatePagination(response.data);
+                    updateFilterCounts(response.data);
                 } else {
+                    console.error('❌ [GROUPED LOAD] Error:', response.data.message);
                     alert(response.data.message || seoautofixBrokenUrls.strings.error);
                 }
             },
-            error: function () {
+            error: function (xhr, status, error) {
+                console.error('❌ [GROUPED LOAD] Error loading grouped results:', error);
+                console.error('   Status:', status);
+                console.error('   XHR:', xhr.responseText);
                 alert(seoautofixBrokenUrls.strings.error);
             }
         });
@@ -829,6 +929,245 @@
 
         return row;
     }
+
+    /**
+     * Display grouped results (NEW FOR GROUPED VIEW)
+     * 
+     * FLOW:
+     * 1. Clear existing table
+     * 2. For each grouped URL:
+     *    a. Create parent row with summary
+     *    b. Add occurrence count badge
+     *    c. Add expand/collapse button
+     *    d. Create hidden child row with occurrence details
+     * 3. Attach event listeners for expand/collapse
+     */
+    function displayGroupedResults(data) {
+        console.log('🎨 [GROUPED DISPLAY] Rendering grouped results');
+        console.log('📋 [GROUPED DISPLAY] Results to display:', data.results.length);
+
+        const results = data.results;
+        const total = data.total_items;
+
+        // Update header stats
+        if (data.stats) {
+            updateHeaderStats(data.stats);
+        }
+
+        // Always show results container (table and filters)
+        $('#results-container').show();
+        $('#empty-state').hide();
+
+        // Show download/email buttons when results are available
+        $('.history-export-section-header').show();
+
+        // Enable export button when results are available
+        $('#export-report-btn').prop('disabled', false).removeClass('disabled');
+        console.log('[GROUPED DISPLAY] Export button enabled - results loaded');
+
+        // Clear table
+        const tbody = $('#results-table-body');
+        tbody.empty();
+
+        // If no results, show message in table
+        if (total === 0) {
+            console.log('ℹ️ [GROUPED DISPLAY] No results to display');
+            const emptyRow = $('<tr class="empty-results-row"></tr>');
+            emptyRow.html(
+                '<td colspan="6" style="text-align: center; padding: 40px; color: #6b7280;">' +
+                '<div style="font-size: 16px; font-weight: 500; margin-bottom: 8px;">No broken links found matching your filters</div>' +
+                '<div style="font-size: 14px;">Try adjusting your filter criteria or search term</div>' +
+                '</td>'
+            );
+            tbody.append(emptyRow);
+
+            // Update pagination to show no pages
+            updatePagination({
+                current_page: 1,
+                total_pages: 0,
+                total: 0
+            });
+
+            // Update filter counts
+            updateFilterCounts(data);
+
+            // Update button states even when no results
+            updateButtonStates();
+            return;
+        }
+
+        let serialNumber = ((data.current_page - 1) * data.per_page) + 1;
+
+        results.forEach((result, index) => {
+            console.log(`  ├─ [GROUPED DISPLAY] Row ${serialNumber}: ${result.broken_url}`);
+            console.log(`  │  └─ ${result.occurrence_count} occurrences on pages:`,
+                result.occurrences.map(o => o.found_on_page_title).join(', '));
+
+            // Create parent row
+            const parentRow = createGroupedRow(result, serialNumber);
+            tbody.append(parentRow);
+
+            console.log(`  └─ [GROUPED DISPLAY] Created row for group ${serialNumber}`);
+
+            serialNumber++;
+        });
+
+        console.log('✅ [GROUPED DISPLAY] Rendering complete');
+        console.log('📊 [GROUPED DISPLAY] Total rows in table:', tbody.find('tr').length);
+
+        // Update button states after displaying results
+        updateButtonStates();
+    }
+
+    /**
+     * Create grouped row (NEW FOR GROUPED VIEW)
+     * 
+     * STRUCTURE:
+     * - Serial number
+     * - Broken URL with expand button
+     * - Error type badge
+     * - Occurrence count badge (e.g., "15 pages"
+     * - First suggested URL (editable)
+     * - Actions (Fix All, Skip)
+     */
+    function createGroupedRow(result, serialNumber) {
+        console.log(`🔨 [CREATE GROUPED ROW] Creating grouped row ${serialNumber} for: ${result.broken_url}`);
+        console.log(`  └─ [CREATE GROUPED ROW] Occurrences: ${result.occurrence_count}`);
+        console.log(`  └─ [CREATE GROUPED ROW] Error type: ${result.error_type}`);
+        console.log(`  └─ [CREATE GROUPED ROW] Status code: ${result.status_code}`);
+
+        const errorTypeBadge = getErrorTypeBadge(result.error_type, result.status_code);
+
+        // Get location summary
+        const locations = getLocationSummary(result.occurrences);
+        console.log(`  └─ [CREATE GROUPED ROW] Locations: ${locations}`);
+
+        // Build suggested URL display for internal links
+        let suggestedUrlHtml = '';
+        if (result.link_type === 'internal' && result.suggested_url) {
+            suggestedUrlHtml = '<div class="suggested-url-display">' +
+                '<span class="suggested-label">Suggested: </span>' +
+                '<a href="' + escapeHtml(result.suggested_url) + '" class="suggested-url-link" target="_blank">' +
+                escapeHtml(result.suggested_url) +
+                '</a>' +
+                '</div>';
+        }
+
+        // Prepare occurrence details HTML
+        let occurrencesListHtml = '<ul class="occurrences-list">';
+        result.occurrences.forEach((occ, index) => {
+            console.log(`    ${index + 1}. ${occ.found_on_page_title} (${occ.link_location})`);
+
+            const locationIcon = getLocationIcon(occ.link_location);
+
+            occurrencesListHtml += `
+                <li>
+                    <strong>${escapeHtml(occ.found_on_page_title || 'Untitled')}</strong>
+                    <span class="location-badge">${locationIcon} ${occ.link_location}</span>
+                    ${occ.anchor_text ? `<span class="anchor-text">Text: "${escapeHtml(occ.anchor_text)}"</span>` : ''}
+                    <a href="${escapeHtml(occ.found_on_url)}" target="_blank" class="view-page">View Page</a>
+                </li>
+            `;
+        });
+        occurrencesListHtml += '</ul>';
+
+        const rowHtml = `
+            <tr class="grouped-parent-row" data-group-id="${result.first_id}" data-result='${JSON.stringify(result)}'>
+                <td>${serialNumber}</td>
+                <td>
+                    <button class="expand-toggle" data-group-id="${result.first_id}">
+                        <span class="dashicons dashicons-arrow-right"></span>
+                    </button>
+                    <strong>${escapeHtml(result.broken_url)}</strong>
+                    <div class="occurrence-info">
+                        <span class="badge badge-info">
+                            📍 ${result.occurrence_count} page${result.occurrence_count > 1 ? 's' : ''}
+                        </span>
+                        <span class="location-summary">${locations}</span>
+                    </div>
+                    ${suggestedUrlHtml}
+                </td>
+                <td>
+                    <span class="link-type-badge ${result.link_type === 'internal' ? 'badge-internal' : 'badge-external'}">
+                        ${result.link_type === 'internal' ? 'Internal' : 'External'}
+                    </span>
+                </td>
+                <td>${errorTypeBadge}</td>
+                <td class="column-action">
+                    <button class="fix-all-occurrences btn btn-primary" 
+                            data-group-id="${result.first_id}"
+                            data-broken-url="${escapeHtml(result.broken_url)}"
+                            data-entry-ids="${result.entry_ids.join(',')}">
+                        Fix All (${result.occurrence_count})
+                    </button>
+                    <button class="skip-link btn btn-secondary" 
+                            data-id="${result.first_id}">
+                        Skip
+                    </button>
+                </td>
+            </tr>
+            <tr class="occurrences-detail-row" data-group-id="${result.first_id}" style="display: none;">
+                <td colspan="6">
+                    <div class="occurrences-container">
+                        <h4>Found on ${result.occurrence_count} page(s):</h4>
+                        ${occurrencesListHtml}
+                    </div>
+                </td>
+            </tr>
+        `;
+
+        console.log(`  ✅ [CREATE GROUPED ROW] Row created for group ${result.first_id}`);
+
+        return $(rowHtml);
+    }
+
+    /**
+     * Get location summary for display
+     */
+    function getLocationSummary(occurrences) {
+        console.log('📍 [LOCATION SUMMARY] Analyzing locations for occurrences');
+
+        const locations = {};
+        occurrences.forEach(occ => {
+            locations[occ.link_location] = (locations[occ.link_location] || 0) + 1;
+        });
+
+        const summary = Object.entries(locations)
+            .map(([loc, count]) => `${getLocationIcon(loc)} ${loc} (${count})`)
+            .join(', ');
+
+        console.log('  └─ [LOCATION SUMMARY] Location summary:', summary);
+
+        return summary;
+    }
+
+    /**
+     * Get location icon
+     */
+    function getLocationIcon(location) {
+        const icons = {
+            'header': '📌',
+            'footer': '📍',
+            'content': '📝',
+            'sidebar': '📊',
+            'image': '🖼️'
+        };
+        return icons[location] || '📄';
+    }
+
+    /**
+     * Get error type badge
+     */
+    function getErrorTypeBadge(errorType, statusCode) {
+        const badges = {
+            '4xx': `<span class="status-badge error-4xx">4xx - ${statusCode}</span>`,
+            '5xx': `<span class="status-badge error-5xx">5xx - ${statusCode}</span>`,
+            'timeout': `<span class="status-badge error-timeout">Timeout</span>`,
+            'dns': `<span class="status-badge error-dns">DNS Error</span>`
+        };
+        return badges[errorType] || `<span class="status-badge">${statusCode}</span>`;
+    }
+
 
     /**
      * Extract page name from URL
