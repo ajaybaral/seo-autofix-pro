@@ -27,7 +27,7 @@
     // Initialize on document ready
     $(document).ready(function () {
         console.log('=================================================');
-        console.log('🔥 BROKEN URL MANAGEMENT JS - VERSION 3.0 - SIMPLIFIED BUTTON LOGIC 🔥');
+        console.log('🔥 BROKEN URL MANAGEMENT JS - VERSION 4.0 - SIMPLIFIED BUTTON LOGIC 🔥');
         console.log('🆕 Timestamp: 2026-02-02 16:05 - FIXED ALERT MESSAGES 🆕');
         console.log('🆕 fixedLinksSession starts at:', fixedLinksSession.length);
         console.log('🆕 skippedLinksSession starts at:', skippedLinksSession.length);
