@@ -35,6 +35,7 @@ class SEOAutoFix_Settings {
         add_action('wp_ajax_seoautofix_get_logs', array($this, 'ajax_get_logs'));
         add_action('wp_ajax_seoautofix_clear_logs', array($this, 'ajax_clear_logs'));
         add_action('wp_ajax_seoautofix_download_logs', array($this, 'ajax_download_logs'));
+        add_action('wp_ajax_seoautofix_test_log', array($this, 'ajax_test_log'));
     }
     
     /**

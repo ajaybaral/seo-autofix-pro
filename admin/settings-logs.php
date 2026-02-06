@@ -95,6 +95,11 @@ $modules = $log_reader->get_available_modules();
                 <?php echo esc_html__('Download', 'seo-autofix-pro'); ?>
             </button>
 
+            <button id="test-log" class="button button-secondary">
+                <span class="dashicons dashicons-yes"></span>
+                <?php echo esc_html__('Write Test Log', 'seo-autofix-pro'); ?>
+            </button>
+
             <button id="clear-logs" class="button button-secondary">
                 <span class="dashicons dashicons-trash"></span>
                 <?php echo esc_html__('Clear Logs', 'seo-autofix-pro'); ?>

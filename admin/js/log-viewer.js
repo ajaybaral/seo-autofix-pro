@@ -294,6 +294,20 @@
 
         $('#download-logs').on('click', downloadLogs);
 
+        $('#test-log').on('click', function() {
+            $.post(seoautofixLogs.ajaxUrl, {
+                action: 'seoautofix_test_log',
+                nonce: seoautofixLogs.nonce
+            }, function(response) {
+                if (response.success) {
+                    alert('✅ Test logs written successfully! Refreshing...');
+                    loadLogs(true);
+                } else {
+                    alert('❌ Error writing test log: ' + (response.data.message || 'Unknown error'));
+                }
+            });
+        });
+
         $('#load-more-logs').on('click', function() {
             loadLogs(false);
         });
