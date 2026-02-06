@@ -259,6 +259,8 @@ class SEOAutoFix_Image_SEO
     {
         // Track execution time
         $start_time = microtime(true);
+        $timing = array(); // Track timing for each operation
+        
         error_log('🚀 ===== IMAGE-SEO SCAN BATCH START =====');
         error_log('🚀 [SCAN] Request received at: ' . date('Y-m-d H:i:s'));
 
@@ -287,7 +289,8 @@ class SEOAutoFix_Image_SEO
             $results = $this->analyzer->scan_all_images($batch_size, $offset, $this->usage_tracker, $status_filter);
             
             $scan_elapsed = microtime(true) - $scan_start;
-            error_log('✅ [SCAN] Analyzer completed in ' . number_format($scan_elapsed, 3) . 's');
+            $timing['scan_time'] = number_format($scan_elapsed, 3);
+            error_log('✅ [SCAN] Analyzer completed in ' . $timing['scan_time'] . 's');
             error_log('📊 [SCAN] Results count: ' . count($results));
 
             if (!empty($results)) {
@@ -300,18 +303,6 @@ class SEOAutoFix_Image_SEO
             // 🔧 CRITICAL FIX: REMOVED history population from scan process
             // This was causing the 504 timeout by doubling the processing work
             // History population should be a separate background process
-            /*
-            if ($offset === 0) {
-                delete_transient('seoautofix_history_populated');
-            }
-            
-            if (!get_transient('seoautofix_history_populated')) {
-                $populated = $this->populate_all_images_in_history_batch($batch_size);
-                if ($populated) {
-                    set_transient('seoautofix_history_populated', true, HOUR_IN_SECONDS);
-                }
-            }
-            */
             error_log('ℹ️ [SCAN] History population SKIPPED (runs separately to prevent timeout)');
 
             // Build response
@@ -333,13 +324,25 @@ class SEOAutoFix_Image_SEO
                 $response_data['total_images'] = (int) $total_images;
                 
                 $stats_elapsed = microtime(true) - $stats_start;
-                error_log('✅ [SCAN] Stats fetched in ' . number_format($stats_elapsed, 3) . 's');
+                $timing['stats_time'] = number_format($stats_elapsed, 3);
+                error_log('✅ [SCAN] Stats fetched in ' . $timing['stats_time'] . 's');
                 error_log('📊 [SCAN] Stats: ' . json_encode($response_data['stats']));
                 error_log('🎯 [SCAN] Total images in DB: ' . $total_images);
             }
 
             $total_elapsed = microtime(true) - $start_time;
-            error_log('⏱️ [SCAN] Total batch time: ' . number_format($total_elapsed, 3) . 's');
+            $timing['total_time'] = number_format($total_elapsed, 3);
+            
+            // Add debug info to response for frontend console
+            $response_data['debug'] = array(
+                'batch_index' => ($offset / $batch_size) + 1,
+                'images_in_batch' => count($results),
+                'timing' => $timing,
+                'memory_usage' => size_format(memory_get_usage(true)),
+                'peak_memory' => size_format(memory_get_peak_usage(true))
+            );
+            
+            error_log('⏱️ [SCAN] Total batch time: ' . $timing['total_time'] . 's');
             error_log('📤 [SCAN] Response: results=' . count($response_data['results']) . ', hasMore=' . ($response_data['hasMore'] ? 'true' : 'false') . ', nextOffset=' . $response_data['offset']);
             error_log('✅ ===== IMAGE-SEO SCAN BATCH END =====');
 
@@ -352,7 +355,13 @@ class SEOAutoFix_Image_SEO
             error_log('❌ [SCAN-ERROR] Trace: ' . $e->getTraceAsString());
             
             $this->logger->log_error('Scan failed', $e->getMessage());
-            wp_send_json_error(array('message' => $e->getMessage()));
+            wp_send_json_error(array(
+                'message' => $e->getMessage(),
+                'debug' => array(
+                    'execution_time' => number_format($total_elapsed, 3) . 's',
+                    'error_type' => get_class($e)
+                )
+            ));
         }
     }
 

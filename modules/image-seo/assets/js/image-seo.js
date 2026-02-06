@@ -760,6 +760,24 @@ jQuery(document).ready(function ($) {
                     const results = response.data.results;
                     console.log('✅ BATCH-SUCCESS: Received ' + results.length + ' images');
 
+                    // Display backend debug info if available
+                    if (response.data.debug) {
+                        const debug = response.data.debug;
+                        console.log('🔍 BACKEND-DEBUG: ===================================');
+                        console.log('  📦 Batch #' + debug.batch_index);
+                        console.log('  📊 Images in batch: ' + debug.images_in_batch);
+                        console.log('  ⏱️  Backend Timing:');
+                        if (debug.timing.scan_time) {
+                            console.log('     - Scan time: ' + debug.timing.scan_time + 's');
+                        }
+                        if (debug.timing.stats_time) {
+                            console.log('     - Stats time: ' + debug.timing.stats_time + 's');
+                        }
+                        console.log('     - Total backend time: ' + debug.timing.total_time + 's');
+                        console.log('  💾 Memory: ' + debug.memory_usage + ' (peak: ' + debug.peak_memory + ')');
+                        console.log('🔍 ============================================');
+                    }
+
                     scannedImages = scannedImages.concat(results);
                     window.scannedImages = scannedImages;
                     console.log('📊 TOTAL-SCANNED: Now have ' + scannedImages.length + ' total images');
@@ -838,6 +856,12 @@ jQuery(document).ready(function ($) {
                     }
                 } else {
                     console.error('❌ BATCH-ERROR: Scan failed', response.data);
+                    
+                    // Display error debug info if available
+                    if (response.data && response.data.debug) {
+                        console.error('🔍 ERROR-DEBUG:', response.data.debug);
+                    }
+                    
                     showError('Scan failed: ' + (response.data.message || 'Unknown error'));
                     resetUI();
                 }
@@ -851,6 +875,7 @@ jQuery(document).ready(function ($) {
                 
                 if (xhr.status === 504) {
                     console.error('🚨 TIMEOUT-ERROR: 504 Gateway Timeout detected!');
+                    console.error('🚨 Request took: ' + elapsed + 'ms (exceeded server timeout limit)');
                     showError('Request timeout - Server took too long to respond. Try scanning smaller batches.');
                 } else {
                     showError('Network error occurred during scan');
