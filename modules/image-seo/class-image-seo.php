@@ -286,7 +286,9 @@ class SEOAutoFix_Image_SEO
             $scan_start = microtime(true);
             error_log('🔍 [SCAN] Starting analyzer->scan_all_images()...');
             
-            $results = $this->analyzer->scan_all_images($batch_size, $offset, $this->usage_tracker, $status_filter);
+            // TEMPORARY: Disable usage tracker to fix 500 error
+            // TODO: Re-enable after fixing batch optimization
+            $results = $this->analyzer->scan_all_images($batch_size, $offset, null, $status_filter);
             
             $scan_elapsed = microtime(true) - $scan_start;
             $timing['scan_time'] = number_format($scan_elapsed, 3);
