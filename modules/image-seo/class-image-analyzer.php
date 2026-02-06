@@ -117,7 +117,12 @@ class Image_Analyzer
         $batch_usage = array();
         if ($usage_tracker && method_exists($usage_tracker, 'get_batch_image_usage')) {
             $batch_start = microtime(true);
-            $attachment_ids = array_map(function($row) { return $row->attachment_id; }, $results_data);
+            
+            // Build array of attachment IDs
+            $attachment_ids = array();
+            foreach ($results_data as $row) {
+                $attachment_ids[] = $row->attachment_id;
+            }
             
             error_log('🔍 [ANALYZER] Fetching batch usage for ' . count($attachment_ids) . ' images...');
             $batch_usage = $usage_tracker->get_batch_image_usage($attachment_ids);

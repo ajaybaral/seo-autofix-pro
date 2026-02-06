@@ -140,23 +140,82 @@ class SEO_AutoFix_Log_Reader
     /**
      * Parse a single log entry
      * 
+     * Handles both WordPress debug.log format and custom format
+     * 
      * @param string $log Log line
      * @return array|null Parsed data or null if invalid
      */
     public function parse_log_entry($log)
     {
-        // Pattern: [2026-02-07 00:08:17] [ERROR] [IMAGE-SEO] Message
-        $pattern = '/\[([\d\-: ]+)\] \[([A-Z]+)\] \[([A-Z\-]+)\] (.+)/';
-
-        if (!preg_match($pattern, $log, $matches)) {
-            return null;
+        // WordPress debug.log format: [06-Feb-2026 18:54:17 UTC] PHP Warning: message
+        //  or: [06-Feb-2026 18:54:17 UTC] message
+        if (preg_match('/^\[([^\]]+)\]\s+(PHP\s+(Warning|Notice|Error|Fatal error|Parse error)):\s*(.+)/', $log, $matches)) {
+            return [
+                'timestamp' => $matches[1],
+                'level' => 'ERROR', // PHP errors are always treated as ERROR
+                'module' => 'PHP',
+                'message' => $matches[2] . ': ' . $matches[4],
+                'raw' => $log
+            ];
         }
-
+        
+        // WordPress debug.log generic format: [timestamp] message
+        if (preg_match('/^\[([^\]]+)\]\s+(.+)/', $log, $matches)) {
+            $message = $matches[2];
+            
+            // Try to extract module from message if it has [MODULE] prefix
+            $module = 'WORDPRESS';
+            $level = 'INFO';
+            
+            // Check for [MODULE] or [LEVEL] patterns
+            if (preg_match('/^\[([A-Z\-]+)\]\s*(.+)/', $message, $msg_matches)) {
+                $possible_module = $msg_matches[1];
+                $remaining = $msg_matches[2];
+                
+                // Check if it's a level indicator
+                if (in_array($possible_module, ['ERROR', 'WARNING', 'INFO', 'DEBUG'])) {
+                    $level = $possible_module;
+                    
+                    // Check for module after level: [ERROR] [MODULE] message
+                    if (preg_match('/^\[([A-Z\-]+)\]\s*(.+)/', $remaining, $mod_matches)) {
+                        $module = $mod_matches[1];
+                        $message = $mod_matches[2];
+                    } else {
+                        $message = $remaining;
+                    }
+                } else {
+                    // It's a module: [MODULE] message
+                    $module = $possible_module;
+                    $message = $remaining;
+                }
+            }
+            
+            // Detect level from message content if not already set
+            if ($level === 'INFO') {
+                if (stripos($message, 'error') !== false || stripos($message, 'failed') !== false || stripos($message, 'fatal') !== false) {
+                    $level = 'ERROR';
+                } elseif (stripos($message, 'warning') !== false || stripos($message, 'notice') !== false) {
+                    $level = 'WARNING';
+                } elseif (stripos($message, 'debug') !== false) {
+                    $level = 'DEBUG';
+                }
+            }
+            
+            return [
+                'timestamp' => $matches[1],
+                'level' => $level,
+                'module' => $module,
+                'message' => $message,
+                'raw' => $log
+            ];
+        }
+        
+        // If no pattern matches, return as-is with generic info
         return [
-            'timestamp' => $matches[1],
-            'level' => $matches[2],
-            'module' => $matches[3],
-            'message' => $matches[4],
+            'timestamp' => date('Y-m-d H:i:s'),
+            'level' => 'INFO',
+            'module' => 'UNKNOWN',
+            'message' => $log,
             'raw' => $log
         ];
     }
@@ -181,7 +240,8 @@ class SEO_AutoFix_Log_Reader
      */
     private function get_log_file_path()
     {
-        return plugin_dir_path(dirname(__FILE__)) . 'logs/debug.log';
+        // Read from WordPress debug.log file
+        return WP_CONTENT_DIR . '/debug.log';
     }
 
     /**

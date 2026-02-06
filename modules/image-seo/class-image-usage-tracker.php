@@ -108,12 +108,17 @@ class Image_Usage_Tracker
 
         // QUERY 2: Get ALL featured images at once
         $query_start = microtime(true);
-        $featured_images = $wpdb->get_results("
-            SELECT post_id, meta_value as attachment_id
-            FROM {$wpdb->postmeta}
-            WHERE meta_key = '_thumbnail_id'
-            AND meta_value IN (" . implode(',', array_filter($attachment_ids, 'is_numeric')) . ")
-        ");
+        $numeric_ids = array_filter($attachment_ids, 'is_numeric');
+        $featured_images = array();
+        
+        if (!empty($numeric_ids)) {
+            $featured_images = $wpdb->get_results("
+                SELECT post_id, meta_value as attachment_id
+                FROM {$wpdb->postmeta}
+                WHERE meta_key = '_thumbnail_id'
+                AND meta_value IN (" . implode(',', $numeric_ids) . ")
+            ");
+        }
         $query2_time = microtime(true) - $query_start;
         error_log('⏱️ [USAGE-TRACKER] Query 2 (featured images): ' . number_format($query2_time, 3) . 's - ' . count($featured_images) . ' matches');
 

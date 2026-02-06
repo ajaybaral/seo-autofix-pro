@@ -24,6 +24,10 @@ $modules = $log_reader->get_available_modules();
 
 <div class="wrap seoautofix-logs-page">
     <h1><?php echo esc_html__('Debug Logs', 'seo-autofix-pro'); ?></h1>
+    <p class="description" style="margin-bottom: 20px;">
+        <?php echo esc_html__('Viewing WordPress debug.log file:', 'seo-autofix-pro'); ?> 
+        <code><?php echo esc_html(WP_CONTENT_DIR . '/debug.log'); ?></code>
+    </p>
 
     <div class="log-stats-cards">
         <div class="stat-card">
