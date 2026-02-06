@@ -322,7 +322,7 @@ class SEOAutoFix_Image_SEO
                 $response_data['stats'] = $this->image_history->get_statistics();
                 
                 global $wpdb;
-                $total_images = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'attachment' AND post_mime_type LIKE 'image/%'");
+                $total_images = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'attachment' AND post_mime_type LIKE 'image/%' AND post_parent = 0");
                 $response_data['total_images'] = (int) $total_images;
                 
                 $stats_elapsed = microtime(true) - $stats_start;

@@ -67,6 +67,7 @@ class Image_Analyzer
                  FROM {$wpdb->posts}
                  WHERE post_type = 'attachment' 
                  AND post_mime_type LIKE 'image/%'
+                 AND post_parent = 0
                  ORDER BY ID DESC
                  LIMIT %d OFFSET %d",
                 $batch_size,
