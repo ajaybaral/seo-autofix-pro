@@ -327,12 +327,9 @@ class SEOAutoFix_Image_SEO
                     FROM {$wpdb->posts} 
                     WHERE post_type = 'attachment' 
                     AND post_mime_type LIKE 'image/%'
-                    AND (
-                        post_parent = 0 
-                        OR post_parent NOT IN (
-                            SELECT ID FROM {$wpdb->posts} WHERE post_type = 'attachment'
-                        )
-                    )
+                    AND guid NOT LIKE '%-scaled.%'
+                    AND guid NOT LIKE '%-cropped.%'
+                    AND guid NOT REGEXP '.*-[0-9]+x[0-9]+\\.(jpg|jpeg|png|gif|webp)$'
                 ");
                 $response_data['total_images'] = (int) $total_images;
                 

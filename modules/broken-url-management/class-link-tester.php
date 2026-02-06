@@ -36,8 +36,11 @@ class Link_Tester
      */
     public function test_url($url)
     {
+        seoautofix_error_log("[LINK-TESTER] Testing URL: " . $url);
+        
         // Validate URL
         if (!filter_var($url, FILTER_VALIDATE_URL) && strpos($url, '/') !== 0) {
+            seoautofix_error_log("[LINK-TESTER] ❌ Invalid URL format: " . $url);
             return array(
                 'status_code' => 0,
                 'error_type' => 'dns',
@@ -55,6 +58,7 @@ class Link_Tester
                 $base .= ':' . $parsed_home['port'];
             }
             $url = $base . $url;
+            seoautofix_error_log("[LINK-TESTER] Converted relative URL to: " . $url);
         }
 
         // For internal WordPress URLs, use faster WordPress functions
@@ -62,6 +66,8 @@ class Link_Tester
         $home_url = get_home_url();
 
         if (strpos($url, $site_url) === 0 || strpos($url, $home_url) === 0) {
+            seoautofix_error_log("[LINK-TESTER] Internal URL detected, using fast check");
+            
             // This is an internal WordPress URL - use WordPress functions
             $path = parse_url($url, PHP_URL_PATH);
             $query = parse_url($url, PHP_URL_QUERY);
@@ -80,6 +86,7 @@ class Link_Tester
                 // Valid post/page exists
                 $post = get_post($post_id);
                 if ($post && $post->post_status === 'publish') {
+                    seoautofix_error_log("[LINK-TESTER] ✅ Internal URL OK (post ID: {$post_id})");
                     // Post exists and is published - not broken
                     return array(
                         'status_code' => 200,
@@ -96,6 +103,7 @@ class Link_Tester
                 $file_path = str_replace($upload_dir['baseurl'], $upload_dir['basedir'], $url);
 
                 if (file_exists($file_path)) {
+                    seoautofix_error_log("[LINK-TESTER] ✅ Upload file exists: {$file_path}");
                     return array(
                         'status_code' => 200,
                         'error_type' => null,
@@ -103,6 +111,7 @@ class Link_Tester
                         'error' => null
                     );
                 } else {
+                    seoautofix_error_log("[LINK-TESTER] ❌ Upload file NOT found: {$file_path}");
                     return array(
                         'status_code' => 404,
                         'error_type' => '4xx',
@@ -114,6 +123,7 @@ class Link_Tester
 
             // Check if it's admin/login page (not broken, just requires auth)
             if (strpos($url, '/wp-admin/') !== false || strpos($url, '/wp-login.php') !== false) {
+                seoautofix_error_log("[LINK-TESTER] ✅ Admin/login page (not broken)");
                 return array(
                     'status_code' => 200,
                     'error_type' => null,
@@ -124,6 +134,8 @@ class Link_Tester
         }
 
         // For external URLs or URLs that don't match above patterns, use HTTP request
+        seoautofix_error_log("[LINK-TESTER] Making HTTP request for: " . $url);
+        
         // Make HEAD request first (faster)
         $response = wp_remote_head($url, array(
             'timeout' => self::REQUEST_TIMEOUT,
@@ -134,6 +146,7 @@ class Link_Tester
 
         // If HEAD fails, try GET request
         if (is_wp_error($response)) {
+            seoautofix_error_log("[LINK-TESTER] HEAD failed, trying GET");
             $response = wp_remote_get($url, array(
                 'timeout' => self::REQUEST_TIMEOUT,
                 'redirection' => 5,
@@ -152,6 +165,8 @@ class Link_Tester
                 $error_type = 'dns';
             }
 
+            seoautofix_error_log("[LINK-TESTER] ❌ ERROR: {$error_type} - {$error_message}");
+            
             return array(
                 'status_code' => 0,
                 'error_type' => $error_type,
@@ -162,11 +177,14 @@ class Link_Tester
 
         $status_code = wp_remote_retrieve_response_code($response);
         $error_type = $this->categorize_error_type($status_code);
+        $is_broken = $this->is_broken_status_code($status_code);
+
+        seoautofix_error_log("[LINK-TESTER] Response: Status={$status_code}, ErrorType={$error_type}, Broken=" . ($is_broken ? 'YES' : 'NO'));
 
         return array(
             'status_code' => $status_code,
             'error_type' => $error_type,
-            'is_broken' => $this->is_broken_status_code($status_code),
+            'is_broken' => $is_broken,
             'error' => null
         );
     }
