@@ -734,130 +734,127 @@ jQuery(document).ready(function ($) {
      * Scan a batch of images (UX-IMPROVEMENT: No status filter)
      */
     function scanBatch(offset = 0) {
+        console.log('🚀 SCAN-BATCH-START: Offset=' + offset + ', Batch Size=50');
+        console.log('📊 SCAN-BATCH-STATE: Total scanned so far=' + scannedImages.length);
 
-        ;
         const ajaxData = {
             action: 'imageseo_scan',
             nonce: imageSeoData.nonce,
             batch_size: 50,
             offset: offset
-            // UX-IMPROVEMENT: No status_filter parameter - backend returns ALL
         };
-        ;
+        
+        console.log('📤 AJAX-REQUEST: Sending scan request to backend', ajaxData);
+        const startTime = Date.now();
 
         $.ajax({
             url: imageSeoData.ajaxUrl,
             type: 'POST',
             data: ajaxData,
             success: function (response) {
+                const elapsed = Date.now() - startTime;
+                console.log('⏱️ AJAX-RESPONSE: Received in ' + elapsed + 'ms');
+                console.log('📥 AJAX-RESPONSE-DATA:', response);
+
                 if (response.success) {
                     const results = response.data.results;
+                    console.log('✅ BATCH-SUCCESS: Received ' + results.length + ' images');
 
                     scannedImages = scannedImages.concat(results);
-                    window.scannedImages = scannedImages; // Keep global ref in sync
+                    window.scannedImages = scannedImages;
+                    console.log('📊 TOTAL-SCANNED: Now have ' + scannedImages.length + ' total images');
 
                     if (offset === 0 && response.data.stats) {
                         globalStats = response.data.stats;
+                        console.log('📈 STATS-RECEIVED:', globalStats);
 
-                        // Store total image count for accurate progress calculation
                         if (response.data.total_images) {
                             window.totalImages = response.data.total_images;
+                            console.log('🎯 TOTAL-IMAGES: ' + window.totalImages + ' images in media library');
                         }
                     }
 
-                    // Update progress with percentage display
-                    // 🎯 NEW: Use actual total from backend instead of assuming 500
-                    const totalImages = window.totalImages || 500; // Fallback to 500 if not set
+                    // Update progress
+                    const totalImages = window.totalImages || 500;
                     const scannedSoFar = offset + results.length;
                     const progress = Math.min(100, (scannedSoFar / totalImages) * 100);
-
-                    // 🔍 COMPREHENSIVE DEBUG: Log EVERYTHING about progress bar
+                    
+                    console.log('📊 PROGRESS-CALC: scannedSoFar=' + scannedSoFar + ', total=' + totalImages + ', progress=' + progress.toFixed(2) + '%');
 
                     const $progressBar = $progressFill.parent();
 
                     if ($progressFill[0]) {
-                        // 🔧 FIX: Calculate width in PIXELS instead of percentage
-                        // Browser wasn't computing percentage correctly (showed 0px)
-                        const parentWidth = $progressBar.width(); // Get parent width in pixels
+                        const parentWidth = $progressBar.width();
                         const widthInPixels = (progress / 100) * parentWidth;
-
-
                         $progressFill[0].style.width = widthInPixels + 'px';
-
-                    } else {
-
+                        console.log('📏 PROGRESS-BAR: Set width to ' + widthInPixels + 'px (' + progress.toFixed(2) + '%)');
                     }
-
 
                     $('#progress-percentage').text(Math.round(progress) + '%');
 
-
-                    // FIX: Update stats in real-time after each batch
+                    // Update stats in real-time
                     if (scannedImages.length > 0) {
                         updateStats();
-
+                        console.log('📊 STATS-UPDATED: Real-time stats refreshed');
                     }
 
-                    // Continue scanning if there are more
+                    // Check if more batches needed
                     if (response.data.hasMore) {
+                        console.log('🔄 HAS-MORE: Continuing to next batch, offset=' + response.data.offset);
                         scanBatch(response.data.offset);
                     } else {
-                        // Show 100% completion before hiding
+                        console.log('🎉 SCAN-COMPLETE: All batches processed!');
+                        
+                        // Show 100% completion
                         const parentWidth = $progressFill.parent().width();
-                        const widthInPixels = parentWidth; // 100% = full width
-
-                        $progressFill[0].style.width = widthInPixels + 'px';
+                        $progressFill[0].style.width = parentWidth + 'px';
                         $('#progress-percentage').text('100%');
+                        console.log('✅ PROGRESS-COMPLETE: Set to 100%');
 
-                        // Wait 800ms to let user see 100% completion, then render results
+                        // Wait 800ms then render results
                         setTimeout(() => {
-
-
-
-
-
-
+                            console.log('🎨 RENDERING-RESULTS: Displaying ' + scannedImages.length + ' images');
+                            
                             renderResults(scannedImages);
-                            updateStats(); // Recalculate from scannedImages array
+                            updateStats();
 
-                            // ENSURE Export Changes button is visible after renderResults
+                            // UI updates
                             $exportFilterCsvBtn.show().prop('disabled', filterChanges.length === 0);
-
-                            // RE-ENABLE RADIO BUTTONS after scan completes
                             $('input[name="image-filter"]').prop('disabled', false);
-
-                            // SHOW filter controls and pagination after scan completes
                             $('.imageseo-filter-controls').show();
                             $('.imageseo-pagination').show();
-
-                            // SHOW Stats and Results Table (which were hidden initially)
                             $('.imageseo-stats').show();
                             $('.imageseo-results').show();
-
-                            // SHOW Export CSV button after scan completes
                             $('#export-csv-btn').show();
-
-                            // FIXED: Initialize filter changes tracking for new scan
-                            filterChanges = []; // Clear any previous changes
-                            currentFilterValue = 'no_filter'; // Initial state is "no filter"
-                            console.log('FILTER-CSV: Initialized - empty changes, currentFilter:', currentFilterValue);
-
-                            // SHOW Export Changes in CSV button (disabled until changes are made)
-                            $exportFilterCsvBtn.show().prop('disabled', true);
-                            console.log('EXPORT-CHANGES-DEBUG: Button shown after scan completion, disabled:', $exportFilterCsvBtn.prop('disabled'));
-
                             $resultsTable.show();
 
-                            console.log('SCAN-DEBUG: Showing filter controls, stats, and results after scan');
-                        }, 800); // 800ms delay to show 100% completion
+                            // Initialize filter tracking
+                            filterChanges = [];
+                            currentFilterValue = 'no_filter';
+                            $exportFilterCsvBtn.show().prop('disabled', true);
+                            
+                            console.log('✅ UI-READY: All elements shown, scan complete!');
+                        }, 800);
                     }
                 } else {
+                    console.error('❌ BATCH-ERROR: Scan failed', response.data);
                     showError('Scan failed: ' + (response.data.message || 'Unknown error'));
                     resetUI();
                 }
             },
-            error: function () {
-                showError('Network error occurred during scan');
+            error: function (xhr, status, error) {
+                const elapsed = Date.now() - startTime;
+                console.error('❌ AJAX-ERROR: Request failed after ' + elapsed + 'ms');
+                console.error('❌ ERROR-DETAILS:', { xhr: xhr, status: status, error: error });
+                console.error('❌ XHR-STATUS:', xhr.status);
+                console.error('❌ XHR-RESPONSE:', xhr.responseText);
+                
+                if (xhr.status === 504) {
+                    console.error('🚨 TIMEOUT-ERROR: 504 Gateway Timeout detected!');
+                    showError('Request timeout - Server took too long to respond. Try scanning smaller batches.');
+                } else {
+                    showError('Network error occurred during scan');
+                }
                 resetUI();
             }
         });

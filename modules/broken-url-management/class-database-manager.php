@@ -173,9 +173,13 @@ class Database_Manager
                 'reason' => isset($data['reason']) ? $data['reason'] : '',
                 'anchor_text' => isset($data['anchor_text']) ? $data['anchor_text'] : '',
                 'link_location' => isset($data['location']) ? $data['location'] : 'content',
+                // NEW: Source metadata for page builders
+                'source_type' => isset($data['source_type']) ? $data['source_type'] : 'content',
+                'source_meta_key' => isset($data['source_meta_key']) ? $data['source_meta_key'] : null,
+                'source_json_path' => isset($data['source_json_path']) ? $data['source_json_path'] : null,
                 'created_at' => current_time('mysql')
             ),
-            array('%s', '%s', '%d', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s')
+            array('%s', '%s', '%d', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s')
         ) !== false;
     }
 

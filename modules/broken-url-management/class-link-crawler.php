@@ -51,6 +51,11 @@ class Link_Crawler
     private $url_similarity;
 
     /**
+     * Elementor Link Extractor instance
+     */
+    private $elementor_extractor;
+
+    /**
      * Constructor
      */
     public function __construct()
@@ -58,6 +63,13 @@ class Link_Crawler
         $this->db_manager = new Database_Manager();
         $this->link_tester = new Link_Tester();
         $this->url_similarity = new URL_Similarity();
+        
+        // Load Elementor extractor if file exists
+        $elementor_file = dirname(__FILE__) . '/class-elementor-extractor.php';
+        if (file_exists($elementor_file)) {
+            require_once $elementor_file;
+            $this->elementor_extractor = new \Elementor_Link_Extractor();
+        }
     }
 
     /**
@@ -664,6 +676,34 @@ class Link_Crawler
             );
         }
 
+        // ====================
+        // ELEMENTOR LINK EXTRACTION
+        // ====================
+        
+        // Extract Elementor links if page uses Elementor
+        if ($page_id && $this->elementor_extractor && \Elementor_Link_Extractor::is_elementor_page($page_id)) {
+            $elementor_links = $this->elementor_extractor->extract_links($page_id);
+            
+            // Process and add to main links array
+            foreach ($elementor_links as $elem_link) {
+                $links[] = array(
+                    'url' => $elem_link['url'],
+                    'found_on_page_id' => $page_id,
+                    'found_on_page_title' => $page_title,
+                    'found_on_url' => $url,
+                    'location' => 'content', // Elementor widgets are in content
+                    'anchor_text' => $elem_link['anchor_text'],
+                    'context' => $elem_link['context'],
+                    // NEW: Source metadata
+                    'source_type' => $elem_link['source_type'],
+                    'source_meta_key' => $elem_link['source_meta_key'],
+                    'source_json_path' => $elem_link['json_path']
+                );
+            }
+            
+            error_log("[CRAWLER] Added " . count($elementor_links) . " Elementor links from page {$page_id}");
+        }
+
         return $links;
     }
 
@@ -930,12 +970,19 @@ class Link_Crawler
                 $found_on_page_title = isset($page_data['found_on_page_title']) ? $page_data['found_on_page_title'] : '';
                 $anchor_text = isset($page_data['anchor_text']) ? $page_data['anchor_text'] : '';
                 $location = isset($page_data['location']) ? $page_data['location'] : 'content';
+                // NEW: Extract source metadata for Elementor and other page builders
+                $source_type = isset($page_data['source_type']) ? $page_data['source_type'] : 'content';
+                $source_meta_key = isset($page_data['source_meta_key']) ? $page_data['source_meta_key'] : null;
+                $source_json_path = isset($page_data['source_json_path']) ? $page_data['source_json_path'] : null;
             } else {
                 $found_on_url = $page_data;
                 $found_on_page_id = 0;
                 $found_on_page_title = '';
                 $anchor_text = '';
                 $location = 'content';
+                $source_type = 'content';
+                $source_meta_key = null;
+                $source_json_path = null;
             }
 
             // Generate suggestion - filter out the current page to avoid suggesting itself
@@ -1023,7 +1070,11 @@ class Link_Crawler
                 'suggested_url' => $suggested_url,
                 'reason' => $reason,
                 'anchor_text' => $anchor_text,
-                'location' => $location
+                'location' => $location,
+                // NEW: Pass source metadata
+                'source_type' => $source_type,
+                'source_meta_key' => $source_meta_key,
+                'source_json_path' => $source_json_path
             ));
         }
     }
