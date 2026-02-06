@@ -423,6 +423,29 @@ class SEOAutoFix_Settings {
         echo $content;
         exit;
     }
+    
+    /**
+     * AJAX: Write test log messages
+     */
+    public function ajax_test_log() {
+        check_ajax_referer('seoautofix_logs', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Unauthorized'));
+        }
+        
+        // Write test messages to debug.log
+        $timestamp = current_time('mysql');
+        
+        seoautofix_error_log('[SEO-AUTOFIX-TEST] ✅ Test message from SEO AutoFix Pro - ERROR level');
+        seoautofix_error_log('[SEO-AUTOFIX-TEST] ⚠️ Test warning message - checking if logs are working');
+        seoautofix_error_log('[SEO-AUTOFIX-TEST] ℹ️ Test info message - debug log viewer is active');
+        seoautofix_error_log('[IMAGE-SEO] Test from Image SEO module');
+        seoautofix_error_log('[BROKEN-URL] Test from Broken URL module');
+        seoautofix_error_log('[CRAWLER] Test scan started at ' . $timestamp);
+        
+        wp_send_json_success(array('message' => 'Test logs written successfully'));
+    }
 }
 
 // Initialize settings on plugins_loaded hook

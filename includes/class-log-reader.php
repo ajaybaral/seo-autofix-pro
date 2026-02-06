@@ -240,8 +240,8 @@ class SEO_AutoFix_Log_Reader
      */
     private function get_log_file_path()
     {
-        // Read from WordPress debug.log file
-        return WP_CONTENT_DIR . '/debug.log';
+        // Use plugin-specific log file (works even when WP_DEBUG is off)
+        return WP_CONTENT_DIR . '/plugins/seo-autofix-pro/logs/debug.log';
     }
 
     /**

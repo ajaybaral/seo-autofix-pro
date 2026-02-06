@@ -25,8 +25,10 @@ $modules = $log_reader->get_available_modules();
 <div class="wrap seoautofix-logs-page">
     <h1><?php echo esc_html__('Debug Logs', 'seo-autofix-pro'); ?></h1>
     <p class="description" style="margin-bottom: 20px;">
-        <?php echo esc_html__('Viewing WordPress debug.log file:', 'seo-autofix-pro'); ?> 
-        <code><?php echo esc_html(WP_CONTENT_DIR . '/debug.log'); ?></code>
+        <?php echo esc_html__('Viewing plugin debug log file:', 'seo-autofix-pro'); ?> 
+        <code><?php echo esc_html(WP_CONTENT_DIR . '/plugins/seo-autofix-pro/logs/debug.log'); ?></code>
+        <br>
+        <em><?php echo esc_html__('This log works even when WP_DEBUG is disabled.', 'seo-autofix-pro'); ?></em>
     </p>
 
     <div class="log-stats-cards">

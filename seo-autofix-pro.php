@@ -75,6 +75,9 @@ class SEO_AutoFix_Pro
         // Load global settings
         require_once SEOAUTOFIX_PLUGIN_DIR . 'settings.php';
         
+        // Load error_log wrapper (works even when WP_DEBUG is off)
+        require_once SEOAUTOFIX_PLUGIN_DIR . 'includes/seoautofix-error-log.php';
+        
         // Load logging helpers
         require_once SEOAUTOFIX_PLUGIN_DIR . 'includes/logging-helpers.php';
     }
