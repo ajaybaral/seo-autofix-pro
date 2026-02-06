@@ -113,6 +113,19 @@ class Image_Analyzer
         $results = array();
         $processing_start = microtime(true);
         
+        // OPTIMIZATION: Get usage data for ALL images at once (batch processing)
+        $batch_usage = array();
+        if ($usage_tracker && method_exists($usage_tracker, 'get_batch_image_usage')) {
+            $batch_start = microtime(true);
+            $attachment_ids = array_map(function($row) { return $row->attachment_id; }, $results_data);
+            
+            error_log('🔍 [ANALYZER] Fetching batch usage for ' . count($attachment_ids) . ' images...');
+            $batch_usage = $usage_tracker->get_batch_image_usage($attachment_ids);
+            
+            $batch_elapsed = microtime(true) - $batch_start;
+            error_log('⏱️ [ANALYZER] Batch usage fetched in ' . number_format($batch_elapsed, 3) . 's');
+        }
+        
         foreach ($results_data as $index => $row) {
             $image_start = microtime(true);
             $attachment_id = $row->attachment_id;
@@ -121,13 +134,13 @@ class Image_Analyzer
             $metadata = $this->get_image_metadata($attachment_id);
             $issues = $this->detect_issues($attachment_id);
 
-            // Get usage data if tracker is provided
+            // Get usage data from batch results
             $usage_data = array('used_in_posts' => 0, 'used_in_pages' => 0);
             $usage_details = array();
 
-            if ($usage_tracker) {
-                $usage = $usage_tracker->get_image_usage($attachment_id);
-
+            if (isset($batch_usage[$attachment_id])) {
+                $usage = $batch_usage[$attachment_id];
+                
                 $post_count = 0;
                 $page_count = 0;
 

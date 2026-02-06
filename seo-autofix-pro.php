@@ -74,6 +74,9 @@ class SEO_AutoFix_Pro
     {
         // Load global settings
         require_once SEOAUTOFIX_PLUGIN_DIR . 'settings.php';
+        
+        // Load logging helpers
+        require_once SEOAUTOFIX_PLUGIN_DIR . 'includes/logging-helpers.php';
     }
 
     /**

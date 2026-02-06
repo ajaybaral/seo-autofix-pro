@@ -30,6 +30,11 @@ class SEOAutoFix_Settings {
         add_action('admin_menu', array($this, 'add_settings_page'));
         add_action('admin_init', array($this, 'register_settings'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_assets'));
+        
+        // AJAX endpoints for debug logs
+        add_action('wp_ajax_seoautofix_get_logs', array($this, 'ajax_get_logs'));
+        add_action('wp_ajax_seoautofix_clear_logs', array($this, 'ajax_clear_logs'));
+        add_action('wp_ajax_seoautofix_download_logs', array($this, 'ajax_download_logs'));
     }
     
     /**
@@ -54,6 +59,16 @@ class SEOAutoFix_Settings {
             'manage_options',
             'seoautofix-settings',
             array($this, 'render_settings_page')
+        );
+        
+        // Add Debug Logs submenu
+        add_submenu_page(
+            'seoautofix-settings',
+            __('Debug Logs', 'seo-autofix-pro'),
+            __('Debug Logs', 'seo-autofix-pro'),
+            'manage_options',
+            'seoautofix-debug-logs',
+            array($this, 'render_logs_page')
         );
     }
     
@@ -131,25 +146,41 @@ class SEOAutoFix_Settings {
      * Enqueue admin assets
      */
     public function enqueue_assets($hook) {
-        // Only load on settings page
-        if ($hook !== 'toplevel_page_seoautofix-settings') {
-            return;
+        // Load on settings page
+        if ($hook === 'toplevel_page_seoautofix-settings') {
+            wp_enqueue_style(
+                'seoautofix-settings',
+                SEOAUTOFIX_PLUGIN_URL . 'assets/css/settings.css',
+                array(),
+                SEOAUTOFIX_VERSION
+            );
+            
+            wp_enqueue_script(
+                'seoautofix-settings',
+                SEOAUTOFIX_PLUGIN_URL . 'assets/js/settings.js',
+                array('jquery'),
+                SEOAUTOFIX_VERSION,
+                true
+            );
         }
         
-        wp_enqueue_style(
-            'seoautofix-settings',
-            SEOAUTOFIX_PLUGIN_URL . 'assets/css/settings.css',
-            array(),
-            SEOAUTOFIX_VERSION
-        );
-        
-        wp_enqueue_script(
-            'seoautofix-settings',
-            SEOAUTOFIX_PLUGIN_URL . 'assets/js/settings.js',
-            array('jquery'),
-            SEOAUTOFIX_VERSION,
-            true
-        );
+        // Load on debug logs page
+        if ($hook === 'seo-autofix-pro_page_seoautofix-debug-logs') {
+            wp_enqueue_style(
+                'seoautofix-log-viewer',
+                SEOAUTOFIX_PLUGIN_URL . 'admin/css/log-viewer.css',
+                array(),
+                SEOAUTOFIX_VERSION
+            );
+            
+            wp_enqueue_script(
+                'seoautofix-log-viewer',
+                SEOAUTOFIX_PLUGIN_URL . 'admin/js/log-viewer.js',
+                array('jquery'),
+                SEOAUTOFIX_VERSION,
+                true
+            );
+        }
     }
     
     /**
@@ -303,6 +334,93 @@ class SEOAutoFix_Settings {
     public static function is_api_configured() {
         $api_key = self::get_api_key();
         return !empty($api_key);
+    }
+    
+    /**
+     * Render debug logs page
+     */
+    public function render_logs_page() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        
+        require_once SEOAUTOFIX_PLUGIN_DIR . 'admin/settings-logs.php';
+    }
+    
+    /**
+     * AJAX: Get logs
+     */
+    public function ajax_get_logs() {
+        check_ajax_referer('seoautofix_logs', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Unauthorized'));
+        }
+        
+        require_once SEOAUTOFIX_PLUGIN_DIR . 'includes/class-log-reader.php';
+        
+        $level = sanitize_text_field($_POST['level'] ?? 'all');
+        $module = sanitize_text_field($_POST['module'] ?? 'all');
+        $search = sanitize_text_field($_POST['search'] ?? '');
+        $offset = absint($_POST['offset'] ?? 0);
+        $limit = absint($_POST['limit'] ?? 50);
+        
+        $reader = new SEO_AutoFix_Log_Reader();
+        $result = $reader->get_logs(array(
+            'level' => $level,
+            'module' => $module,
+            'search' => $search,
+            'offset' => $offset,
+            'limit' => $limit
+        ));
+        
+        wp_send_json_success($result);
+    }
+    
+    /**
+     * AJAX: Clear logs
+     */
+    public function ajax_clear_logs() {
+        check_ajax_referer('seoautofix_logs', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Unauthorized'));
+        }
+        
+        require_once SEOAUTOFIX_PLUGIN_DIR . 'includes/class-log-reader.php';
+        
+        $reader = new SEO_AutoFix_Log_Reader();
+        $success = $reader->clear_logs();
+        
+        if ($success) {
+            wp_send_json_success(array('message' => 'Logs cleared successfully'));
+        } else {
+            wp_send_json_error(array('message' => 'Failed to clear logs'));
+        }
+    }
+    
+    /**
+     * AJAX: Download logs
+     */
+    public function ajax_download_logs() {
+        check_ajax_referer('seoautofix_logs', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+        
+        require_once SEOAUTOFIX_PLUGIN_DIR . 'includes/class-log-reader.php';
+        
+        $reader = new SEO_AutoFix_Log_Reader();
+        $content = $reader->get_log_content_for_download();
+        
+        // Set headers for file download
+        header('Content-Type: text/plain');
+        header('Content-Disposition: attachment; filename="seoautofix-debug-' . date('Y-m-d-His') . '.log"');
+        header('Content-Length: ' . strlen($content));
+        
+        echo $content;
+        exit;
     }
 }
 
