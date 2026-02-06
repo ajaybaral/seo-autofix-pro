@@ -68,7 +68,7 @@ class Link_Crawler
         $elementor_file = dirname(__FILE__) . '/class-elementor-extractor.php';
         if (file_exists($elementor_file)) {
             require_once $elementor_file;
-            $this->elementor_extractor = new \Elementor_Link_Extractor();
+            $this->elementor_extractor = new SEO_AutoFix_Elementor_Extractor();
         }
     }
 
@@ -681,7 +681,7 @@ class Link_Crawler
         // ====================
         
         // Extract Elementor links if page uses Elementor
-        if ($page_id && $this->elementor_extractor && \Elementor_Link_Extractor::is_elementor_page($page_id)) {
+        if ($page_id && $this->elementor_extractor && SEO_AutoFix_Elementor_Extractor::is_elementor_page($page_id)) {
             $elementor_links = $this->elementor_extractor->extract_links($page_id);
             
             // Process and add to main links array
