@@ -13,7 +13,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-class Elementor_Link_Replacer
+class SEO_AutoFix_Elementor_Replacer
 {
     /**
      * Replace a link in Elementor data

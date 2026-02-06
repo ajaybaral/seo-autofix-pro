@@ -13,7 +13,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-class Elementor_Link_Extractor
+class SEO_AutoFix_Elementor_Extractor
 {
     /**
      * Extract all links from Elementor data for a given post

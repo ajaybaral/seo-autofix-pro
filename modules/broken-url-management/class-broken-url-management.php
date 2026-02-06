@@ -392,34 +392,44 @@ class SEOAutoFix_Broken_Url_Management
      */
     public function ajax_start_scan()
     {
-        error_log('[BROKEN URLS] ajax_start_scan() called');
-        error_log('[BROKEN URLS] Request data: ' . print_r($_POST, true));
+        seoautofix_error_log('[BROKEN URLS] ajax_start_scan() called');
+        seoautofix_error_log('[BROKEN URLS] Request data: ' . print_r($_POST, true));
 
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
-        error_log('[BROKEN URLS] Nonce verified');
+        seoautofix_error_log('[BROKEN URLS] Nonce verified');
 
         if (!current_user_can('manage_options')) {
-            error_log('[BROKEN URLS] User lacks manage_options capability');
+            seoautofix_error_log('[BROKEN URLS] User lacks manage_options capability');
             wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
         }
 
-        error_log('[BROKEN URLS] User authorized, creating crawler');
+        seoautofix_error_log('[BROKEN URLS] User authorized, creating crawler');
 
         try {
+            // Check if Link_Crawler class exists
+            if (!class_exists('SEOAutoFix\\BrokenUrlManagement\\Link_Crawler')) {
+                throw new \Exception('Link_Crawler class not found');
+            }
+            
             $crawler = new Link_Crawler();
-            error_log('[BROKEN URLS] Crawler created, starting scan');
+            seoautofix_error_log('[BROKEN URLS] Crawler created successfully');
 
             $scan_id = $crawler->start_scan();
-            error_log('[BROKEN URLS] Scan started with ID: ' . $scan_id);
+            seoautofix_error_log('[BROKEN URLS] Scan started with ID: ' . $scan_id);
 
             wp_send_json_success(array(
                 'scan_id' => $scan_id,
                 'message' => __('Scan started successfully', 'seo-autofix-pro')
             ));
         } catch (\Exception $e) {
-            error_log('[BROKEN URLS] Exception in ajax_start_scan: ' . $e->getMessage());
-            error_log('[BROKEN URLS] Stack trace: ' . $e->getTraceAsString());
-            wp_send_json_error(array('message' => $e->getMessage()));
+            seoautofix_error_log('[BROKEN URLS] Exception in ajax_start_scan: ' . $e->getMessage());
+            seoautofix_error_log('[BROKEN URLS] Stack trace: ' . $e->getTraceAsString());
+            wp_send_json_error(array('message' => 'Error: ' . $e->getMessage()));
+        } catch (\Error $e) {
+            // Catch fatal errors (like class not found)
+            seoautofix_error_log('[BROKEN URLS] Fatal error in ajax_start_scan: ' . $e->getMessage());
+            seoautofix_error_log('[BROKEN URLS] Stack trace: ' . $e->getTraceAsString());
+            wp_send_json_error(array('message' => 'Fatal error: ' . $e->getMessage()));
         }
     }
 
