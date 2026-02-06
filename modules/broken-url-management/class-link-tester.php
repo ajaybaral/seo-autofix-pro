@@ -179,9 +179,14 @@ class Link_Tester
      */
     private function categorize_error_type($status_code)
     {
+        // Handle bot-blocking status codes (LinkedIn and others)
+        if ($status_code === 999) {
+            return 'bot-blocked';
+        }
+        
         if ($status_code >= 400 && $status_code < 500) {
             return '4xx';
-        } elseif ($status_code >= 500) {
+        } elseif ($status_code >= 500 && $status_code < 600) { // Only 5xx range (500-599)
             return '5xx';
         } elseif ($status_code === 0) {
             return 'timeout';
@@ -226,8 +231,16 @@ class Link_Tester
      */
     private function is_broken_status_code($status_code)
     {
+        // Bot-blocking (999) is NOT broken - link works in browsers
+        if ($status_code === 999) {
+            return false;
+        }
+        
         // Consider 4xx and 5xx as broken, also 0 for connection failures
-        return $status_code === 0 || $status_code >= 400;
+        // But only actual 5xx range (500-599)
+        return $status_code === 0 || 
+               ($status_code >= 400 && $status_code < 500) || 
+               ($status_code >= 500 && $status_code < 600);
     }
 
     /**
@@ -281,6 +294,8 @@ class Link_Tester
                 return __('Bad Gateway', 'seo-autofix-pro');
             case 503:
                 return __('Service Unavailable', 'seo-autofix-pro');
+            case 999:
+                return __('Bot Blocked (Link works in browsers)', 'seo-autofix-pro');
             default:
                 return sprintf(__('HTTP %d', 'seo-autofix-pro'), $status_code);
         }

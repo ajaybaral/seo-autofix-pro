@@ -150,7 +150,7 @@ class SEOAutoFix_Broken_Url_Management
             link_context TEXT NULL,
             link_type ENUM('internal', 'external') NOT NULL,
             status_code INT NOT NULL,
-            error_type ENUM('4xx', '5xx', 'timeout', 'dns') DEFAULT NULL,
+            error_type ENUM('4xx', '5xx', 'timeout', 'dns', 'bot-blocked') DEFAULT NULL,
             suggested_url TEXT NULL,
             suggestion_confidence INT DEFAULT 0,
             user_modified_url TEXT NULL,
