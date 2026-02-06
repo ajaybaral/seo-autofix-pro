@@ -62,12 +62,20 @@ class Image_Analyzer
         // Build query based on filter
         if ($status_filter === 'all') {
             error_log('🔍 [ANALYZER] Querying wp_posts for ALL images');
+            
+            // Exclude scaled/cropped versions (where post_parent is another attachment)
+            // But INCLUDE images attached to posts/pages (where post_parent is a post)
             $sql = $wpdb->prepare(
                 "SELECT ID as attachment_id
                  FROM {$wpdb->posts}
                  WHERE post_type = 'attachment' 
                  AND post_mime_type LIKE 'image/%'
-                 AND post_parent = 0
+                 AND (
+                     post_parent = 0 
+                     OR post_parent NOT IN (
+                         SELECT ID FROM {$wpdb->posts} WHERE post_type = 'attachment'
+                     )
+                 )
                  ORDER BY ID DESC
                  LIMIT %d OFFSET %d",
                 $batch_size,
