@@ -319,9 +319,21 @@ class SEOAutoFix_Image_SEO
                 }
             }
 
-            // On first batch, populate history table with ALL images
+            // On first batch, start populating history table (batched process)
+            // This uses a flag to track if population is complete
             if ($offset === 0) {
-                $this->populate_all_images_in_history();
+                // Reset population flag for new scan
+                delete_transient('seoautofix_history_populated');
+            }
+            
+            // Populate history in small batches alongside scanning
+            // This prevents timeout on large media libraries
+            if (!get_transient('seoautofix_history_populated')) {
+                $populated = $this->populate_all_images_in_history_batch($batch_size);
+                if ($populated) {
+                    // Mark as complete
+                    set_transient('seoautofix_history_populated', true, HOUR_IN_SECONDS);
+                }
             }
 
             $response_data = array(
@@ -775,120 +787,114 @@ class SEOAutoFix_Image_SEO
     }
 
     /**
-     * Populate history table with all images from media library
+     * Populate history table with all images from media library (BATCHED VERSION)
+     * Processes images in chunks to prevent timeout
+     * 
+     * @param int $batch_size Number of images to process per call
+     * @return bool True if population is complete, false if more batches needed
      */
-    private function populate_all_images_in_history()
+    private function populate_all_images_in_history_batch($batch_size = 50)
     {
-
-
-        // Check if table exists
         global $wpdb;
         $table_name = $wpdb->prefix . 'seoautofix_image_history';
+        
+        // Check if table exists
         $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table_name'");
-
-
         if (!$table_exists) {
-
-            return;
+            return true; // Consider it complete if table doesn't exist
         }
 
-        // Check existing row count BEFORE population
-        $existing_count = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
+        // Get progress tracker
+        $processed_offset = get_transient('seoautofix_history_offset');
+        if ($processed_offset === false) {
+            $processed_offset = 0;
+        }
 
+        error_log("[IMAGE-SEO] populate_history_batch called - offset: $processed_offset, batch: $batch_size");
 
-        // Check for records with status other than 'blank' or 'optimal'
-        $action_records = $wpdb->get_var("SELECT COUNT(*) FROM $table_name WHERE status IN ('generate', 'optimized', 'skipped')");
-
-
-        // Get ALL images from media library (INCLUDING all statuses: inherit, private, trash, etc.)
-        $all_images = get_posts(array(
+        // Get a batch of images
+        $images = get_posts(array(
             'post_type' => 'attachment',
             'post_mime_type' => 'image',
-            'post_status' => 'any',  // Changed from 'inherit' to 'any' to catch ALL images
-            'posts_per_page' => -1
+            'post_status' => 'any',
+            'posts_per_page' => $batch_size,
+            'offset' => $processed_offset,
+            'orderby' => 'ID',
+            'order' => 'ASC'
         ));
 
+        error_log("[IMAGE-SEO] Retrieved " . count($images) . " images for history population");
 
+        // If no images found, we're done
+        if (empty($images)) {
+            delete_transient('seoautofix_history_offset');
+            error_log("[IMAGE-SEO] History population COMPLETE - no more images");
+            return true;
+        }
 
-        $success_count = 0;
-        $error_count = 0;
-        $updated_count = 0;
-        $inserted_count = 0;
-        $optimal_count = 0;
-        $blank_count = 0;
-
-        foreach ($all_images as $image) {
+        $processed = 0;
+        foreach ($images as $image) {
             $attachment_id = $image->ID;
-            $current_alt = get_post_meta($attachment_id, '_wp_attachment_image_alt', true);
-            $current_title = get_the_title($attachment_id);
-
-            // Check if record already exists
+            
+            // Check if record already exists with action status
             $existing_record = $wpdb->get_row($wpdb->prepare(
                 "SELECT * FROM $table_name WHERE attachment_id = %d",
                 $attachment_id
             ));
 
-            // If record exists with action status, DON'T overwrite it
+            // Skip if already has action status (preserve history)
             if ($existing_record && in_array($existing_record->status, array('generate', 'optimized', 'skipped'))) {
-
-                continue; // Skip this image to preserve its history
+                $processed++;
+                continue;
             }
 
-            // Detect issues
+            // Get current metadata
+            $current_alt = get_post_meta($attachment_id, '_wp_attachment_image_alt', true);
+            $current_title = get_the_title($attachment_id);
+
+            // Detect issues (quick check)
             $issues = $this->analyzer->detect_issues($attachment_id);
             $issue_type = $this->analyzer->classify_issue($attachment_id, $current_alt);
 
-            // CLASSIFICATION-DEBUG: Log issue detection
-
-
             // Determine status
-            if (empty($issues)) {
-                $status = 'optimal'; // Already has good alt text
-                $optimal_count++;
-
-            } else {
-                $status = 'blank'; // Has issues, awaiting action
-                $blank_count++;
-
-
-                // Debug first few blank images
-                if ($blank_count <= 5) {
-
-                }
-            }
+            $status = empty($issues) ? 'optimal' : 'blank';
 
             // Update or create history record
-            $result = $this->image_history->update_image_history($attachment_id, array(
+            $this->image_history->update_image_history($attachment_id, array(
                 'alt_history' => array($current_alt),
                 'title_history' => array($current_title),
                 'status' => $status,
                 'issue_type' => $issue_type
             ));
-
-            if ($result !== false) {
-                $success_count++;
-                if ($existing_record) {
-                    $updated_count++;
-                } else {
-                    $inserted_count++;
-                }
-            } else {
-                $error_count++;
-
-            }
+            
+            $processed++;
         }
 
+        // Update offset for next batch
+        $new_offset = $processed_offset + $processed;
+        set_transient('seoautofix_history_offset', $new_offset, HOUR_IN_SECONDS);
+        
+        error_log("[IMAGE-SEO] Processed $processed images. New offset: $new_offset");
 
+        // Check if we processed fewer than batch size (means we're done)
+        if (count($images) < $batch_size) {
+            delete_transient('seoautofix_history_offset');
+            error_log("[IMAGE-SEO] History population COMPLETE - processed all images");
+            return true;
+        }
 
+        // More batches needed
+        return false;
+    }
 
-
-        // Check final row count AFTER population
-        $final_count = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
-
-
-        // Check how many scan_all_images would return
-        $scan_results = $this->analyzer->scan_all_images(999, 0);
-
+    /**
+     * Original populate function - kept for backward compatibility
+     * Now calls the batched version
+     */
+    private function populate_all_images_in_history()
+    {
+        // Use batched version with larger batch size for manual calls
+        return $this->populate_all_images_in_history_batch(100);
     }
 
     /**
