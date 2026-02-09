@@ -68,12 +68,14 @@ class Image_Analyzer
             // - Original: post_parent = 0 (or parent post ID if attached)
             // - Scaled/cropped versions: have a post_parent pointing to original
             // We ONLY want originals to avoid duplicates!
-            // ADDITIONAL FIX: GROUP BY to ensure absolutely no duplicates
+            // ADDITIONAL FIX: Filter by post_status = 'inherit' to match media library
+            // This excludes trashed, private, and other non-standard attachments
             $sql = $wpdb->prepare(
                 "SELECT p.ID as attachment_id
                  FROM {$wpdb->posts} p
                  WHERE p.post_type = 'attachment' 
                  AND p.post_mime_type LIKE 'image/%'
+                 AND p.post_status = 'inherit'
                  AND NOT EXISTS (
                      SELECT 1 FROM {$wpdb->posts} p2 
                      WHERE p2.post_type = 'attachment' 

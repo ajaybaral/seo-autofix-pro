@@ -320,6 +320,7 @@ class SEOAutoFix_Image_SEO
                     FROM {$wpdb->posts} p
                     WHERE p.post_type = 'attachment'  
                     AND p.post_mime_type LIKE 'image/%'
+                    AND p.post_status = 'inherit'
                     AND NOT EXISTS (
                         SELECT 1 FROM {$wpdb->posts} p2 
                         WHERE p2.post_type = 'attachment' 
