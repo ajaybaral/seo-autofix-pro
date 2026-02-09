@@ -53,6 +53,69 @@ class Image_Analyzer
         global $wpdb;
         $history_table = $wpdb->prefix . 'seoautofix_image_history';
 
+        // DIAGNOSTIC: Log database attachment breakdown (only on first batch)
+        if ($offset === 0) {
+            \SEOAutoFix_Debug_Logger::log('🔬 [DIAGNOSTIC] ===== DATABASE ATTACHMENT ANALYSIS =====', 'image-seo');
+
+            // Count by post_status
+            $status_counts = $wpdb->get_results("
+                SELECT post_status, COUNT(*) as count
+                FROM {$wpdb->posts}
+                WHERE post_type = 'attachment'
+                AND post_mime_type LIKE 'image/%'
+                GROUP BY post_status
+                ORDER BY count DESC
+            ");
+            \SEOAutoFix_Debug_Logger::log('🔬 [DIAGNOSTIC] Attachments by status:', 'image-seo');
+            foreach ($status_counts as $row) {
+                \SEOAutoFix_Debug_Logger::log('   - ' . $row->post_status . ': ' . $row->count, 'image-seo');
+            }
+
+            // Count by post_parent (0 = no parent, >0 = has parent)
+            $parent_counts = $wpdb->get_results("
+                SELECT 
+                    CASE WHEN post_parent = 0 THEN 'No Parent (Original)' ELSE 'Has Parent (Child)' END as parent_type,
+                    COUNT(*) as count
+                FROM {$wpdb->posts}
+                WHERE post_type = 'attachment'
+                AND post_mime_type LIKE 'image/%'
+                AND post_status = 'inherit'
+                GROUP BY parent_type
+            ");
+            \SEOAutoFix_Debug_Logger::log('🔬 [DIAGNOSTIC] Attachments by parent:', 'image-seo');
+            foreach ($parent_counts as $row) {
+                \SEOAutoFix_Debug_Logger::log('   - ' . $row->parent_type . ': ' . $row->count, 'image-seo');
+            }
+
+            // Check for -scaled versions
+            $scaled_count = $wpdb->get_var("
+                SELECT COUNT(*)
+                FROM {$wpdb->posts}
+                WHERE post_type = 'attachment'
+                AND post_mime_type LIKE 'image/%'
+                AND post_status = 'inherit'
+                AND post_title LIKE '%-scaled%'
+            ");
+            \SEOAutoFix_Debug_Logger::log('🔬 [DIAGNOSTIC] Images with -scaled in title: ' . $scaled_count, 'image-seo');
+
+            // Total count with current filter
+            $total_with_filter = $wpdb->get_var("
+                SELECT COUNT(DISTINCT p.ID)
+                FROM {$wpdb->posts} p
+                WHERE p.post_type = 'attachment'
+                AND p.post_mime_type LIKE 'image/%'
+                AND p.post_status = 'inherit'
+                AND NOT EXISTS (
+                    SELECT 1 FROM {$wpdb->posts} p2
+                    WHERE p2.post_type = 'attachment'
+                    AND p2.ID = p.post_parent
+                    AND p2.post_mime_type LIKE 'image/%'
+                )
+            ");
+            \SEOAutoFix_Debug_Logger::log('🔬 [DIAGNOSTIC] Total with current filter (inherit + no image parent): ' . $total_with_filter, 'image-seo');
+            \SEOAutoFix_Debug_Logger::log('🔬 [DIAGNOSTIC] ===== END DIAGNOSTIC =====', 'image-seo');
+        }
+
         $valid_statuses = array('blank', 'optimal', 'all');
         if (!in_array($status_filter, $valid_statuses)) {
             error_log('⚠️ [ANALYZER] Invalid status filter "' . $status_filter . '", defaulting to "all"');
