@@ -68,8 +68,9 @@ class Image_Analyzer
             // - Original: post_parent = 0 (or parent post ID if attached)
             // - Scaled/cropped versions: have a post_parent pointing to original
             // We ONLY want originals to avoid duplicates!
+            // ADDITIONAL FIX: GROUP BY to ensure absolutely no duplicates
             $sql = $wpdb->prepare(
-                "SELECT DISTINCT p.ID as attachment_id
+                "SELECT p.ID as attachment_id
                  FROM {$wpdb->posts} p
                  WHERE p.post_type = 'attachment' 
                  AND p.post_mime_type LIKE 'image/%'
@@ -79,6 +80,7 @@ class Image_Analyzer
                      AND p2.ID = p.post_parent
                      AND p2.post_mime_type LIKE 'image/%'
                  )
+                 GROUP BY p.ID
                  ORDER BY p.ID DESC
                  LIMIT %d OFFSET %d",
                 $batch_size,
