@@ -1108,48 +1108,32 @@ jQuery(document).ready(function ($) {
                         }
                     }
 
-                    console.log('📦 [SCAN] Received batch results:', data.results.length, 'images');
+                    console.log('📦 [SCAN] Received batch results:', response.data.results.length, 'images');
 
                     // PERFORMANCE OPTIMIZATION: Apply frontend matching if raw data is available
-                    if (data.raw_posts && data.raw_featured && data.image_filenames) {
+                    if (response.data.raw_posts && response.data.raw_featured && response.data.image_filenames) {
                         console.log('🚀 [SCAN] Applying frontend matching...');
-                        data.results = applyFrontendMatching(
-                            data.results,
-                            data.raw_posts,
-                            data.raw_featured,
-                            data.image_filenames
+                        response.data.results = applyFrontendMatching(
+                            response.data.results,
+                            response.data.raw_posts,
+                            response.data.raw_featured,
+                            response.data.image_filenames
                         );
                         console.log('✅ [SCAN] Frontend matching applied to batch results');
                     } else {
                         console.log('ℹ️ [SCAN] No raw data for frontend matching in this batch');
                     }
 
-                    // Merge Elementor data if available (should be skipped now, as it's handled in the initial batch)
-                    // This block is kept for robustness but should ideally not be hit for subsequent batches if Elementor data is only sent once.
-                    if (data.elementor_data && Object.keys(data.elementor_data).length > 0 && offset !== 0) {
-                        console.log('⚠️ [SCAN] Merging Elementor data for non-initial batch. This might be redundant.');
-                        // Re-parse Elementor data for this batch's results if needed, though it's usually done once.
-                        parseElementorUsage(data.elementor_data, data.results).then(elementorMatches => {
-                            data.results.forEach(img => {
-                                if (elementorMatches[img.id]) {
-                                    const elementorPostIds = elementorMatches[img.id];
-                                    if (!img.elementor_usage) {
-                                        img.elementor_usage = elementorPostIds.length;
-                                    }
-                                    img.total_usage = (img.total_usage || 0) + elementorPostIds.length;
-                                }
-                            });
-                            console.log('✅ [SCAN] Elementor data merged into current batch results.');
-                        }).catch(err => {
-                            console.error('❌ [SCAN] Elementor merge failed for current batch:', err);
-                        });
+                    // Merge Elementor data if available (should be skipped now)
+                    if (response.data.elementor_data && Object.keys(response.data.elementor_data).length > 0) {
+                        console.log('⚠️ [SCAN] Merging Elementor data (should be skipped)');
+                        mergeElementorData(response.data.results, response.data.elementor_data);
                     }
 
-
                     // Add results to scannedImages array
-                    console.log('📦 [SCAN] Adding ' + data.results.length + ' images to scannedImages');
+                    console.log('📦 [SCAN] Adding ' + response.data.results.length + ' images to scannedImages');
                     console.log('📦 [SCAN] scannedImages.length BEFORE concat:', scannedImages.length);
-                    scannedImages = scannedImages.concat(data.results);
+                    scannedImages = scannedImages.concat(response.data.results);
                     console.log('📦 [SCAN] scannedImages.length AFTER concat:', scannedImages.length);
 
                     // Update progress
@@ -2563,7 +2547,7 @@ jQuery(document).ready(function ($) {
 
     // ========== INITIALIZATION ==========
     // Load initial stats from database on page load
-    console.log('Timestamp: 15:45');
+    console.log('Timestamp: 16:00');
     console.log('🚀 PAGE-LOAD: Calling loadInitialStats()...');
     loadInitialStats();
 
