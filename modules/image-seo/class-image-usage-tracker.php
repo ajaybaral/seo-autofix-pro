@@ -57,22 +57,40 @@ class Image_Usage_Tracker
             WHERE post_status = 'publish' AND post_type IN ('post', 'page')
         ");
 
+        // Get last modified timestamp for content change detection
+        // This detects when images are removed from posts/pages
+        $current_last_modified = $wpdb->get_var("
+            SELECT MAX(post_modified_gmt) FROM {$wpdb->posts}
+            WHERE post_status = 'publish' AND post_type IN ('post', 'page')
+        ");
+
         // Check cache and metadata
         $cached_data = get_transient($cache_key);
         $cached_meta = get_transient($cache_meta_key);
 
-        // Validate cache: check if counts have changed
+        // Validate cache: check if counts OR content have changed
         $cache_valid = false;
         if ($cached_data !== false && $cached_meta !== false) {
             $cache_valid = (
                 $cached_meta['image_count'] === $current_image_count &&
-                $cached_meta['page_count'] === $current_page_count
+                $cached_meta['page_count'] === $current_page_count &&
+                $cached_meta['last_modified'] === $current_last_modified
             );
 
             if ($cache_valid) {
                 \SEOAutoFix_Debug_Logger::log('✅ Cache valid - no changes detected (' . count($cached_data) . ' images)', 'image-seo');
             } else {
-                \SEOAutoFix_Debug_Logger::log('🔄 Cache invalid - changes detected (images: ' . $cached_meta['image_count'] . '→' . $current_image_count . ', pages: ' . $cached_meta['page_count'] . '→' . $current_page_count . ')', 'image-seo');
+                $change_reason = '';
+                if ($cached_meta['image_count'] !== $current_image_count) {
+                    $change_reason .= 'images: ' . $cached_meta['image_count'] . '→' . $current_image_count . ' ';
+                }
+                if ($cached_meta['page_count'] !== $current_page_count) {
+                    $change_reason .= 'pages: ' . $cached_meta['page_count'] . '→' . $current_page_count . ' ';
+                }
+                if ($cached_meta['last_modified'] !== $current_last_modified) {
+                    $change_reason .= 'content modified ';
+                }
+                \SEOAutoFix_Debug_Logger::log('🔄 Cache invalid - changes detected (' . trim($change_reason) . ')', 'image-seo');
             }
         }
 
@@ -113,6 +131,7 @@ class Image_Usage_Tracker
         set_transient($cache_meta_key, array(
             'image_count' => $current_image_count,
             'page_count' => $current_page_count,
+            'last_modified' => $current_last_modified,
             'last_updated' => time()
         ), 0); // 0 = never expires
 
