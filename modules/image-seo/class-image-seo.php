@@ -335,13 +335,10 @@ class SEOAutoFix_Image_SEO
                 \SEOAutoFix_Debug_Logger::log('📊 [SCAN] Stats: ' . json_encode($response_data['stats']), 'image-seo');
                 \SEOAutoFix_Debug_Logger::log('🎯 [SCAN] Total images in DB: ' . $total_images, 'image-seo');
 
-                // PERFORMANCE OPTIMIZATION: Fetch raw Elementor data for frontend parsing
-                $elementor_start = microtime(true);
-                \SEOAutoFix_Debug_Logger::log('🔧 [SCAN] Phase 3: Fetching raw Elementor data for frontend parsing...', 'image-seo');
-                $response_data['elementor_data'] = $this->usage_tracker->get_raw_elementor_data();
-                $elementor_elapsed = microtime(true) - $elementor_start;
-                $timing['elementor_fetch_time'] = number_format($elementor_elapsed, 3);
-                \SEOAutoFix_Debug_Logger::log('✅ [SCAN] Phase 3 complete: Elementor data fetched in ' . $timing['elementor_fetch_time'] . 's (' . count($response_data['elementor_data']) . ' pages)', 'image-seo');
+                // PERFORMANCE OPTIMIZATION: Skip Elementor data when using frontend matching
+                // The raw_posts data already includes all post content, so Elementor parsing
+                // is redundant when frontend matching is enabled
+                \SEOAutoFix_Debug_Logger::log('ℹ️ [SCAN] Phase 3: Skipping Elementor data (frontend matching handles all content)', 'image-seo');
 
                 // PERFORMANCE OPTIMIZATION: Send raw data for frontend matching (10-30x faster than PHP)
                 $raw_data_start = microtime(true);

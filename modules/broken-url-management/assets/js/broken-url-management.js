@@ -5152,4 +5152,162 @@
         });
     }
 
+    // ========================================
+    // ASYNC URL TESTING (Frontend with Promises)
+    // ========================================
+
+    /**
+     * Test a single internal URL using fetch API (async)
+     * Internal URLs can be tested directly from the frontend
+     * 
+     * @param {string} url URL to test
+     * @returns {Promise} Promise resolving to test result
+     */
+    async function testInternalUrlAsync(url) {
+        console.log('[ASYNC URL TEST] Testing internal URL:', url);
+
+        try {
+            const response = await fetch(url, {
+                method: 'HEAD',
+                cache: 'no-cache',
+                redirect: 'follow'
+            });
+
+            const result = {
+                url: url,
+                status_code: response.status,
+                is_broken: response.status >= 400,
+                error_type: categorizeErrorType(response.status),
+                error: null
+            };
+
+            console.log('[ASYNC URL TEST] Internal URL result:', result);
+            return result;
+        } catch (error) {
+            console.error('[ASYNC URL TEST] Error testing internal URL:', error);
+            return {
+                url: url,
+                status_code: 0,
+                is_broken: true,
+                error_type: 'timeout',
+                error: error.message
+            };
+        }
+    }
+
+    /**
+     * Test a single external URL via PHP proxy (async)
+     * External URLs must use the proxy to avoid CORS issues
+     * 
+     * @param {string} url URL to test
+     * @returns {Promise} Promise resolving to test result
+     */
+    async function testExternalUrlAsync(url) {
+        console.log('[ASYNC URL TEST] Testing external URL via proxy:', url);
+
+        return new Promise((resolve, reject) => {
+            $.ajax({
+                url: seoautofixBrokenUrls.ajaxUrl,
+                method: 'POST',
+                data: {
+                    action: 'seoautofix_broken_links_test_external_url',
+                    nonce: seoautofixBrokenUrls.nonce,
+                    url: url
+                },
+                success: function (response) {
+                    if (response.success) {
+                        console.log('[ASYNC URL TEST] External URL result:', response.data);
+                        resolve(response.data);
+                    } else {
+                        console.error('[ASYNC URL TEST] External URL test failed:', response.data.message);
+                        reject(new Error(response.data.message));
+                    }
+                },
+                error: function (jqXHR, textStatus, errorThrown) {
+                    console.error('[ASYNC URL TEST] AJAX error:', errorThrown);
+                    reject(new Error(errorThrown));
+                }
+            });
+        });
+    }
+
+    /**
+     * Test multiple URLs in parallel batches (async)
+     * Automatically routes internal vs external URLs to appropriate testing method
+     * 
+     * @param {Array} urls Array of URLs to test
+     * @param {number} batchSize Number of URLs to test in parallel (default: 10)
+     * @param {Function} progressCallback Optional callback for progress updates
+     * @returns {Promise} Promise resolving to array of test results
+     */
+    async function testUrlsBatchAsync(urls, batchSize = 10, progressCallback = null) {
+        console.log('[ASYNC URL TEST] Starting batch test for', urls.length, 'URLs (batch size:', batchSize + ')');
+
+        const results = [];
+        const homeUrl = seoautofixBrokenUrls.homeUrl;
+
+        // Separate internal and external URLs
+        const internalUrls = [];
+        const externalUrls = [];
+
+        urls.forEach(url => {
+            if (url.startsWith(homeUrl) || url.startsWith('/')) {
+                internalUrls.push(url);
+            } else {
+                externalUrls.push(url);
+            }
+        });
+
+        console.log('[ASYNC URL TEST] Split:', internalUrls.length, 'internal,', externalUrls.length, 'external');
+
+        // Test internal URLs in parallel batches
+        for (let i = 0; i < internalUrls.length; i += batchSize) {
+            const batch = internalUrls.slice(i, i + batchSize);
+            console.log('[ASYNC URL TEST] Testing internal batch', (i / batchSize) + 1, ':', batch.length, 'URLs');
+
+            const batchPromises = batch.map(url => testInternalUrlAsync(url));
+            const batchResults = await Promise.all(batchPromises);
+            results.push(...batchResults);
+
+            if (progressCallback) {
+                progressCallback(results.length, urls.length, results.filter(r => r.is_broken).length);
+            }
+        }
+
+        // Test external URLs via proxy in parallel batches
+        for (let i = 0; i < externalUrls.length; i += batchSize) {
+            const batch = externalUrls.slice(i, i + batchSize);
+            console.log('[ASYNC URL TEST] Testing external batch', (i / batchSize) + 1, ':', batch.length, 'URLs');
+
+            const batchPromises = batch.map(url => testExternalUrlAsync(url));
+            const batchResults = await Promise.all(batchPromises);
+            results.push(...batchResults);
+
+            if (progressCallback) {
+                progressCallback(results.length, urls.length, results.filter(r => r.is_broken).length);
+            }
+        }
+
+        console.log('[ASYNC URL TEST] ✅ Batch complete. Tested', results.length, 'URLs,', results.filter(r => r.is_broken).length, 'broken');
+        return results;
+    }
+
+    /**
+     * Categorize error type based on status code
+     * 
+     * @param {number} statusCode HTTP status code
+     * @returns {string} Error type (4xx, 5xx, timeout, or null)
+     */
+    function categorizeErrorType(statusCode) {
+        if (statusCode >= 400 && statusCode < 500) {
+            return '4xx';
+        } else if (statusCode >= 500) {
+            return '5xx';
+        } else if (statusCode === 0) {
+            return 'timeout';
+        }
+        return null; // Success codes (2xx, 3xx)
+    }
+
 })(jQuery);
+

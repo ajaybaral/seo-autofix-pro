@@ -87,6 +87,7 @@ class SEOAutoFix_Broken_Url_Management
         require_once $module_dir . '/class-link-tester.php';
         require_once $module_dir . '/class-url-similarity.php';
         require_once $module_dir . '/class-link-analyzer.php';
+        require_once $module_dir . '/class-url-testing-proxy.php';
 
         // Load new helper classes (v2.0)
         if (file_exists($module_dir . '/class-occurrences-manager.php')) {
@@ -382,6 +383,10 @@ class SEOAutoFix_Broken_Url_Management
 
         // Test URL (for custom URL validation)
         add_action('wp_ajax_seoautofix_broken_links_test_url', array($this, 'ajax_test_url'));
+
+        // NEW: Async URL testing endpoints
+        add_action('wp_ajax_seoautofix_broken_links_test_external_url', array($this, 'ajax_test_external_url'));
+        add_action('wp_ajax_seoautofix_broken_links_test_external_urls_batch', array($this, 'ajax_test_external_urls_batch'));
     }
 
     /**
@@ -465,7 +470,7 @@ class SEOAutoFix_Broken_Url_Management
             $pages_processed = isset($result['pages_processed']) ? $result['pages_processed'] : 0;
             $total_pages = isset($result['total_pages']) ? $result['total_pages'] : 0;
             $broken_count = isset($result['stats']['total']) ? $result['stats']['total'] : 0;
-            
+
             \SEOAutoFix_Debug_Logger::log('[SKU] [PROCESS_BATCH] Progress: ' . $progress . '% | Pages: ' . $pages_processed . '/' . $total_pages . ' | Broken: ' . $broken_count . ' | Complete: ' . $completed);
             error_log('[BROKEN URLS] Batch processing result: ' . print_r($result, true));
 
@@ -502,13 +507,13 @@ class SEOAutoFix_Broken_Url_Management
 
         $db_manager = new Database_Manager();
         $progress = $db_manager->get_scan_progress($scan_id);
-        
+
         // Log progress details
         $progress_pct = isset($progress['progress']) ? $progress['progress'] : 0;
         $tested = isset($progress['tested_urls']) ? $progress['tested_urls'] : 0;
         $total = isset($progress['total_urls']) ? $progress['total_urls'] : 0;
         $broken = isset($progress['broken_count']) ? $progress['broken_count'] : 0;
-        
+
         \SEOAutoFix_Debug_Logger::log('[SKU] [GET_PROGRESS] Scan: ' . $scan_id . ' | Progress: ' . $progress_pct . '% | URLs: ' . $tested . '/' . $total . ' | Broken: ' . $broken);
 
         wp_send_json_success($progress);
@@ -544,13 +549,13 @@ class SEOAutoFix_Broken_Url_Management
         $search = isset($_GET['search']) ? sanitize_text_field($_GET['search']) : '';
         $page = isset($_GET['page']) ? intval($_GET['page']) : 1;
         $per_page = isset($_GET['per_page']) ? intval($_GET['per_page']) : 25;
-        
+
         \SEOAutoFix_Debug_Logger::log('[SKU] [GET_RESULTS] Loading results for scan: ' . $scan_id . ' | Page: ' . $page . ' | Per page: ' . $per_page . ' | Filters: ' . $filter . '/' . $error_type);
 
         $db_manager = new Database_Manager();
         // Parameter order: $scan_id, $filter, $search, $page, $per_page, $error_type, $page_type, $location
         $results = $db_manager->get_scan_results($scan_id, $filter, $search, $page, $per_page, $error_type, $page_type, $location);
-        
+
         $total_results = isset($results['total']) ? $results['total'] : 0;
         \SEOAutoFix_Debug_Logger::log('[SKU] [GET_RESULTS] ✅ Loaded ' . $total_results . ' results');
 
@@ -1701,6 +1706,66 @@ class SEOAutoFix_Broken_Url_Management
             'message' => $result['is_broken']
                 ? sprintf(__('URL is broken (Status: %d)', 'seo-autofix-pro'), $result['status_code'])
                 : __('URL is valid', 'seo-autofix-pro')
+        ));
+    }
+
+    /**
+     * AJAX: Test external URL (proxy for frontend async testing)
+     */
+    public function ajax_test_external_url()
+    {
+        check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
+        }
+
+        $url = isset($_POST['url']) ? esc_url_raw($_POST['url']) : '';
+
+        if (empty($url)) {
+            wp_send_json_error(array('message' => __('URL is required', 'seo-autofix-pro')));
+        }
+
+        error_log('[ASYNC URL TESTING] Testing external URL: ' . $url);
+
+        // Use the URL testing proxy
+        $proxy = new URL_Testing_Proxy();
+        $result = $proxy->test_external_url($url);
+
+        error_log('[ASYNC URL TESTING] Result for ' . $url . ': Status ' . $result['status_code']);
+
+        wp_send_json_success($result);
+    }
+
+    /**
+     * AJAX: Test multiple external URLs in batch (proxy for frontend async testing)
+     */
+    public function ajax_test_external_urls_batch()
+    {
+        check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
+        }
+
+        $urls = isset($_POST['urls']) ? (array) $_POST['urls'] : array();
+        $urls = array_map('esc_url_raw', $urls);
+
+        if (empty($urls)) {
+            wp_send_json_error(array('message' => __('URLs are required', 'seo-autofix-pro')));
+        }
+
+        error_log('[ASYNC URL TESTING] Testing batch of ' . count($urls) . ' external URLs');
+
+        // Use the URL testing proxy
+        $proxy = new URL_Testing_Proxy();
+        $results = $proxy->test_external_urls_batch($urls, 10); // Test 10 URLs in parallel
+
+        error_log('[ASYNC URL TESTING] Batch complete. Tested ' . count($results) . ' URLs');
+
+        wp_send_json_success(array(
+            'results' => $results,
+            'total' => count($results)
         ));
     }
 }
