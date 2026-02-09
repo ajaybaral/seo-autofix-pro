@@ -20,7 +20,7 @@ if (!defined('ABSPATH')) {
  */
 class Image_Usage_Tracker
 {
-    
+
     /**
      * Get batch usage with caching (PERFORMANCE OPTIMIZED)
      * Calculates usage for ALL images ONCE and caches for 1 hour
@@ -28,18 +28,56 @@ class Image_Usage_Tracker
      * @param array $attachment_ids Array of attachment IDs
      * @return array Usage data for requested attachments
      */
-    public function get_cached_batch_usage($attachment_ids) {
+    public function get_cached_batch_usage($attachment_ids)
+    {
         if (empty($attachment_ids)) {
             return array();
         }
-        
+
+        global $wpdb;
         $cache_key = 'seoautofix_image_usage_all';
+        $cache_meta_key = 'seoautofix_image_usage_meta';
+
+        // Get current counts for change detection
+        $current_image_count = (int) $wpdb->get_var("
+            SELECT COUNT(DISTINCT p.ID)
+            FROM {$wpdb->posts} p
+            WHERE p.post_type = 'attachment' 
+            AND p.post_mime_type LIKE 'image/%'
+            AND NOT EXISTS (
+                SELECT 1 FROM {$wpdb->posts} p2 
+                WHERE p2.post_type = 'attachment' 
+                AND p2.ID = p.post_parent
+                AND p2.post_mime_type LIKE 'image/%'
+            )
+        ");
+
+        $current_page_count = (int) $wpdb->get_var("
+            SELECT COUNT(*) FROM {$wpdb->posts}
+            WHERE post_status = 'publish' AND post_type IN ('post', 'page')
+        ");
+
+        // Check cache and metadata
         $cached_data = get_transient($cache_key);
-        
-        // If cache exists, return data for requested IDs
-        if ($cached_data !== false && is_array($cached_data)) {
-            \SEOAutoFix_Debug_Logger::log('✅ Using cached usage data (' . count($cached_data) . ' images cached)', 'image-seo');
-            
+        $cached_meta = get_transient($cache_meta_key);
+
+        // Validate cache: check if counts have changed
+        $cache_valid = false;
+        if ($cached_data !== false && $cached_meta !== false) {
+            $cache_valid = (
+                $cached_meta['image_count'] === $current_image_count &&
+                $cached_meta['page_count'] === $current_page_count
+            );
+
+            if ($cache_valid) {
+                \SEOAutoFix_Debug_Logger::log('✅ Cache valid - no changes detected (' . count($cached_data) . ' images)', 'image-seo');
+            } else {
+                \SEOAutoFix_Debug_Logger::log('🔄 Cache invalid - changes detected (images: ' . $cached_meta['image_count'] . '→' . $current_image_count . ', pages: ' . $cached_meta['page_count'] . '→' . $current_page_count . ')', 'image-seo');
+            }
+        }
+
+        // If cache is valid, return cached data
+        if ($cache_valid) {
             $result = array();
             foreach ($attachment_ids as $id) {
                 if (isset($cached_data[$id])) {
@@ -48,13 +86,12 @@ class Image_Usage_Tracker
             }
             return $result;
         }
-        
-        // Cache miss - calculate for ALL images and cache
-        \SEOAutoFix_Debug_Logger::log('❌ Cache miss - calculating usage for ALL images...', 'image-seo');
+
+        // Cache invalid or missing - recalculate
+        \SEOAutoFix_Debug_Logger::log('📊 Recalculating usage for ' . $current_image_count . ' images...', 'image-seo');
         $calc_start = microtime(true);
-        
-        // Get ALL images from media library
-        global $wpdb;
+
+        // Get ALL images
         $all_image_ids = $wpdb->get_col("
             SELECT DISTINCT p.ID
             FROM {$wpdb->posts} p
@@ -67,18 +104,21 @@ class Image_Usage_Tracker
                 AND p2.post_mime_type LIKE 'image/%'
             )
         ");
-        
-        \SEOAutoFix_Debug_Logger::log('Found ' . count($all_image_ids) . ' total images to process', 'image-seo');
-        
-        // Calculate usage for ALL images at once
+
+        // Calculate usage for ALL images
         $all_usage = $this->get_batch_image_usage($all_image_ids);
-        
-        // Cache for 1 hour
-        set_transient($cache_key, $all_usage, HOUR_IN_SECONDS);
-        
+
+        // Cache with metadata (NO TIME LIMIT - only invalidates on change)
+        set_transient($cache_key, $all_usage, 0); // 0 = never expires
+        set_transient($cache_meta_key, array(
+            'image_count' => $current_image_count,
+            'page_count' => $current_page_count,
+            'last_updated' => time()
+        ), 0); // 0 = never expires
+
         $calc_time = microtime(true) - $calc_start;
-        \SEOAutoFix_Debug_Logger::log('✅ Calculated and cached usage for ALL images in ' . number_format($calc_time, 2) . 's', 'image-seo');
-        
+        \SEOAutoFix_Debug_Logger::log('✅ Cached usage for ' . count($all_usage) . ' images in ' . number_format($calc_time, 2) . 's', 'image-seo');
+
         // Return data for requested IDs
         $result = array();
         foreach ($attachment_ids as $id) {
@@ -88,6 +128,75 @@ class Image_Usage_Tracker
         }
         return $result;
     }
+
+    /**
+     * Get raw Elementor data for frontend parsing (PERFORMANCE OPTIMIZATION)
+     * Returns unprocessed Elementor JSON for all pages
+     * Frontend JavaScript will parse this data (much faster than PHP)
+     * 
+     * @return array Array of [post_id => elementor_json]
+     */
+    public function get_raw_elementor_data()
+    {
+        global $wpdb;
+
+        $cache_key = 'seoautofix_elementor_raw_data';
+        $cache_meta_key = 'seoautofix_elementor_meta';
+
+        // Get current Elementor page count for change detection
+        $current_elementor_count = (int) $wpdb->get_var("
+            SELECT COUNT(*) FROM {$wpdb->postmeta}
+            WHERE meta_key = '_elementor_data' AND meta_value != ''
+        ");
+
+        // Check cache and metadata
+        $cached_data = get_transient($cache_key);
+        $cached_meta = get_transient($cache_meta_key);
+
+        // Validate cache: check if Elementor page count changed
+        $cache_valid = false;
+        if ($cached_data !== false && $cached_meta !== false) {
+            $cache_valid = ($cached_meta['elementor_count'] === $current_elementor_count);
+
+            if ($cache_valid) {
+                \SEOAutoFix_Debug_Logger::log('✅ Elementor cache valid (' . count($cached_data) . ' pages)', 'image-seo');
+                return $cached_data;
+            } else {
+                \SEOAutoFix_Debug_Logger::log('🔄 Elementor cache invalid - changes detected (' . $cached_meta['elementor_count'] . '→' . $current_elementor_count . ')', 'image-seo');
+            }
+        }
+
+        // Cache invalid or missing - fetch fresh data
+        \SEOAutoFix_Debug_Logger::log('📊 Fetching Elementor data for ' . $current_elementor_count . ' pages...', 'image-seo');
+        $start_time = microtime(true);
+
+        // Simple query - just fetch the data, no parsing
+        $results = $wpdb->get_results("
+            SELECT post_id, meta_value as elementor_json
+            FROM {$wpdb->postmeta}
+            WHERE meta_key = '_elementor_data'
+            AND meta_value != ''
+        ", ARRAY_A);
+
+        // Convert to associative array
+        $elementor_data = array();
+        foreach ($results as $row) {
+            $elementor_data[$row['post_id']] = $row['elementor_json'];
+        }
+
+        // Cache with metadata (NO TIME LIMIT - only invalidates on change)
+        set_transient($cache_key, $elementor_data, 0); // 0 = never expires
+        set_transient($cache_meta_key, array(
+            'elementor_count' => $current_elementor_count,
+            'last_updated' => time()
+        ), 0); // 0 = never expires
+
+        $elapsed = microtime(true) - $start_time;
+        \SEOAutoFix_Debug_Logger::log('✅ Cached Elementor data for ' . count($elementor_data) . ' pages in ' . number_format($elapsed, 3) . 's', 'image-seo');
+
+        return $elementor_data;
+    }
+
 
     /**
      * Get image usage information
@@ -143,7 +252,7 @@ class Image_Usage_Tracker
 
         global $wpdb;
         \SEOAutoFix_Debug_Logger::log('Building filename map...', 'image-seo');
-        
+
         // Build filename mapping for quick lookups
         $image_map = array(); // attachment_id => filename
         foreach ($attachment_ids as $id) {
@@ -170,7 +279,7 @@ class Image_Usage_Tracker
         // QUERY 1: Get ALL published posts/pages content at once
         \SEOAutoFix_Debug_Logger::log('About to run QUERY 1: Get all published posts...', 'image-seo');
         $query_start = microtime(true);
-        
+
         try {
             $all_posts = $wpdb->get_results("
                 SELECT ID, post_title, post_content, post_type 
@@ -191,12 +300,12 @@ class Image_Usage_Tracker
         $numeric_ids = array_filter($attachment_ids, 'is_numeric');
         \SEOAutoFix_Debug_Logger::log('Filtered to ' . count($numeric_ids) . ' numeric IDs', 'image-seo');
         $featured_images = array();
-        
+
         if (!empty($numeric_ids)) {
             \SEOAutoFix_Debug_Logger::log('Building Query 2 SQL...', 'image-seo');
             $ids_list = implode(',', $numeric_ids);
             \SEOAutoFix_Debug_Logger::log('IDs list length: ' . strlen($ids_list) . ' chars', 'image-seo');
-            
+
             try {
                 \SEOAutoFix_Debug_Logger::log('Executing Query 2...', 'image-seo');
                 $featured_images = $wpdb->get_results("
@@ -217,50 +326,11 @@ class Image_Usage_Tracker
         \SEOAutoFix_Debug_Logger::log('Query 2 total time: ' . number_format($query2_time, 3) . 's', 'image-seo');
         error_log('⏱️ [USAGE-TRACKER] Query 2 (featured images): ' . number_format($query2_time, 3) . 's - ' . count($featured_images) . ' matches');
 
-        // QUERY 3: Check Elementor usage efficiently (batched single query)
-        \SEOAutoFix_Debug_Logger::log('About to check Elementor usage...', 'image-seo');
-        $query_start = microtime(true);
-        $elementor_matches = array(); // image_filename => array of post_ids
-        
-        try {
-            \SEOAutoFix_Debug_Logger::log('Checking ' . count($image_map) . ' images against Elementor data...', 'image-seo');
-            
-            // Build a single LIKE query for all filenames at once
-            // This is MUCH faster than 50 separate queries!
-            if (!empty($image_map)) {
-                $like_conditions = array();
-                foreach ($image_map as $filename) {
-                    $like_conditions[] = "meta_value LIKE '%" . $wpdb->esc_like($filename) . "%'";
-                }
-                
-                $like_sql = implode(' OR ', $like_conditions);
-                
-                $elementor_results = $wpdb->get_results("
-                    SELECT post_id, meta_value
-                    FROM {$wpdb->postmeta}
-                    WHERE meta_key = '_elementor_data'
-                    AND (" . $like_sql . ")
-                ");
-                
-                // Now match each result back to the images
-                foreach ($elementor_results as $row) {
-                    foreach ($image_map as $attachment_id => $filename) {
-                        if (strpos($row->meta_value, $filename) !== false) {
-                            if (!isset($elementor_matches[$filename])) {
-                                $elementor_matches[$filename] = array();
-                            }
-                            $elementor_matches[$filename][] = $row->post_id;
-                        }
-                    }
-                }
-            }
-            
-            $query3_time = microtime(true) - $query_start;
-            \SEOAutoFix_Debug_Logger::log('Elementor check completed: ' . count($elementor_matches) . ' images found in Elementor posts in ' . number_format($query3_time, 3) . 's', 'image-seo');
-        } catch (Exception $e) {
-            \SEOAutoFix_Debug_Logger::log('Elementor check FAILED: ' . $e->getMessage(), 'image-seo');
-            throw $e;
-        }
+        // QUERY 3: REMOVED - Elementor parsing moved to frontend for performance
+        // Frontend JavaScript will handle Elementor data parsing (much faster than PHP)
+        // This eliminates the timeout issue on sites with many pages
+        \SEOAutoFix_Debug_Logger::log('Elementor parsing skipped - will be handled by frontend', 'image-seo');
+        $elementor_matches = array(); // Empty array - no backend Elementor matching
 
         // Process featured images
         \SEOAutoFix_Debug_Logger::log('Processing featured images map...', 'image-seo');
@@ -300,21 +370,16 @@ class Image_Usage_Tracker
                 if (!$is_matched && strpos($post->post_content, $filename) !== false) {
                     $is_matched = true;
                     $match_type = 'content';
-                } 
-                
+                }
+
                 // Check 2b: Gutenberg block with attachment ID
                 if (!$is_matched && strpos($post->post_content, '"id":' . $attachment_id) !== false) {
                     $is_matched = true;
                     $match_type = 'gutenberg_block';
                 }
 
-                // Check 3: Is it in Elementor data? (using pre-checked matches)
-                if (!$is_matched && isset($elementor_matches[$filename])) {
-                    if (in_array($post->ID, $elementor_matches[$filename])) {
-                        $is_matched = true;
-                        $match_type = 'elementor';
-                    }
-                }
+                // Check 3: REMOVED - Elementor matching moved to frontend
+                // Frontend will handle this check using JavaScript
 
                 // If matched, add to this image's results
                 if ($is_matched) {
@@ -334,7 +399,7 @@ class Image_Usage_Tracker
                 }
             }
         }
-        
+
         \SEOAutoFix_Debug_Logger::log('Matching complete! Processed ' . $posts_processed . ' posts', 'image-seo');
         \SEOAutoFix_Debug_Logger::log('Total matches found: ' . $matches_found, 'image-seo');
 

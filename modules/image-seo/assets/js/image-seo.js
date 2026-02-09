@@ -74,12 +74,12 @@ jQuery(document).ready(function ($) {
 
         const uniqueMap = {};
         let duplicatesFound = 0;
-        
+
         images.forEach((image, index) => {
             if (!uniqueMap[image.id]) {
                 // First occurrence - store it with all its usage_details
                 uniqueMap[image.id] = image;
-                
+
                 // LOG: Show usage info for images used on multiple pages
                 if (image.usage_details && image.usage_details.length > 1) {
                     console.log('🔍 USAGE-DEBUG: Image ID=' + image.id + ' (' + image.filename + ') used in ' + image.usage_details.length + ' pages:');
@@ -93,14 +93,14 @@ jQuery(document).ready(function ($) {
                 console.warn('⚠️ DUPLICATE-FOUND: Image ID=' + image.id + ' at index ' + index + ' - already exists in uniqueMap');
             }
         });
-        
+
         const uniqueImages = Object.values(uniqueMap);
         console.log('DEDUPE-DEBUG: Input images:', images.length, 'Unique images:', uniqueImages.length, 'Duplicates removed:', duplicatesFound);
-        
+
         if (duplicatesFound > 0) {
             console.warn('⚠️ WARNING: Found ' + duplicatesFound + ' duplicate image entries!');
         }
-        
+
         return uniqueImages;
     }
 
@@ -806,6 +806,85 @@ jQuery(document).ready(function ($) {
     }
 
     /**
+     * PERFORMANCE OPTIMIZATION: Parse Elementor data in frontend (JavaScript)
+     * This is MUCH faster than PHP parsing and prevents backend timeouts
+     * 
+     * @param {Object} elementorData - Object mapping post_id => elementor_json
+     * @param {Array} images - Array of image objects with filename property
+     * @return {Promise} Resolves when parsing complete
+     */
+    async function parseElementorUsage(elementorData, images) {
+        console.log('🔧 ELEMENTOR-PARSER: Starting frontend parsing...');
+        console.log('📊 ELEMENTOR-PARSER: ' + Object.keys(elementorData).length + ' pages to parse');
+        console.log('📊 ELEMENTOR-PARSER: ' + images.length + ' images to match');
+
+        const startTime = Date.now();
+        const imageFilenameMap = {};
+
+        // Build filename lookup map for faster matching
+        images.forEach(img => {
+            if (img.filename) {
+                imageFilenameMap[img.filename] = img.id;
+            }
+        });
+
+        // Result: { attachment_id: [post_ids] }
+        const elementorMatches = {};
+
+        // Convert to array for chunked processing
+        const pages = Object.entries(elementorData);
+        const chunkSize = 50; // Process 50 pages at a time
+        let processed = 0;
+
+        // Chunked processing to prevent browser freeze
+        for (let i = 0; i < pages.length; i += chunkSize) {
+            const chunk = pages.slice(i, i + chunkSize);
+
+            // Process this chunk
+            chunk.forEach(([postId, elementorJson]) => {
+                try {
+                    // Parse JSON (fast in JavaScript!)
+                    const elementorBlocks = JSON.parse(elementorJson);
+
+                    // Search for image filenames in the JSON string
+                    // This is faster than deep object traversal
+                    const jsonString = elementorJson.toLowerCase();
+
+                    Object.keys(imageFilenameMap).forEach(filename => {
+                        if (jsonString.includes(filename.toLowerCase())) {
+                            const attachmentId = imageFilenameMap[filename];
+                            if (!elementorMatches[attachmentId]) {
+                                elementorMatches[attachmentId] = [];
+                            }
+                            elementorMatches[attachmentId].push(parseInt(postId));
+                        }
+                    });
+                } catch (e) {
+                    // Skip invalid JSON
+                    console.warn('⚠️ ELEMENTOR-PARSER: Invalid JSON for post ' + postId);
+                }
+            });
+
+            processed += chunk.length;
+
+            // Update progress (optional - can show in UI)
+            const progress = Math.round((processed / pages.length) * 100);
+            console.log('📊 ELEMENTOR-PARSER: Processed ' + processed + '/' + pages.length + ' pages (' + progress + '%)');
+
+            // Yield to browser every chunk to keep UI responsive
+            if (i + chunkSize < pages.length) {
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
+        }
+
+        const elapsed = Date.now() - startTime;
+        console.log('✅ ELEMENTOR-PARSER: Complete in ' + elapsed + 'ms');
+        console.log('📊 ELEMENTOR-PARSER: Found ' + Object.keys(elementorMatches).length + ' images in Elementor pages');
+
+        return elementorMatches;
+    }
+
+    /**
      * Scan a batch of images (UX-IMPROVEMENT: No status filter)
      */
     function scanBatch(offset = 0) {
@@ -818,7 +897,7 @@ jQuery(document).ready(function ($) {
             batch_size: 50,
             offset: offset
         };
-        
+
         console.log('📤 AJAX-REQUEST: Sending scan request to backend', ajaxData);
         const startTime = Date.now();
 
@@ -865,13 +944,47 @@ jQuery(document).ready(function ($) {
                             window.totalImages = response.data.total_images;
                             console.log('🎯 TOTAL-IMAGES: ' + window.totalImages + ' images in media library');
                         }
+
+                        // PERFORMANCE OPTIMIZATION: Parse Elementor data in frontend
+                        if (response.data.elementor_data && Object.keys(response.data.elementor_data).length > 0) {
+                            console.log('🔧 ELEMENTOR-DATA: Received ' + Object.keys(response.data.elementor_data).length + ' pages');
+                            console.log('🔧 ELEMENTOR-DATA: Starting frontend parsing (async)...');
+
+                            // Parse Elementor data asynchronously
+                            parseElementorUsage(response.data.elementor_data, scannedImages).then(elementorMatches => {
+                                console.log('✅ ELEMENTOR-MATCHES: Parsed successfully');
+                                console.log('📊 ELEMENTOR-MATCHES: ' + Object.keys(elementorMatches).length + ' images found in Elementor');
+
+                                // Merge Elementor matches into scannedImages
+                                scannedImages.forEach(img => {
+                                    if (elementorMatches[img.id]) {
+                                        const elementorPostIds = elementorMatches[img.id];
+                                        console.log('🔗 ELEMENTOR-MERGE: Image ' + img.id + ' found in ' + elementorPostIds.length + ' Elementor pages');
+
+                                        // Add to usage count (these are additional to what backend found)
+                                        if (!img.elementor_usage) {
+                                            img.elementor_usage = elementorPostIds.length;
+                                        }
+
+                                        // Update total usage count
+                                        img.total_usage = (img.total_usage || 0) + elementorPostIds.length;
+                                    }
+                                });
+
+                                console.log('✅ ELEMENTOR-MERGE: Complete - usage counts updated');
+                            }).catch(err => {
+                                console.error('❌ ELEMENTOR-PARSER: Failed', err);
+                            });
+                        } else {
+                            console.log('ℹ️ ELEMENTOR-DATA: No Elementor data to parse');
+                        }
                     }
 
                     // Update progress
                     const totalImages = window.totalImages || 500;
                     const scannedSoFar = offset + results.length;
                     const progress = Math.min(100, (scannedSoFar / totalImages) * 100);
-                    
+
                     console.log('📊 PROGRESS-CALC: scannedSoFar=' + scannedSoFar + ', total=' + totalImages + ', progress=' + progress.toFixed(2) + '%');
 
                     const $progressBar = $progressFill.parent();
@@ -897,7 +1010,7 @@ jQuery(document).ready(function ($) {
                         scanBatch(response.data.offset);
                     } else {
                         console.log('🎉 SCAN-COMPLETE: All batches processed!');
-                        
+
                         // Show 100% completion
                         const parentWidth = $progressFill.parent().width();
                         $progressFill[0].style.width = parentWidth + 'px';
@@ -907,11 +1020,11 @@ jQuery(document).ready(function ($) {
                         // Wait 800ms then render results
                         setTimeout(() => {
                             console.log('🎨 RENDERING-RESULTS: Total entries from scan:', scannedImages.length);
-                            
+
                             // DEDUPE FIX: Deduplicate for initial flat view (no filter, no grouping)
                             const uniqueImages = deduplicateImages(scannedImages);
                             console.log('🎨 RENDERING-RESULTS: Displaying', uniqueImages.length, 'unique images');
-                            
+
                             renderResults(uniqueImages, false);
                             updateStats(); // Already deduplicates internally now
 
@@ -929,18 +1042,18 @@ jQuery(document).ready(function ($) {
                             filterChanges = [];
                             currentFilterValue = 'no_filter';
                             $exportFilterCsvBtn.show().prop('disabled', true);
-                            
+
                             console.log('✅ UI-READY: All elements shown, scan complete!');
                         }, 800);
                     }
                 } else {
                     console.error('❌ BATCH-ERROR: Scan failed', response.data);
-                    
+
                     // Display error debug info if available
                     if (response.data && response.data.debug) {
                         console.error('🔍 ERROR-DEBUG:', response.data.debug);
                     }
-                    
+
                     showError('Scan failed: ' + (response.data.message || 'Unknown error'));
                     resetUI();
                 }
@@ -951,7 +1064,7 @@ jQuery(document).ready(function ($) {
                 console.error('❌ ERROR-DETAILS:', { xhr: xhr, status: status, error: error });
                 console.error('❌ XHR-STATUS:', xhr.status);
                 console.error('❌ XHR-RESPONSE:', xhr.responseText);
-                
+
                 if (xhr.status === 504) {
                     console.error('🚨 TIMEOUT-ERROR: 504 Gateway Timeout detected!');
                     console.error('🚨 Request took: ' + elapsed + 'ms (exceeded server timeout limit)');
