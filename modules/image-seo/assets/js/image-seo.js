@@ -61,6 +61,51 @@ jQuery(document).ready(function ($) {
     }
 
     /**
+     * Deduplicate images by attachment ID
+     * Returns unique images with combined usage details preserved
+     * 
+     * @param {Array} images - Array of image objects
+     * @return {Array} Array of unique images
+     */
+    function deduplicateImages(images) {
+        if (!images || images.length === 0) {
+            return [];
+        }
+
+        const uniqueMap = {};
+        let duplicatesFound = 0;
+        
+        images.forEach((image, index) => {
+            if (!uniqueMap[image.id]) {
+                // First occurrence - store it with all its usage_details
+                uniqueMap[image.id] = image;
+                
+                // LOG: Show usage info for images used on multiple pages
+                if (image.usage_details && image.usage_details.length > 1) {
+                    console.log('🔍 USAGE-DEBUG: Image ID=' + image.id + ' (' + image.filename + ') used in ' + image.usage_details.length + ' pages:');
+                    image.usage_details.forEach(detail => {
+                        console.log('   - ' + detail.type + ': ' + detail.title);
+                    });
+                }
+            } else {
+                // DUPLICATE FOUND!
+                duplicatesFound++;
+                console.warn('⚠️ DUPLICATE-FOUND: Image ID=' + image.id + ' at index ' + index + ' - already exists in uniqueMap');
+            }
+        });
+        
+        const uniqueImages = Object.values(uniqueMap);
+        console.log('DEDUPE-DEBUG: Input images:', images.length, 'Unique images:', uniqueImages.length, 'Duplicates removed:', duplicatesFound);
+        
+        if (duplicatesFound > 0) {
+            console.warn('⚠️ WARNING: Found ' + duplicatesFound + ' duplicate image entries!');
+        }
+        
+        return uniqueImages;
+    }
+
+
+    /**
      * Update stats cards display
      * Recalculates stats from scannedImages array and updates DOM
      */
@@ -71,9 +116,24 @@ jQuery(document).ready(function ($) {
             return;
         }
 
-        // Recalculate stats from current scannedImages array
-        const total = scannedImages.length;
-        const withAlt = scannedImages.filter(img => {
+        // CRITICAL: Deduplicate before calculating stats to count unique images only
+        const uniqueImages = deduplicateImages(scannedImages);
+        console.log('STATS-DEBUG: Total scannedImages:', scannedImages.length, 'Unique images:', uniqueImages.length);
+
+        // LOG: Show sample of images with multiple page usage
+        const multiPageImages = uniqueImages.filter(img => img.usage_details && img.usage_details.length > 1);
+        if (multiPageImages.length > 0) {
+            console.log('📊 STATS-DEBUG: Found ' + multiPageImages.length + ' images used on multiple pages');
+            console.log('📊 Sample:', multiPageImages.slice(0, 3).map(img => ({
+                id: img.id,
+                filename: img.filename,
+                pages: img.usage_details.length
+            })));
+        }
+
+        // Recalculate stats from unique images only
+        const total = uniqueImages.length;
+        const withAlt = uniqueImages.filter(img => {
             return img.current_alt && img.current_alt.trim().length > 0;
         }).length;
         const withoutAlt = total - withAlt;
@@ -175,6 +235,7 @@ jQuery(document).ready(function ($) {
     /**
      * Initialize page state on load
      */
+    console.log('🚀 IMAGE-SEO-VERSION: 4.0 (Cached Usage + Duplicate Filter)');
     console.log('PAGE-INIT-DEBUG: [Frontend] Initializing page state...');
 
     // Ensure scan progress is hidden on page load
@@ -343,6 +404,16 @@ jQuery(document).ready(function ($) {
             console.log('EXPORT-BTN: Disabled - switched to new filter, no changes yet');
         }
 
+        // DEDUPE FIX: Deduplicate images if NOT in grouped mode
+        // In grouped mode, we want to show the same image under multiple pages
+        // In flat mode, we want to show each image only once
+        if (!shouldGroup) {
+            filtered = deduplicateImages(filtered);
+            console.log('FILTER-DEBUG: Deduplicated for flat view -', filtered.length, 'unique images');
+        } else {
+            console.log('FILTER-DEBUG: Grouped view - keeping all entries for page grouping');
+        }
+
         currentPage = 1;
         renderResults(filtered, shouldGroup);
         console.log('NEW-RADIO-DEBUG: Showing', filtered.length, 'images, grouped:', shouldGroup);
@@ -467,10 +538,14 @@ jQuery(document).ready(function ($) {
         $exportFilterCsvBtn.show().prop('disabled', true).addClass('disabled');
         console.log('EXPORT-BTN: Disabled - reset to no filter, no changes yet');
 
-        // Show ALL images (no filtering)
+        // DEDUPE FIX: Show unique images only (flat view, no grouping)
+        const uniqueImages = deduplicateImages(scannedImages);
+        console.log('RESET-DEBUG: Deduplicated - showing', uniqueImages.length, 'unique images out of', scannedImages.length, 'total entries');
+
+        // Show ALL unique images (no filtering, no grouping)
         currentPage = 1;
-        renderResults(scannedImages, false);
-        showToast(`Showing all ${scannedImages.length} images`, 'success');
+        renderResults(uniqueImages, false);
+        showToast(`Showing all ${uniqueImages.length} unique images`, 'success');
     });
 
     /**
@@ -734,130 +809,156 @@ jQuery(document).ready(function ($) {
      * Scan a batch of images (UX-IMPROVEMENT: No status filter)
      */
     function scanBatch(offset = 0) {
+        console.log('🚀 SCAN-BATCH-START: Offset=' + offset + ', Batch Size=50');
+        console.log('📊 SCAN-BATCH-STATE: Total scanned so far=' + scannedImages.length);
 
-        ;
         const ajaxData = {
             action: 'imageseo_scan',
             nonce: imageSeoData.nonce,
             batch_size: 50,
             offset: offset
-            // UX-IMPROVEMENT: No status_filter parameter - backend returns ALL
         };
-        ;
+        
+        console.log('📤 AJAX-REQUEST: Sending scan request to backend', ajaxData);
+        const startTime = Date.now();
 
         $.ajax({
             url: imageSeoData.ajaxUrl,
             type: 'POST',
             data: ajaxData,
             success: function (response) {
+                const elapsed = Date.now() - startTime;
+                console.log('⏱️ AJAX-RESPONSE: Received in ' + elapsed + 'ms');
+                console.log('📥 AJAX-RESPONSE-DATA:', response);
+
                 if (response.success) {
                     const results = response.data.results;
+                    console.log('✅ BATCH-SUCCESS: Received ' + results.length + ' images');
+
+                    // Display backend debug info if available
+                    if (response.data.debug) {
+                        const debug = response.data.debug;
+                        console.log('🔍 BACKEND-DEBUG: ===================================');
+                        console.log('  📦 Batch #' + debug.batch_index);
+                        console.log('  📊 Images in batch: ' + debug.images_in_batch);
+                        console.log('  ⏱️  Backend Timing:');
+                        if (debug.timing.scan_time) {
+                            console.log('     - Scan time: ' + debug.timing.scan_time + 's');
+                        }
+                        if (debug.timing.stats_time) {
+                            console.log('     - Stats time: ' + debug.timing.stats_time + 's');
+                        }
+                        console.log('     - Total backend time: ' + debug.timing.total_time + 's');
+                        console.log('  💾 Memory: ' + debug.memory_usage + ' (peak: ' + debug.peak_memory + ')');
+                        console.log('🔍 ============================================');
+                    }
 
                     scannedImages = scannedImages.concat(results);
-                    window.scannedImages = scannedImages; // Keep global ref in sync
+                    window.scannedImages = scannedImages;
+                    console.log('📊 TOTAL-SCANNED: Now have ' + scannedImages.length + ' total images');
 
                     if (offset === 0 && response.data.stats) {
                         globalStats = response.data.stats;
+                        console.log('📈 STATS-RECEIVED:', globalStats);
 
-                        // Store total image count for accurate progress calculation
                         if (response.data.total_images) {
                             window.totalImages = response.data.total_images;
+                            console.log('🎯 TOTAL-IMAGES: ' + window.totalImages + ' images in media library');
                         }
                     }
 
-                    // Update progress with percentage display
-                    // 🎯 NEW: Use actual total from backend instead of assuming 500
-                    const totalImages = window.totalImages || 500; // Fallback to 500 if not set
+                    // Update progress
+                    const totalImages = window.totalImages || 500;
                     const scannedSoFar = offset + results.length;
                     const progress = Math.min(100, (scannedSoFar / totalImages) * 100);
-
-                    // 🔍 COMPREHENSIVE DEBUG: Log EVERYTHING about progress bar
+                    
+                    console.log('📊 PROGRESS-CALC: scannedSoFar=' + scannedSoFar + ', total=' + totalImages + ', progress=' + progress.toFixed(2) + '%');
 
                     const $progressBar = $progressFill.parent();
 
                     if ($progressFill[0]) {
-                        // 🔧 FIX: Calculate width in PIXELS instead of percentage
-                        // Browser wasn't computing percentage correctly (showed 0px)
-                        const parentWidth = $progressBar.width(); // Get parent width in pixels
+                        const parentWidth = $progressBar.width();
                         const widthInPixels = (progress / 100) * parentWidth;
-
-
                         $progressFill[0].style.width = widthInPixels + 'px';
-
-                    } else {
-
+                        console.log('📏 PROGRESS-BAR: Set width to ' + widthInPixels + 'px (' + progress.toFixed(2) + '%)');
                     }
-
 
                     $('#progress-percentage').text(Math.round(progress) + '%');
 
-
-                    // FIX: Update stats in real-time after each batch
+                    // Update stats in real-time
                     if (scannedImages.length > 0) {
                         updateStats();
-
+                        console.log('📊 STATS-UPDATED: Real-time stats refreshed');
                     }
 
-                    // Continue scanning if there are more
+                    // Check if more batches needed
                     if (response.data.hasMore) {
+                        console.log('🔄 HAS-MORE: Continuing to next batch, offset=' + response.data.offset);
                         scanBatch(response.data.offset);
                     } else {
-                        // Show 100% completion before hiding
+                        console.log('🎉 SCAN-COMPLETE: All batches processed!');
+                        
+                        // Show 100% completion
                         const parentWidth = $progressFill.parent().width();
-                        const widthInPixels = parentWidth; // 100% = full width
-
-                        $progressFill[0].style.width = widthInPixels + 'px';
+                        $progressFill[0].style.width = parentWidth + 'px';
                         $('#progress-percentage').text('100%');
+                        console.log('✅ PROGRESS-COMPLETE: Set to 100%');
 
-                        // Wait 800ms to let user see 100% completion, then render results
+                        // Wait 800ms then render results
                         setTimeout(() => {
+                            console.log('🎨 RENDERING-RESULTS: Total entries from scan:', scannedImages.length);
+                            
+                            // DEDUPE FIX: Deduplicate for initial flat view (no filter, no grouping)
+                            const uniqueImages = deduplicateImages(scannedImages);
+                            console.log('🎨 RENDERING-RESULTS: Displaying', uniqueImages.length, 'unique images');
+                            
+                            renderResults(uniqueImages, false);
+                            updateStats(); // Already deduplicates internally now
 
-
-
-
-
-
-                            renderResults(scannedImages);
-                            updateStats(); // Recalculate from scannedImages array
-
-                            // ENSURE Export Changes button is visible after renderResults
+                            // UI updates
                             $exportFilterCsvBtn.show().prop('disabled', filterChanges.length === 0);
-
-                            // RE-ENABLE RADIO BUTTONS after scan completes
                             $('input[name="image-filter"]').prop('disabled', false);
-
-                            // SHOW filter controls and pagination after scan completes
                             $('.imageseo-filter-controls').show();
                             $('.imageseo-pagination').show();
-
-                            // SHOW Stats and Results Table (which were hidden initially)
                             $('.imageseo-stats').show();
                             $('.imageseo-results').show();
-
-                            // SHOW Export CSV button after scan completes
                             $('#export-csv-btn').show();
-
-                            // FIXED: Initialize filter changes tracking for new scan
-                            filterChanges = []; // Clear any previous changes
-                            currentFilterValue = 'no_filter'; // Initial state is "no filter"
-                            console.log('FILTER-CSV: Initialized - empty changes, currentFilter:', currentFilterValue);
-
-                            // SHOW Export Changes in CSV button (disabled until changes are made)
-                            $exportFilterCsvBtn.show().prop('disabled', true);
-                            console.log('EXPORT-CHANGES-DEBUG: Button shown after scan completion, disabled:', $exportFilterCsvBtn.prop('disabled'));
-
                             $resultsTable.show();
 
-                            console.log('SCAN-DEBUG: Showing filter controls, stats, and results after scan');
-                        }, 800); // 800ms delay to show 100% completion
+                            // Initialize filter tracking
+                            filterChanges = [];
+                            currentFilterValue = 'no_filter';
+                            $exportFilterCsvBtn.show().prop('disabled', true);
+                            
+                            console.log('✅ UI-READY: All elements shown, scan complete!');
+                        }, 800);
                     }
                 } else {
+                    console.error('❌ BATCH-ERROR: Scan failed', response.data);
+                    
+                    // Display error debug info if available
+                    if (response.data && response.data.debug) {
+                        console.error('🔍 ERROR-DEBUG:', response.data.debug);
+                    }
+                    
                     showError('Scan failed: ' + (response.data.message || 'Unknown error'));
                     resetUI();
                 }
             },
-            error: function () {
-                showError('Network error occurred during scan');
+            error: function (xhr, status, error) {
+                const elapsed = Date.now() - startTime;
+                console.error('❌ AJAX-ERROR: Request failed after ' + elapsed + 'ms');
+                console.error('❌ ERROR-DETAILS:', { xhr: xhr, status: status, error: error });
+                console.error('❌ XHR-STATUS:', xhr.status);
+                console.error('❌ XHR-RESPONSE:', xhr.responseText);
+                
+                if (xhr.status === 504) {
+                    console.error('🚨 TIMEOUT-ERROR: 504 Gateway Timeout detected!');
+                    console.error('🚨 Request took: ' + elapsed + 'ms (exceeded server timeout limit)');
+                    showError('Request timeout - Server took too long to respond. Try scanning smaller batches.');
+                } else {
+                    showError('Network error occurred during scan');
+                }
                 resetUI();
             }
         });
@@ -2177,7 +2278,7 @@ jQuery(document).ready(function ($) {
 
     // ========== INITIALIZATION ==========
     // Load initial stats from database on page load
-    console.log('Timestamp: 10:42');
+    console.log('Timestamp: 23:54');
     console.log('🚀 PAGE-LOAD: Calling loadInitialStats()...');
     loadInitialStats();
 

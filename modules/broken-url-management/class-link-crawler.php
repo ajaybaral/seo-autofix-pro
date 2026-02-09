@@ -539,6 +539,16 @@ class Link_Crawler
     {
         $links = array();
 
+        // FIRST: Check if this is an Elementor page and extract links from database
+        if ($page_id > 0) {
+            $elementor_links = $this->extract_links_from_elementor_data($page_id, $page_title, $url);
+            if (!empty($elementor_links)) {
+                error_log('[CRAWLER] 🎨 Found ' . count($elementor_links) . ' links in Elementor data for page: ' . $page_title);
+                $links = array_merge($links, $elementor_links);
+            }
+        }
+
+        // THEN: Continue with existing HTML scanning logic
         // Get page content
         $response = wp_remote_get($url, array(
             'timeout' => 15,
@@ -665,6 +675,143 @@ class Link_Crawler
         }
 
         return $links;
+    }
+
+    /**
+     * Extract links from Elementor page data
+     * 
+     * @param int $page_id Page ID
+     * @param string $page_title Page title
+     * @param string $page_url Page URL
+     * @return array Links found in Elementor data
+     */
+    private function extract_links_from_elementor_data($page_id, $page_title, $page_url)
+    {
+        // Check if page uses Elementor
+        $is_elementor = get_post_meta($page_id, '_elementor_edit_mode', true) === 'builder';
+        
+        if (!$is_elementor) {
+            return array();
+        }
+        
+        error_log('[CRAWLER] 🎨 Page ID ' . $page_id . ' (' . $page_title . ') is an Elementor page - extracting links from _elementor_data');
+        
+        // Get Elementor data
+        $elementor_data = get_post_meta($page_id, '_elementor_data', true);
+        
+        if (empty($elementor_data)) {
+            error_log('[CRAWLER] ⚠️ No _elementor_data found for page ID ' . $page_id);
+            return array();
+        }
+        
+        // Parse JSON
+        $data = json_decode($elementor_data, true);
+        
+        if (!is_array($data)) {
+            error_log('[CRAWLER] ⚠️ Failed to decode _elementor_data JSON for page ID ' . $page_id);
+            return array();
+        }
+        
+        $links = array();
+        
+        // Recursively search for URLs in Elementor data
+        $this->search_elementor_data_for_links($data, $page_id, $page_title, $page_url, $links);
+        
+        error_log('[CRAWLER] 🎨 Extracted ' . count($links) . ' links from Elementor data');
+        
+        return $links;
+    }
+
+    /**
+     * Recursively search Elementor data structure for links
+     * 
+     * @param array $data Elementor data array
+     * @param int $page_id Page ID
+     * @param string $page_title Page title
+     * @param string $page_url Page URL
+     * @param array &$links Links array (passed by reference)
+     */
+    private function search_elementor_data_for_links($data, $page_id, $page_title, $page_url, &$links)
+    {
+        if (!is_array($data)) {
+            return;
+        }
+        
+        foreach ($data as $key => $value) {
+            // Check for URL fields in common Elementor widgets
+            if ($key === 'url' && is_string($value) && !empty($value) && $value !== '#') {
+                // Skip mailto, tel, javascript, etc.
+                if (!preg_match('/^(mailto|tel|javascript):/i', $value)) {
+                    $links[] = array(
+                        'url' => $value,
+                        'found_on_page_id' => $page_id,
+                        'found_on_page_title' => $page_title,
+                        'found_on_url' => $page_url,
+                        'location' => 'elementor_data',
+                        'anchor_text' => $this->get_elementor_link_text($data),
+                        'context' => 'Elementor widget'
+                    );
+                }
+            }
+            // Check for link fields (Elementor button/link widgets)
+            elseif ($key === 'link' && is_array($value) && isset($value['url'])) {
+                $link_url = $value['url'];
+                if (!empty($link_url) && $link_url !== '#' && !preg_match('/^(mailto|tel|javascript):/i', $link_url)) {
+                    $links[] = array(
+                        'url' => $link_url,
+                        'found_on_page_id' => $page_id,
+                        'found_on_page_title' => $page_title,
+                        'found_on_url' => $page_url,
+                        'location' => 'elementor_data',
+                        'anchor_text' => $this->get_elementor_link_text($data),
+                        'context' => 'Elementor link widget'
+                    );
+                }
+            }
+            // Check for image URLs (background images, widget images)
+            elseif (($key === 'background_image' || $key === 'image') && is_array($value) && isset($value['url'])) {
+                $img_url = $value['url'];
+                if (!empty($img_url) && strpos($img_url, 'data:') !== 0) {
+                    $links[] = array(
+                        'url' => $img_url,
+                        'found_on_page_id' => $page_id,
+                        'found_on_page_title' => $page_title,
+                        'found_on_url' => $page_url,
+                        'location' => 'elementor_image',
+                        'anchor_text' => 'Image in Elementor',
+                        'context' => 'Elementor ' . $key
+                    );
+                }
+            }
+            // Recurse into nested arrays
+            elseif (is_array($value)) {
+                $this->search_elementor_data_for_links($value, $page_id, $page_title, $page_url, $links);
+            }
+        }
+    }
+
+    /**
+     * Get link text from Elementor widget data
+     * 
+     * @param array $widget_data Widget data
+     * @return string Link text
+     */
+    private function get_elementor_link_text($widget_data)
+    {
+        // Try to find text field
+        if (isset($widget_data['text'])) {
+            return substr(strip_tags($widget_data['text']), 0, 255);
+        }
+        if (isset($widget_data['title'])) {
+            return substr(strip_tags($widget_data['title']), 0, 255);
+        }
+        if (isset($widget_data['button_text'])) {
+            return substr(strip_tags($widget_data['button_text']), 0, 255);
+        }
+        if (isset($widget_data['heading_title'])) {
+            return substr(strip_tags($widget_data['heading_title']), 0, 255);
+        }
+        return '[Elementor Link]';
     }
 
     /**

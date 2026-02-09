@@ -46,40 +46,46 @@ class Image_Analyzer
      */
     public function scan_all_images($batch_size = 50, $offset = 0, $usage_tracker = null, $status_filter = 'blank')
     {
+        $function_start = microtime(true);
+        error_log('🔍 [ANALYZER] ===== scan_all_images() START =====');
+        error_log('🔍 [ANALYZER] Parameters: batch_size=' . $batch_size . ', offset=' . $offset . ', filter=' . $status_filter);
+        
         global $wpdb;
         $history_table = $wpdb->prefix . 'seoautofix_image_history';
 
-
-        // 🔍 DEBUG: Log what we're about to do
-        error_log('🔍 [ANALYZER] Status filter received: ' . $status_filter);
-
         $valid_statuses = array('blank', 'optimal', 'all');
         if (!in_array($status_filter, $valid_statuses)) {
-            error_log('🔍 [ANALYZER] Invalid status filter, defaulting to "all"');
+            error_log('⚠️ [ANALYZER] Invalid status filter "' . $status_filter . '", defaulting to "all"');
             $status_filter = 'all';
         }
 
-
-        // 🎯 FIX: When status_filter is 'all', query WordPress posts table directly
-        // This ensures we get ALL images from media library, not just those in history table
+        // Build query based on filter
         if ($status_filter === 'all') {
-            error_log('🔍 [ANALYZER] Querying WordPress posts table for ALL images');
-
-            // Query WordPress posts table for all image attachments
+            error_log('🔍 [ANALYZER] Querying wp_posts for ALL images');
+            
+            // CRITICAL FIX: Only get PARENT attachments (original uploads)
+            // WordPress creates multiple attachment posts for the same image:
+            // - Original: post_parent = 0 (or parent post ID if attached)
+            // - Scaled/cropped versions: have a post_parent pointing to original
+            // We ONLY want originals to avoid duplicates!
             $sql = $wpdb->prepare(
-                "SELECT ID as attachment_id
-                 FROM {$wpdb->posts}
-                 WHERE post_type = 'attachment' 
-                 AND post_mime_type LIKE 'image/%'
-                 ORDER BY ID DESC
+                "SELECT DISTINCT p.ID as attachment_id
+                 FROM {$wpdb->posts} p
+                 WHERE p.post_type = 'attachment' 
+                 AND p.post_mime_type LIKE 'image/%'
+                 AND NOT EXISTS (
+                     SELECT 1 FROM {$wpdb->posts} p2 
+                     WHERE p2.post_type = 'attachment' 
+                     AND p2.ID = p.post_parent
+                     AND p2.post_mime_type LIKE 'image/%'
+                 )
+                 ORDER BY p.ID DESC
                  LIMIT %d OFFSET %d",
                 $batch_size,
                 $offset
             );
         } else {
-            error_log('🔍 [ANALYZER] Querying history table with status filter: ' . $status_filter);
-
-            // Query history table for specific status
+            error_log('🔍 [ANALYZER] Querying history table for status: ' . $status_filter);
             $sql = $wpdb->prepare(
                 "SELECT attachment_id, issue_type, status 
                  FROM {$history_table} 
@@ -101,54 +107,63 @@ class Image_Analyzer
             );
         }
 
-
+        // Execute query
+        $query_start = microtime(true);
         $results_data = $wpdb->get_results($sql);
+        $query_elapsed = microtime(true) - $query_start;
+        
+        error_log('⏱️ [ANALYZER] Query executed in ' . number_format($query_elapsed, 3) . 's');
+        error_log('📊 [ANALYZER] Query returned ' . count($results_data) . ' rows');
 
-        error_log('🔍 [ANALYZER] Query returned ' . count($results_data) . ' rows');
-
-
-        if (count($results_data) > 0) {
-
-
-            foreach ($results_data as $idx => $row) {
-                if ($idx < 5) { // Log first 5
-
-                }
-            }
-        } else {
-
-
-            $count_check = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$history_table} WHERE status = %s", $status_filter));
-
+        if (count($results_data) === 0) {
+            error_log('⚠️ [ANALYZER] No images found');
+            error_log('✅ [ANALYZER] ===== scan_all_images() END (empty) =====');
+            return array();
         }
 
-
+        // Process results
         $results = array();
-
-        foreach ($results_data as $row) {
+        $processing_start = microtime(true);
+        
+        // OPTIMIZATION: Get usage data for ALL images at once (batch processing)
+        $batch_usage = array();
+        if ($usage_tracker && method_exists($usage_tracker, 'get_batch_image_usage')) {
+            $batch_start = microtime(true);
+            
+            // Build array of attachment IDs
+            $attachment_ids = array();
+            foreach ($results_data as $row) {
+                $attachment_ids[] = $row->attachment_id;
+            }
+            
+            error_log('🔍 [ANALYZER] Fetching batch usage for ' . count($attachment_ids) . ' images...');
+            $batch_usage = $usage_tracker->get_batch_image_usage($attachment_ids);
+            
+            $batch_elapsed = microtime(true) - $batch_start;
+            error_log('⏱️ [ANALYZER] Batch usage fetched in ' . number_format($batch_elapsed, 3) . 's');
+        }
+        
+        foreach ($results_data as $index => $row) {
+            $image_start = microtime(true);
             $attachment_id = $row->attachment_id;
+            
+            // Get metadata
             $metadata = $this->get_image_metadata($attachment_id);
             $issues = $this->detect_issues($attachment_id);
 
-            // Get usage data if tracker is provided
+            // Get usage data from batch results
             $usage_data = array('used_in_posts' => 0, 'used_in_pages' => 0);
             $usage_details = array();
 
-            if ($usage_tracker) {
-
-                $usage = $usage_tracker->get_image_usage($attachment_id);
-
-
-                // Count posts vs pages from the 'pages' array
+            if (isset($batch_usage[$attachment_id])) {
+                $usage = $batch_usage[$attachment_id];
+                
                 $post_count = 0;
                 $page_count = 0;
 
                 if (isset($usage['pages']) && is_array($usage['pages'])) {
-
-
                     foreach ($usage['pages'] as $page_data) {
                         if (isset($page_data['type'])) {
-                            // Add to usage details for frontend grouping
                             $usage_details[] = array(
                                 'post_id' => $page_data['post_id'],
                                 'title' => $page_data['title'],
@@ -156,30 +171,21 @@ class Image_Analyzer
                                 'url' => isset($page_data['url']) ? $page_data['url'] : ''
                             );
 
-                            // Count by type
-                            // Posts = 'post', Pages = 'page' + any custom post type (elementor_library, etc.)
                             if ($page_data['type'] === 'post') {
                                 $post_count++;
                             } else {
-                                // Count pages + all custom post types (element or_library, etc.) as pages
                                 $page_count++;
                             }
                         }
                     }
-
-
                 }
 
                 $usage_data = array(
                     'used_in_posts' => $post_count,
                     'used_in_pages' => $page_count
                 );
-
-
             }
 
-            // 🎯 FIX: When querying posts table, we don't have issue_type and status
-            // Calculate them based on detected issues
             $issue_type = isset($row->issue_type) ? $row->issue_type : $this->classify_issue($attachment_id, $metadata['alt']);
             $status = isset($row->status) ? $row->status : (empty($issues) ? 'optimal' : 'blank');
 
@@ -191,28 +197,27 @@ class Image_Analyzer
                 'current_alt' => $metadata['alt'],
                 'issues' => $issues,
                 'issue_type' => $issue_type,
-                'status' => $status,  // NEW: Include status (blank/optimal) for visual distinction
+                'status' => $status,
                 'used_in_posts' => $usage_data['used_in_posts'],
                 'used_in_pages' => $usage_data['used_in_pages'],
-                'usage_details' => $usage_details  // NEW: Full post/page details for grouping
+                'usage_details' => $usage_details
             );
+            
+            $image_elapsed = microtime(true) - $image_start;
+            
+            // Log first and last image processing time
+            if ($index === 0 || $index === count($results_data) - 1) {
+                error_log('⏱️ [ANALYZER] Image #' . ($index + 1) . ' (ID=' . $attachment_id . ') processed in ' . number_format($image_elapsed, 4) . 's');
+            }
         }
 
-
-
-
-
-
-        if (count($results) > 0) {
-            $result_ids = array_map(function ($r) {
-                return $r['id'];
-            }, $results);
-
-
-        } else {
-
-        }
-
+        $processing_elapsed = microtime(true) - $processing_start;
+        $total_elapsed = microtime(true) - $function_start;
+        
+        error_log('⏱️ [ANALYZER] Processing time: ' . number_format($processing_elapsed, 3) . 's for ' . count($results) . ' images');
+        error_log('⏱️ [ANALYZER] Average per image: ' . number_format($processing_elapsed / count($results), 4) . 's');
+        error_log('⏱️ [ANALYZER] Total function time: ' . number_format($total_elapsed, 3) . 's');
+        error_log('✅ [ANALYZER] ===== scan_all_images() END =====');
 
         return $results;
     }

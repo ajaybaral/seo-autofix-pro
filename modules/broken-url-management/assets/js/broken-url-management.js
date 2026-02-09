@@ -5117,4 +5117,39 @@
         }
     }
 
+    /**
+     * Create snapshot of scan results for undo functionality
+     * Called when scan completes successfully
+     */
+    function createSnapshot(scanId) {
+        console.log('[SKU] [SNAPSHOT] Creating snapshot for scan:', scanId);
+
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'POST',
+            data: {
+                action: 'seoautofix_broken_links_create_snapshot',
+                nonce: seoautofixBrokenUrls.nonce,
+                scan_id: scanId
+            },
+            success: function (response) {
+                console.log('[SKU] [SNAPSHOT] Response:', response);
+
+                if (response.success) {
+                    console.log('[SKU] [SNAPSHOT] ✅ Snapshot created successfully:', response.data.snapshot_count, 'pages');
+                } else {
+                    console.error('[SKU] [SNAPSHOT] ❌ Failed to create snapshot:', response.data.message);
+                }
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.error('[SKU] [SNAPSHOT] ❌ AJAX error creating snapshot:', {
+                    status: jqXHR.status,
+                    statusText: textStatus,
+                    error: errorThrown,
+                    response: jqXHR.responseText
+                });
+            }
+        });
+    }
+
 })(jQuery);

@@ -257,104 +257,126 @@ class SEOAutoFix_Image_SEO
 
     public function ajax_scan_images()
     {
-
-
-
+        // Track execution time
+        $start_time = microtime(true);
+        $timing = array(); // Track timing for each operation
+        
+        error_log('🚀 ===== IMAGE-SEO SCAN BATCH START =====');
+        error_log('🚀 [SCAN] Request received at: ' . date('Y-m-d H:i:s'));
 
         check_ajax_referer('imageseo_nonce', 'nonce');
 
         if (!current_user_can('manage_options')) {
-
+            error_log('❌ [SCAN] Permission denied for user');
             wp_send_json_error(array('message' => 'Insufficient permissions'));
         }
 
         $batch_size = isset($_POST['batch_size']) ? absint($_POST['batch_size']) : 50;
         $offset = isset($_POST['offset']) ? absint($_POST['offset']) : 0;
-        // Always show ALL images - no filtering by status
-        $status_filter = 'all';
+        $status_filter = 'all'; // Always show ALL images
 
-        // 🔍 DEBUG: Log scan parameters
-        error_log('🔍 [IMAGE-SEO-SCAN] ===== SCAN BATCH START =====');
-        error_log('🔍 [IMAGE-SEO-SCAN] Batch size: ' . $batch_size);
-        error_log('🔍 [IMAGE-SEO-SCAN] Offset: ' . $offset);
-        error_log('🔍 [IMAGE-SEO-SCAN] Status filter: ' . $status_filter);
-        error_log('🔍 [IMAGE-SEO-SCAN] Is first batch: ' . ($offset === 0 ? 'YES' : 'NO'));
-
-
-
-
-
-
-
+        error_log('📊 [SCAN] Batch Parameters:');
+        error_log('  - Batch size: ' . $batch_size);
+        error_log('  - Offset: ' . $offset);
+        error_log('  - Status filter: ' . $status_filter);
+        error_log('  - Is first batch: ' . ($offset === 0 ? 'YES' : 'NO'));
 
         try {
+            // Scan images
+            $scan_start = microtime(true);
+            \SEOAutoFix_Debug_Logger::log('Batch: ' . $batch_size . ', Offset: ' . $offset . ', Filter: ' . $status_filter, 'image-seo');
+            \SEOAutoFix_Debug_Logger::log('Usage tracker: ' . (is_object($this->usage_tracker) ? get_class($this->usage_tracker) : 'NULL'), 'image-seo');
+            
+            // Scan images WITH usage tracker enabled
+            \SEOAutoFix_Debug_Logger::log('Calling analyzer->scan_all_images()...', 'image-seo');
             $results = $this->analyzer->scan_all_images($batch_size, $offset, $this->usage_tracker, $status_filter);
+            \SEOAutoFix_Debug_Logger::log('scan_all_images returned ' . count($results) . ' results', 'image-seo');
+            
+            $scan_elapsed = microtime(true) - $scan_start;
+            $timing['scan_time'] = number_format($scan_elapsed, 3);
+            error_log('✅ [SCAN] Analyzer completed in ' . $timing['scan_time'] . 's');
+            error_log('📊 [SCAN] Results count: ' . count($results));
 
-            // 🔍 DEBUG: Log scan results
-            error_log('🔍 [IMAGE-SEO-SCAN] Results returned: ' . count($results));
             if (!empty($results)) {
-                error_log('🔍 [IMAGE-SEO-SCAN] First image ID: ' . $results[0]['id']);
-                error_log('🔍 [IMAGE-SEO-SCAN] First image title: ' . $results[0]['title']);
+                error_log('📸 [SCAN] First image: ID=' . $results[0]['id'] . ', Title=' . $results[0]['title']);
+                error_log('📸 [SCAN] Last image: ID=' . $results[count($results) - 1]['id']);
             } else {
-                error_log('🔍 [IMAGE-SEO-SCAN] ⚠️ NO RESULTS RETURNED!');
+                error_log('⚠️ [SCAN] No results returned from analyzer');
             }
 
-            // SEO scoring removed for performance - no longer calculating scores during scan
+            // 🔧 CRITICAL FIX: REMOVED history population from scan process
+            // This was causing the 504 timeout by doubling the processing work
+            // History population should be a separate background process
+            error_log('ℹ️ [SCAN] History population SKIPPED (runs separately to prevent timeout)');
 
-
-
-            if (!empty($results)) {
-
-
-
-
-                // Debug first 5 images' usage data
-
-                for ($i = 0; $i < min(5, count($results)); $i++) {
-                    $img = $results[$i];
-
-
-
-
-                }
-            }
-
-            // On first batch, populate history table with ALL images
-            if ($offset === 0) {
-                $this->populate_all_images_in_history();
-            }
-
+            // Build response
             $response_data = array(
                 'results' => $results,
                 'offset' => $offset + $batch_size,
                 'hasMore' => count($results) === $batch_size
             );
 
+            // First batch: include stats and total count
             if ($offset === 0) {
-                // Get statistics from history table
+                $stats_start = microtime(true);
+                error_log('📈 [SCAN] Fetching stats from history table...');
+                
                 $response_data['stats'] = $this->image_history->get_statistics();
-
-                // 🎯 NEW: Get total image count for accurate progress calculation
+                
                 global $wpdb;
-                $total_images = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'attachment' AND post_mime_type LIKE 'image/%'");
+                $total_images = $wpdb->get_var("
+                    SELECT COUNT(DISTINCT p.ID) 
+                    FROM {$wpdb->posts} p
+                    WHERE p.post_type = 'attachment'  
+                    AND p.post_mime_type LIKE 'image/%'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM {$wpdb->posts} p2 
+                        WHERE p2.post_type = 'attachment' 
+                        AND p2.ID = p.post_parent
+                        AND p2.post_mime_type LIKE 'image/%'
+                    )
+                ");
                 $response_data['total_images'] = (int) $total_images;
-
-                // 🔍 DEBUG: Log first batch response
-                error_log('🔍 [IMAGE-SEO-SCAN] First batch - Stats: ' . json_encode($response_data['stats']));
-                error_log('🔍 [IMAGE-SEO-SCAN] First batch - Total images in DB: ' . $total_images);
+                
+                $stats_elapsed = microtime(true) - $stats_start;
+                $timing['stats_time'] = number_format($stats_elapsed, 3);
+                error_log('✅ [SCAN] Stats fetched in ' . $timing['stats_time'] . 's');
+                error_log('📊 [SCAN] Stats: ' . json_encode($response_data['stats']));
+                error_log('🎯 [SCAN] Total images in DB: ' . $total_images);
             }
 
-            // 🔍 DEBUG: Log final response
-            error_log('🔍 [IMAGE-SEO-SCAN] Response - Results count: ' . count($response_data['results']));
-            error_log('🔍 [IMAGE-SEO-SCAN] Response - Has more: ' . ($response_data['hasMore'] ? 'true' : 'false'));
-            error_log('🔍 [IMAGE-SEO-SCAN] Response - Next offset: ' . $response_data['offset']);
-            error_log('🔍 [IMAGE-SEO-SCAN] ===== SCAN BATCH END =====');
+            $total_elapsed = microtime(true) - $start_time;
+            $timing['total_time'] = number_format($total_elapsed, 3);
+            
+            // Add debug info to response for frontend console
+            $response_data['debug'] = array(
+                'batch_index' => ($offset / $batch_size) + 1,
+                'images_in_batch' => count($results),
+                'timing' => $timing,
+                'memory_usage' => size_format(memory_get_usage(true)),
+                'peak_memory' => size_format(memory_get_peak_usage(true))
+            );
+            
+            error_log('⏱️ [SCAN] Total batch time: ' . $timing['total_time'] . 's');
+            error_log('📤 [SCAN] Response: results=' . count($response_data['results']) . ', hasMore=' . ($response_data['hasMore'] ? 'true' : 'false') . ', nextOffset=' . $response_data['offset']);
+            error_log('✅ ===== IMAGE-SEO SCAN BATCH END =====');
 
             wp_send_json_success($response_data);
 
         } catch (\Exception $e) {
+            $total_elapsed = microtime(true) - $start_time;
+            error_log('❌ [SCAN-ERROR] Exception after ' . number_format($total_elapsed, 3) . 's');
+            error_log('❌ [SCAN-ERROR] Message: ' . $e->getMessage());
+            error_log('❌ [SCAN-ERROR] Trace: ' . $e->getTraceAsString());
+            
             $this->logger->log_error('Scan failed', $e->getMessage());
-            wp_send_json_error(array('message' => $e->getMessage()));
+            wp_send_json_error(array(
+                'message' => $e->getMessage(),
+                'debug' => array(
+                    'execution_time' => number_format($total_elapsed, 3) . 's',
+                    'error_type' => get_class($e)
+                )
+            ));
         }
     }
 
@@ -775,120 +797,114 @@ class SEOAutoFix_Image_SEO
     }
 
     /**
-     * Populate history table with all images from media library
+     * Populate history table with all images from media library (BATCHED VERSION)
+     * Processes images in chunks to prevent timeout
+     * 
+     * @param int $batch_size Number of images to process per call
+     * @return bool True if population is complete, false if more batches needed
      */
-    private function populate_all_images_in_history()
+    private function populate_all_images_in_history_batch($batch_size = 50)
     {
-
-
-        // Check if table exists
         global $wpdb;
         $table_name = $wpdb->prefix . 'seoautofix_image_history';
+        
+        // Check if table exists
         $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table_name'");
-
-
         if (!$table_exists) {
-
-            return;
+            return true; // Consider it complete if table doesn't exist
         }
 
-        // Check existing row count BEFORE population
-        $existing_count = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
+        // Get progress tracker
+        $processed_offset = get_transient('seoautofix_history_offset');
+        if ($processed_offset === false) {
+            $processed_offset = 0;
+        }
 
+        error_log("[IMAGE-SEO] populate_history_batch called - offset: $processed_offset, batch: $batch_size");
 
-        // Check for records with status other than 'blank' or 'optimal'
-        $action_records = $wpdb->get_var("SELECT COUNT(*) FROM $table_name WHERE status IN ('generate', 'optimized', 'skipped')");
-
-
-        // Get ALL images from media library (INCLUDING all statuses: inherit, private, trash, etc.)
-        $all_images = get_posts(array(
+        // Get a batch of images
+        $images = get_posts(array(
             'post_type' => 'attachment',
             'post_mime_type' => 'image',
-            'post_status' => 'any',  // Changed from 'inherit' to 'any' to catch ALL images
-            'posts_per_page' => -1
+            'post_status' => 'any',
+            'posts_per_page' => $batch_size,
+            'offset' => $processed_offset,
+            'orderby' => 'ID',
+            'order' => 'ASC'
         ));
 
+        error_log("[IMAGE-SEO] Retrieved " . count($images) . " images for history population");
 
+        // If no images found, we're done
+        if (empty($images)) {
+            delete_transient('seoautofix_history_offset');
+            error_log("[IMAGE-SEO] History population COMPLETE - no more images");
+            return true;
+        }
 
-        $success_count = 0;
-        $error_count = 0;
-        $updated_count = 0;
-        $inserted_count = 0;
-        $optimal_count = 0;
-        $blank_count = 0;
-
-        foreach ($all_images as $image) {
+        $processed = 0;
+        foreach ($images as $image) {
             $attachment_id = $image->ID;
-            $current_alt = get_post_meta($attachment_id, '_wp_attachment_image_alt', true);
-            $current_title = get_the_title($attachment_id);
-
-            // Check if record already exists
+            
+            // Check if record already exists with action status
             $existing_record = $wpdb->get_row($wpdb->prepare(
                 "SELECT * FROM $table_name WHERE attachment_id = %d",
                 $attachment_id
             ));
 
-            // If record exists with action status, DON'T overwrite it
+            // Skip if already has action status (preserve history)
             if ($existing_record && in_array($existing_record->status, array('generate', 'optimized', 'skipped'))) {
-
-                continue; // Skip this image to preserve its history
+                $processed++;
+                continue;
             }
 
-            // Detect issues
+            // Get current metadata
+            $current_alt = get_post_meta($attachment_id, '_wp_attachment_image_alt', true);
+            $current_title = get_the_title($attachment_id);
+
+            // Detect issues (quick check)
             $issues = $this->analyzer->detect_issues($attachment_id);
             $issue_type = $this->analyzer->classify_issue($attachment_id, $current_alt);
 
-            // CLASSIFICATION-DEBUG: Log issue detection
-
-
             // Determine status
-            if (empty($issues)) {
-                $status = 'optimal'; // Already has good alt text
-                $optimal_count++;
-
-            } else {
-                $status = 'blank'; // Has issues, awaiting action
-                $blank_count++;
-
-
-                // Debug first few blank images
-                if ($blank_count <= 5) {
-
-                }
-            }
+            $status = empty($issues) ? 'optimal' : 'blank';
 
             // Update or create history record
-            $result = $this->image_history->update_image_history($attachment_id, array(
+            $this->image_history->update_image_history($attachment_id, array(
                 'alt_history' => array($current_alt),
                 'title_history' => array($current_title),
                 'status' => $status,
                 'issue_type' => $issue_type
             ));
-
-            if ($result !== false) {
-                $success_count++;
-                if ($existing_record) {
-                    $updated_count++;
-                } else {
-                    $inserted_count++;
-                }
-            } else {
-                $error_count++;
-
-            }
+            
+            $processed++;
         }
 
+        // Update offset for next batch
+        $new_offset = $processed_offset + $processed;
+        set_transient('seoautofix_history_offset', $new_offset, HOUR_IN_SECONDS);
+        
+        error_log("[IMAGE-SEO] Processed $processed images. New offset: $new_offset");
 
+        // Check if we processed fewer than batch size (means we're done)
+        if (count($images) < $batch_size) {
+            delete_transient('seoautofix_history_offset');
+            error_log("[IMAGE-SEO] History population COMPLETE - processed all images");
+            return true;
+        }
 
+        // More batches needed
+        return false;
+    }
 
-
-        // Check final row count AFTER population
-        $final_count = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
-
-
-        // Check how many scan_all_images would return
-        $scan_results = $this->analyzer->scan_all_images(999, 0);
-
+    /**
+     * Original populate function - kept for backward compatibility
+     * Now calls the batched version
+     */
+    private function populate_all_images_in_history()
+    {
+        // Use batched version with larger batch size for manual calls
+        return $this->populate_all_images_in_history_batch(100);
     }
 
     /**

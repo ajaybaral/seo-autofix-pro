@@ -30,6 +30,9 @@ class SEOAutoFix_Settings {
         add_action('admin_menu', array($this, 'add_settings_page'));
         add_action('admin_init', array($this, 'register_settings'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_assets'));
+        
+        // AJAX endpoint for debug log download
+        add_action('wp_ajax_seoautofix_get_debug_logs', array($this, 'ajax_get_debug_logs'));
     }
     
     /**
@@ -150,6 +153,11 @@ class SEOAutoFix_Settings {
             SEOAUTOFIX_VERSION,
             true
         );
+        
+        // Localize script with debug nonce
+        wp_localize_script('seoautofix-settings', 'seoautofixSettings', array(
+            'debugNonce' => wp_create_nonce('seoautofix_debug_nonce')
+        ));
     }
     
     /**
@@ -193,6 +201,16 @@ class SEOAutoFix_Settings {
                 </ol>
                 
                 <p><strong><?php _e('Note:', 'seo-autofix-pro'); ?></strong> <?php _e('Your API key is stored securely and never transmitted to any server except OpenAI.', 'seo-autofix-pro'); ?></p>
+            </div>
+            
+            <div class="seoautofix-debug-tools" style="margin-top: 30px; padding: 20px; background: #f9fafb; border: 1px solid #ddd; border-radius: 5px;">
+                <h2><?php _e('Debug Tools', 'seo-autofix-pro'); ?></h2>
+                <p><?php _e('Download debug logs to troubleshoot issues with the plugin.', 'seo-autofix-pro'); ?></p>
+                <button type="button" id="download-debug-logs-btn" class="button button-secondary">
+                    <span class="dashicons dashicons-download" style="margin-top: 3px;"></span>
+                    <?php _e('Download Debug Logs', 'seo-autofix-pro'); ?>
+                </button>
+                <span id="download-debug-status" style="margin-left: 10px;"></span>
             </div>
         </div>
         <?php
@@ -303,6 +321,97 @@ class SEOAutoFix_Settings {
     public static function is_api_configured() {
         $api_key = self::get_api_key();
         return !empty($api_key);
+    }
+    
+    /**
+     * AJAX handler for downloading debug logs
+     */
+    public function ajax_get_debug_logs() {
+        // Verify nonce
+        if (!check_ajax_referer('seoautofix_debug_nonce', 'nonce', false)) {
+            wp_send_json_error(array('message' => 'Invalid security token'));
+            return;
+        }
+        
+        // Check user capabilities
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions'));
+            return;
+        }
+        
+        // Build comprehensive log content
+        $log_content = "=== SEO AutoFix Pro Debug Log ===\n";
+        $log_content .= "Generated: " . date('Y-m-d H:i:s') . "\n";
+        $log_content .= "WordPress Version: " . get_bloginfo('version') . "\n";
+        $log_content .= "PHP Version: " . PHP_VERSION . "\n";
+        $log_content .= "Plugin Version: " . SEOAUTOFIX_VERSION . "\n\n";
+        
+        $log_content .= "=== Debug Settings ===\n";
+        $log_content .= "WP_DEBUG: " . (defined('WP_DEBUG') && WP_DEBUG ? 'Enabled' : 'Disabled') . "\n";
+        $log_content .= "WP_DEBUG_LOG: " . (defined('WP_DEBUG_LOG') && WP_DEBUG_LOG ? 'Enabled' : 'Disabled') . "\n";
+        $log_content .= "WP_DEBUG_DISPLAY: " . (defined('WP_DEBUG_DISPLAY') && WP_DEBUG_DISPLAY ? 'Enabled' : 'Disabled') . "\n\n";
+        
+        // Try to find error logs from multiple locations
+        $error_log_locations = array(
+            'Image SEO Debug Log' => SEOAUTOFIX_PLUGIN_DIR . 'debug-image-seo.log',
+            'Broken URL Debug Log' => SEOAUTOFIX_PLUGIN_DIR . 'debug-broken-url.log',
+            'General Debug Log' => SEOAUTOFIX_PLUGIN_DIR . 'debug-general.log',
+            'WordPress Debug Log' => WP_CONTENT_DIR . '/debug.log',
+            'Plugin Debug Log' => SEOAUTOFIX_PLUGIN_DIR . 'debug.log',
+            'PHP Error Log (ini)' => ini_get('error_log'),
+            'XAMPP Apache Error Log' => 'C:/xampp/apache/logs/error.log',
+            'XAMPP PHP Error Log' => 'C:/xampp/php/logs/php_error_log',
+            'XAMPP PHP Error Alt' => 'C:/xampp/php/logs/error.log',
+            'WordPress Root' => ABSPATH . 'error.log',
+            'WordPress Root Debug' => ABSPATH . 'debug.log'
+        );
+        
+        $found_logs = false;
+        
+        foreach ($error_log_locations as $name => $log_path) {
+            if (empty($log_path)) continue;
+            
+            if (file_exists($log_path) && filesize($log_path) > 0) {
+                $found_logs = true;
+                $log_content .= "=== $name ===\n";
+                $log_content .= "Path: $log_path\n";
+                $log_content .= "Size: " . size_format(filesize($log_path)) . "\n";
+                $log_content .= "Last Modified: " . date('Y-m-d H:i:s', filemtime($log_path)) . "\n\n";
+                
+                // Get ENTIRE log file
+                $file_content = file_get_contents($log_path);
+                $log_content .= "--- Complete Log ---\n";
+                $log_content .= $file_content;
+                $log_content .= "\n\n";
+            }
+        }
+        
+        if (!$found_logs) {
+            $log_content .= "=== No Error Logs Found ===\n";
+            $log_content .= "Checked the following locations:\n";
+            foreach ($error_log_locations as $name => $path) {
+                if (!empty($path)) {
+                    $log_content .= "- $name: $path" . (file_exists($path) ? ' (exists but empty)' : ' (not found)') . "\n";
+                }
+            }
+            $log_content .= "\nTo enable WordPress error logging, add these lines to wp-config.php:\n";
+            $log_content .= "define('WP_DEBUG', true);\n";
+            $log_content .= "define('WP_DEBUG_LOG', true);\n";
+            $log_content .= "define('WP_DEBUG_DISPLAY', false);\n";
+        }
+        
+        // Save to plugin directory for reference
+        $temp_log = SEOAUTOFIX_PLUGIN_DIR . 'debug-export.log';
+        file_put_contents($temp_log, $log_content);
+        
+        // Return the log content
+        wp_send_json_success(array(
+            'content' => $log_content,
+            'size' => strlen($log_content),
+            'last_modified' => date('Y-m-d H:i:s'),
+            'path' => $temp_log,
+            'found_logs' => $found_logs
+        ));
     }
 }
 

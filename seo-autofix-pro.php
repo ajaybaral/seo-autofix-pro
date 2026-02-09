@@ -3,7 +3,7 @@
  * Plugin Name: SEO AutoFix Pro
  * Plugin URI: https://seoautofixpro.com
  * Description: AI-powered SEO automation for WordPress. Detects and fixes SEO issues automatically using OpenAI.
- * Version: 1.2.0
+ * Version: 1.3.1
  * Author: SEO AutoFix Pro Team
  * Author URI: https://seoautofixpro.com
  * License: GPL v2 or later
@@ -72,6 +72,9 @@ class SEO_AutoFix_Pro
      */
     private function includes()
     {
+        // Load debug logger first (works without WP_DEBUG)
+        require_once SEOAUTOFIX_PLUGIN_DIR . 'includes/debug-logger.php';
+        
         // Load global settings
         require_once SEOAUTOFIX_PLUGIN_DIR . 'settings.php';
     }
@@ -88,6 +91,48 @@ class SEO_AutoFix_Pro
 
         // Load text domain for translations
         load_plugin_textdomain('seo-autofix-pro', false, dirname(SEOAUTOFIX_PLUGIN_BASENAME) . '/languages');
+        
+        // Hide admin notices on our plugin pages for cleaner UI
+        add_action('admin_notices', array($this, 'hide_admin_notices'), 1);
+        
+        // Add comprehensive AJAX error logging
+        add_action('wp_ajax_nopriv_seoautofix_broken_links_get_grouped_results', array($this, 'log_missing_ajax_endpoint'));
+        add_action('wp_ajax_seoautofix_broken_links_get_grouped_results', array($this, 'log_missing_ajax_endpoint'));
+        add_action('admin_init', array($this, 'add_ajax_logger'));
+    }
+    
+    /**
+     * Log when a missing AJAX endpoint is called
+     */
+    public function log_missing_ajax_endpoint() {
+        error_log('========================================');
+        error_log('[SEO AUTOFIX] ❌ MISSING AJAX ENDPOINT CALLED');
+        error_log('[SEO AUTOFIX] Action: ' . ($_POST['action'] ?? $_GET['action'] ?? 'UNKNOWN'));
+        error_log('[SEO AUTOFIX] Request Method: ' . $_SERVER['REQUEST_METHOD']);
+        error_log('[SEO AUTOFIX] POST Data: ' . print_r($_POST, true));
+        error_log('[SEO AUTOFIX] GET Data: ' . print_r($_GET, true));
+        error_log('[SEO AUTOFIX] Referer: ' . ($_SERVER['HTTP_REFERER'] ?? 'NONE'));
+        error_log('[SEO AUTOFIX] User Agent: ' . ($_SERVER['HTTP_USER_AGENT'] ?? 'NONE'));
+        error_log('========================================');
+        
+        wp_send_json_error(array(
+            'message' => 'This AJAX endpoint does not exist. Check debug.log for details.',
+            'endpoint' => $_POST['action'] ?? $_GET['action'] ?? 'UNKNOWN',
+            'timestamp' => current_time('mysql')
+        ));
+    }
+    
+    /**
+     * Add general AJAX logger to catch all broken URL requests
+     */
+    public function add_ajax_logger() {
+        add_action('wp_ajax_' . '*', function() {
+            $action = $_REQUEST['action'] ?? '';
+            if (strpos($action, 'seoautofix_broken_links') !== false) {
+                error_log('[SEO AUTOFIX] AJAX Request: ' . $action);
+                error_log('[SEO AUTOFIX] Request Data: ' . print_r($_REQUEST, true));
+            }
+        }, 1);
     }
 
     /**
@@ -124,6 +169,35 @@ class SEO_AutoFix_Pro
             return $src . $separator . 'ver=' . time();
         }
         return $src;
+    }
+    
+    /**
+     * Hide admin notices on plugin pages for cleaner UI
+     */
+    public function hide_admin_notices() {
+        // Check if we're on one of our plugin pages
+        $screen = get_current_screen();
+        if (!$screen) {
+            return;
+        }
+        
+        // List of our plugin page IDs
+        $our_pages = array(
+            'toplevel_page_seoautofix-settings',
+            'seo-autofix-pro_page_seoautofix-broken-urls',
+            'seo-autofix-pro_page_seoautofix-image-seo'
+        );
+        
+        // If we're on one of our pages, remove all non-essential admin notices
+        if (in_array($screen->id, $our_pages) || (isset($_GET['page']) && strpos($_GET['page'], 'seoautofix') !== false)) {
+            remove_all_actions('admin_notices');
+            remove_all_actions('all_admin_notices');
+            
+            // Only allow our own notices
+            add_action('admin_notices', function() {
+                settings_errors('seoautofix_messages');
+            });
+        }
     }
 
     /**

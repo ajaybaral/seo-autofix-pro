@@ -389,24 +389,31 @@ class SEOAutoFix_Broken_Url_Management
      */
     public function ajax_start_scan()
     {
+        \SEOAutoFix_Debug_Logger::log('[SKU] [START_SCAN] ========== AJAX ENDPOINT CALLED ==========');
+        \SEOAutoFix_Debug_Logger::log('[SKU] [START_SCAN] Timestamp: ' . current_time('mysql'));
         error_log('[BROKEN URLS] ajax_start_scan() called');
         error_log('[BROKEN URLS] Request data: ' . print_r($_POST, true));
 
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
+        \SEOAutoFix_Debug_Logger::log('[SKU] [START_SCAN] ✅ Nonce verified');
         error_log('[BROKEN URLS] Nonce verified');
 
         if (!current_user_can('manage_options')) {
+            \SEOAutoFix_Debug_Logger::log('[SKU] [START_SCAN] ❌ Unauthorized user');
             error_log('[BROKEN URLS] User lacks manage_options capability');
             wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
         }
 
+        \SEOAutoFix_Debug_Logger::log('[SKU] [START_SCAN] ✅ User authorized, creating crawler');
         error_log('[BROKEN URLS] User authorized, creating crawler');
 
         try {
             $crawler = new Link_Crawler();
+            \SEOAutoFix_Debug_Logger::log('[SKU] [START_SCAN] Crawler instance created');
             error_log('[BROKEN URLS] Crawler created, starting scan');
 
             $scan_id = $crawler->start_scan();
+            \SEOAutoFix_Debug_Logger::log('[SKU] [START_SCAN] ✅ Scan started successfully with ID: ' . $scan_id);
             error_log('[BROKEN URLS] Scan started with ID: ' . $scan_id);
 
             wp_send_json_success(array(
@@ -414,6 +421,8 @@ class SEOAutoFix_Broken_Url_Management
                 'message' => __('Scan started successfully', 'seo-autofix-pro')
             ));
         } catch (\Exception $e) {
+            \SEOAutoFix_Debug_Logger::log('[SKU] [START_SCAN] ❌ EXCEPTION: ' . $e->getMessage());
+            \SEOAutoFix_Debug_Logger::log('[SKU] [START_SCAN] Stack trace: ' . $e->getTraceAsString());
             error_log('[BROKEN URLS] Exception in ajax_start_scan: ' . $e->getMessage());
             error_log('[BROKEN URLS] Stack trace: ' . $e->getTraceAsString());
             wp_send_json_error(array('message' => $e->getMessage()));
@@ -431,6 +440,7 @@ class SEOAutoFix_Broken_Url_Management
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
 
         if (!current_user_can('manage_options')) {
+            \SEOAutoFix_Debug_Logger::log('[SKU] [PROCESS_BATCH] ❌ Unauthorized user');
             error_log('[BROKEN URLS] User lacks manage_options capability');
             wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
         }
@@ -438,19 +448,34 @@ class SEOAutoFix_Broken_Url_Management
         $scan_id = isset($_POST['scan_id']) ? sanitize_text_field($_POST['scan_id']) : '';
 
         if (empty($scan_id)) {
+            \SEOAutoFix_Debug_Logger::log('[SKU] [PROCESS_BATCH] ❌ Missing scan ID');
             wp_send_json_error(array('message' => __('Scan ID is required', 'seo-autofix-pro')));
         }
 
+        \SEOAutoFix_Debug_Logger::log('[SKU] [PROCESS_BATCH] Processing batch for scan: ' . $scan_id);
         error_log('[BROKEN URLS] Processing batch for scan_id: ' . $scan_id);
 
         try {
             $crawler = new Link_Crawler();
             $result = $crawler->process_batch($scan_id, 5); // Process 5 pages per batch
 
+            // Log progress details
+            $completed = isset($result['completed']) && $result['completed'] ? 'YES' : 'NO';
+            $progress = isset($result['progress']) ? $result['progress'] : 0;
+            $pages_processed = isset($result['pages_processed']) ? $result['pages_processed'] : 0;
+            $total_pages = isset($result['total_pages']) ? $result['total_pages'] : 0;
+            $broken_count = isset($result['stats']['total']) ? $result['stats']['total'] : 0;
+            
+            \SEOAutoFix_Debug_Logger::log('[SKU] [PROCESS_BATCH] Progress: ' . $progress . '% | Pages: ' . $pages_processed . '/' . $total_pages . ' | Broken: ' . $broken_count . ' | Complete: ' . $completed);
             error_log('[BROKEN URLS] Batch processing result: ' . print_r($result, true));
+
+            if ($completed === 'YES') {
+                \SEOAutoFix_Debug_Logger::log('[SKU] [PROCESS_BATCH] ✅ SCAN COMPLETED - Total broken links: ' . $broken_count);
+            }
 
             wp_send_json_success($result);
         } catch (\Exception $e) {
+            \SEOAutoFix_Debug_Logger::log('[SKU] [PROCESS_BATCH] ❌ EXCEPTION: ' . $e->getMessage());
             error_log('[BROKEN URLS] Exception in ajax_process_batch: ' . $e->getMessage());
             wp_send_json_error(array('message' => $e->getMessage()));
         }
@@ -464,17 +489,27 @@ class SEOAutoFix_Broken_Url_Management
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
 
         if (!current_user_can('manage_options')) {
+            \SEOAutoFix_Debug_Logger::log('[SKU] [GET_PROGRESS] ❌ Unauthorized user');
             wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
         }
 
         $scan_id = isset($_GET['scan_id']) ? sanitize_text_field($_GET['scan_id']) : '';
 
         if (empty($scan_id)) {
+            \SEOAutoFix_Debug_Logger::log('[SKU] [GET_PROGRESS] ❌ Invalid scan ID');
             wp_send_json_error(array('message' => __('Invalid scan ID', 'seo-autofix-pro')));
         }
 
         $db_manager = new Database_Manager();
         $progress = $db_manager->get_scan_progress($scan_id);
+        
+        // Log progress details
+        $progress_pct = isset($progress['progress']) ? $progress['progress'] : 0;
+        $tested = isset($progress['tested_urls']) ? $progress['tested_urls'] : 0;
+        $total = isset($progress['total_urls']) ? $progress['total_urls'] : 0;
+        $broken = isset($progress['broken_count']) ? $progress['broken_count'] : 0;
+        
+        \SEOAutoFix_Debug_Logger::log('[SKU] [GET_PROGRESS] Scan: ' . $scan_id . ' | Progress: ' . $progress_pct . '% | URLs: ' . $tested . '/' . $total . ' | Broken: ' . $broken);
 
         wp_send_json_success($progress);
     }
@@ -484,29 +519,40 @@ class SEOAutoFix_Broken_Url_Management
      */
     public function ajax_get_results()
     {
+        \SEOAutoFix_Debug_Logger::log('[SKU] [GET_RESULTS] ========== AJAX ENDPOINT CALLED ==========');
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
+        \SEOAutoFix_Debug_Logger::log('[SKU] [GET_RESULTS] ✅ Nonce verified');
 
         if (!current_user_can('manage_options')) {
+            \SEOAutoFix_Debug_Logger::log('[SKU] [GET_RESULTS] ❌ Unauthorized user');
             wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
         }
+        \SEOAutoFix_Debug_Logger::log('[SKU] [GET_RESULTS] ✅ User authorized');
 
         $scan_id = isset($_GET['scan_id']) ? sanitize_text_field($_GET['scan_id']) : '';
-        $filter = isset($_GET['filter']) ? sanitize_text_field($_GET['filter']) : 'all';
-        $search = isset($_GET['search']) ? sanitize_text_field($_GET['search']) : '';
-        $page = isset($_GET['page']) ? intval($_GET['page']) : 1;
-        $per_page = isset($_GET['per_page']) ? intval($_GET['per_page']) : 25;
-
-        // New filter parameters
-        $error_type = isset($_GET['error_type']) ? sanitize_text_field($_GET['error_type']) : 'all';
-        $page_type = isset($_GET['page_type']) ? sanitize_text_field($_GET['page_type']) : 'all';
-        $location = isset($_GET['location']) ? sanitize_text_field($_GET['location']) : 'all';
 
         if (empty($scan_id)) {
+            \SEOAutoFix_Debug_Logger::log('[SKU] [GET_RESULTS] ❌ Invalid scan ID');
             wp_send_json_error(array('message' => __('Invalid scan ID', 'seo-autofix-pro')));
         }
 
+        // Get filters
+        $filter = isset($_GET['filter']) ? sanitize_text_field($_GET['filter']) : 'all';
+        $page_type = isset($_GET['page_type']) ? sanitize_text_field($_GET['page_type']) : 'all';
+        $error_type = isset($_GET['error_type']) ? sanitize_text_field($_GET['error_type']) : 'all';
+        $location = isset($_GET['location']) ? sanitize_text_field($_GET['location']) : 'all';
+        $search = isset($_GET['search']) ? sanitize_text_field($_GET['search']) : '';
+        $page = isset($_GET['page']) ? intval($_GET['page']) : 1;
+        $per_page = isset($_GET['per_page']) ? intval($_GET['per_page']) : 25;
+        
+        \SEOAutoFix_Debug_Logger::log('[SKU] [GET_RESULTS] Loading results for scan: ' . $scan_id . ' | Page: ' . $page . ' | Per page: ' . $per_page . ' | Filters: ' . $filter . '/' . $error_type);
+
         $db_manager = new Database_Manager();
+        // Parameter order: $scan_id, $filter, $search, $page, $per_page, $error_type, $page_type, $location
         $results = $db_manager->get_scan_results($scan_id, $filter, $search, $page, $per_page, $error_type, $page_type, $location);
+        
+        $total_results = isset($results['total']) ? $results['total'] : 0;
+        \SEOAutoFix_Debug_Logger::log('[SKU] [GET_RESULTS] ✅ Loaded ' . $total_results . ' results');
 
         wp_send_json_success($results);
     }
@@ -1338,11 +1384,13 @@ class SEOAutoFix_Broken_Url_Management
      */
     public function ajax_create_snapshot()
     {
+        \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] ========== CREATE SNAPSHOT CALLED ==========');
         error_log('[SNAPSHOT] ========== CREATE SNAPSHOT CALLED ==========');
 
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
 
         if (!current_user_can('manage_options')) {
+            \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] ❌ Unauthorized user');
             error_log('[SNAPSHOT] Unauthorized user');
             wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
         }
@@ -1350,10 +1398,12 @@ class SEOAutoFix_Broken_Url_Management
         $scan_id = isset($_POST['scan_id']) ? sanitize_text_field($_POST['scan_id']) : '';
 
         if (empty($scan_id)) {
+            \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] ❌ Missing scan ID');
             error_log('[SNAPSHOT] Missing scan ID');
             wp_send_json_error(array('message' => __('Missing scan ID', 'seo-autofix-pro')));
         }
 
+        \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] Creating snapshot for scan: ' . $scan_id);
         error_log('[SNAPSHOT] Creating snapshot for scan: ' . $scan_id);
 
         global $wpdb;
@@ -1367,10 +1417,12 @@ class SEOAutoFix_Broken_Url_Management
         ), ARRAY_A);
 
         if (empty($pages)) {
+            \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] ❌ No pages found for scan');
             error_log('[SNAPSHOT] No pages found for scan');
             wp_send_json_error(array('message' => __('No pages to snapshot', 'seo-autofix-pro')));
         }
 
+        \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] Found ' . count($pages) . ' unique pages');
         error_log('[SNAPSHOT] Found ' . count($pages) . ' unique pages');
 
         // Store original content for each page
@@ -1380,6 +1432,7 @@ class SEOAutoFix_Broken_Url_Management
             $post = get_post($page_id);
 
             if (!$post) {
+                \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] Page ID ' . $page_id . ' not found, skipping');
                 error_log('[SNAPSHOT] Page ID ' . $page_id . ' not found, skipping');
                 continue;
             }
@@ -1392,6 +1445,7 @@ class SEOAutoFix_Broken_Url_Management
             ));
 
             if ($existing) {
+                \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] Snapshot already exists for page ' . $page_id);
                 error_log('[SNAPSHOT] Snapshot already exists for page ' . $page_id);
                 continue;
             }
@@ -1402,6 +1456,7 @@ class SEOAutoFix_Broken_Url_Management
 
             if ($is_elementor) {
                 $elementor_data = get_post_meta($page_id, '_elementor_data', true);
+                \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] Page ' . $page_id . ' is Elementor page, storing _elementor_data as well');
                 error_log('[SNAPSHOT] Page ' . $page_id . ' is Elementor page, storing _elementor_data as well');
                 // Store Elementor data as JSON in a special format
                 $original_content = json_encode(array(
@@ -1424,12 +1479,15 @@ class SEOAutoFix_Broken_Url_Management
 
             if ($inserted) {
                 $snapshot_count++;
+                \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] ✅ Saved content for page ' . $page_id . ' (post: ' . $post->post_title . ', Elementor: ' . ($is_elementor ? 'yes' : 'no') . ')');
                 error_log('[SNAPSHOT] Saved content for page ' . $page_id . ' (post: ' . $post->post_title . ', Elementor: ' . ($is_elementor ? 'yes' : 'no') . ')');
             } else {
+                \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] ❌ Failed to save snapshot for page ' . $page_id . ': ' . $wpdb->last_error);
                 error_log('[SNAPSHOT] Failed to save snapshot for page ' . $page_id . ': ' . $wpdb->last_error);
             }
         }
 
+        \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] ✅ Created ' . $snapshot_count . ' snapshots');
         error_log('[SNAPSHOT] Created ' . $snapshot_count . ' snapshots');
 
         wp_send_json_success(array(
