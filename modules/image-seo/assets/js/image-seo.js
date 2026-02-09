@@ -1060,9 +1060,11 @@ jQuery(document).ready(function ($) {
                         console.log('🔍 ============================================');
                     }
 
-                    scannedImages = scannedImages.concat(results);
-                    window.scannedImages = scannedImages;
-                    console.log('📊 TOTAL-SCANNED: Now have ' + scannedImages.length + ' total images');
+                    // REMOVED: This was causing duplicates!
+                    // scannedImages = scannedImages.concat(results);
+                    // Images are now added later after frontend matching (line ~1137)
+
+                    console.log('📊 TOTAL-SCANNED: Now have ' + scannedImages.length + ' total images (before adding current batch)');
 
                     if (offset === 0 && response.data.stats) {
                         globalStats = response.data.stats;
@@ -2547,7 +2549,7 @@ jQuery(document).ready(function ($) {
 
     // ========== INITIALIZATION ==========
     // Load initial stats from database on page load
-    console.log('Timestamp: 16:00');
+    console.log('Timestamp: 16:10');
     console.log('🚀 PAGE-LOAD: Calling loadInitialStats()...');
     loadInitialStats();
 
