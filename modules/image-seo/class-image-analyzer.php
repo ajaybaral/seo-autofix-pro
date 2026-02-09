@@ -109,10 +109,9 @@ class Image_Analyzer
                     SELECT 1 FROM {$wpdb->posts} p2
                     WHERE p2.post_type = 'attachment'
                     AND p2.ID = p.post_parent
-                    AND p2.post_mime_type LIKE 'image/%'
                 )
             ");
-            \SEOAutoFix_Debug_Logger::log('🔬 [DIAGNOSTIC] Total with current filter (inherit + no image parent): ' . $total_with_filter, 'image-seo');
+            \SEOAutoFix_Debug_Logger::log('🔬 [DIAGNOSTIC] Total with NOT EXISTS filter (exclude ANY attachment parent): ' . $total_with_filter, 'image-seo');
             \SEOAutoFix_Debug_Logger::log('🔬 [DIAGNOSTIC] ===== END DIAGNOSTIC =====', 'image-seo');
         }
 
