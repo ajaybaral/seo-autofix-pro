@@ -126,25 +126,25 @@ class Image_Analyzer
         if ($status_filter === 'all') {
             error_log('🔍 [ANALYZER] Querying wp_posts for ALL images');
 
-            // CRITICAL FIX: Only get PARENT attachments (original uploads)
-            // WordPress creates multiple attachment posts for the same image:
-            // - Original: post_parent = 0 (or parent post ID if attached)
-            // - Scaled/cropped versions: have a post_parent pointing to original
-            // We ONLY want originals to avoid duplicates!
-            // ADDITIONAL FIX: Filter by post_status = 'inherit' to match media library
-            // This excludes trashed, private, and other non-standard attachments
+            // CRITICAL FIX: Only get ORIGINAL attachments (post_parent = 0)
+            // WordPress creates child attachment records when:
+            // 1. Image is attached to a post/page (post_parent = post_id)
+            // 2. Scaled/cropped versions are created (post_parent = original_image_id)
+            // 
+            // DIAGNOSTIC REVEALED:
+            // - Total: 769 attachments with status='inherit'
+            // - Original (post_parent=0): 50
+            // - Child (post_parent>0): 719
+            // 
+            // The 719 child attachments are duplicates created when images are attached to posts.
+            // We ONLY want originals (post_parent = 0) to match the media library count!
             $sql = $wpdb->prepare(
                 "SELECT p.ID as attachment_id
                  FROM {$wpdb->posts} p
                  WHERE p.post_type = 'attachment' 
                  AND p.post_mime_type LIKE 'image/%'
                  AND p.post_status = 'inherit'
-                 AND NOT EXISTS (
-                     SELECT 1 FROM {$wpdb->posts} p2 
-                     WHERE p2.post_type = 'attachment' 
-                     AND p2.ID = p.post_parent
-                     AND p2.post_mime_type LIKE 'image/%'
-                 )
+                 AND p.post_parent = 0
                  GROUP BY p.ID
                  ORDER BY p.ID DESC
                  LIMIT %d OFFSET %d",

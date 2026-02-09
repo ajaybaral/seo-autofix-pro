@@ -2549,7 +2549,7 @@ jQuery(document).ready(function ($) {
 
     // ========== INITIALIZATION ==========
     // Load initial stats from database on page load
-    console.log('Timestamp: 16:52');
+    console.log('Timestamp: 17:06');
     console.log('🚀 PAGE-LOAD: Calling loadInitialStats()...');
     loadInitialStats();
 
