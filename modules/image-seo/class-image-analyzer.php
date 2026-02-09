@@ -126,25 +126,32 @@ class Image_Analyzer
         if ($status_filter === 'all') {
             error_log('🔍 [ANALYZER] Querying wp_posts for ALL images');
 
-            // CRITICAL FIX: Only get ORIGINAL attachments (post_parent = 0)
+            // CRITICAL FIX: Only get ORIGINAL attachments
             // WordPress creates child attachment records when:
-            // 1. Image is attached to a post/page (post_parent = post_id)
-            // 2. Scaled/cropped versions are created (post_parent = original_image_id)
+            // 1. Image is attached to a post/page (post_parent = post_id) - THESE ARE ORIGINALS, KEEP THEM!
+            // 2. Scaled/cropped versions (post_parent = original_attachment_id) - THESE ARE DUPLICATES, EXCLUDE THEM!
             // 
             // DIAGNOSTIC REVEALED:
             // - Total: 769 attachments with status='inherit'
-            // - Original (post_parent=0): 50
-            // - Child (post_parent>0): 719
+            // - No parent (post_parent=0): 50
+            // - Has parent (post_parent>0): 719
             // 
-            // The 719 child attachments are duplicates created when images are attached to posts.
-            // We ONLY want originals (post_parent = 0) to match the media library count!
+            // The 719 include both:
+            //   - Images attached to posts/pages (GOOD - we want these!)
+            //   - Scaled/cropped versions (BAD - duplicates!)
+            // 
+            // Solution: Exclude ONLY attachments whose parent is ANOTHER ATTACHMENT
             $sql = $wpdb->prepare(
                 "SELECT p.ID as attachment_id
                  FROM {$wpdb->posts} p
                  WHERE p.post_type = 'attachment' 
                  AND p.post_mime_type LIKE 'image/%'
                  AND p.post_status = 'inherit'
-                 AND p.post_parent = 0
+                 AND NOT EXISTS (
+                     SELECT 1 FROM {$wpdb->posts} p2 
+                     WHERE p2.post_type = 'attachment' 
+                     AND p2.ID = p.post_parent
+                 )
                  GROUP BY p.ID
                  ORDER BY p.ID DESC
                  LIMIT %d OFFSET %d",
