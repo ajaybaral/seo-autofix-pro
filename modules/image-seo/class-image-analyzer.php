@@ -111,14 +111,14 @@ class Image_Analyzer
 
         // Execute query
         $query_start = microtime(true);
+        error_log('🔍 [ANALYZER] Executing SQL query...');
         $results_data = $wpdb->get_results($sql);
         $query_elapsed = microtime(true) - $query_start;
 
-        error_log('⏱️ [ANALYZER] Query executed in ' . number_format($query_elapsed, 3) . 's');
-        error_log('📊 [ANALYZER] Query returned ' . count($results_data) . ' rows');
+        error_log('✅ [ANALYZER] Query returned ' . count($results_data) . ' rows in ' . number_format($query_elapsed, 3) . 's');
+        error_log('🔍 [ANALYZER] SQL: ' . $sql);
 
-        if (count($results_data) === 0) {
-            error_log('⚠️ [ANALYZER] No images found');
+        if (empty($results_data)) {
             error_log('✅ [ANALYZER] ===== scan_all_images() END (empty) =====');
             return array();
         }

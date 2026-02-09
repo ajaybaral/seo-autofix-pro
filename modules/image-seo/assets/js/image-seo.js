@@ -74,31 +74,34 @@ jQuery(document).ready(function ($) {
 
         const uniqueMap = {};
         let duplicatesFound = 0;
+        const duplicateDetails = [];
+
+        console.log('🔍 [DEDUPE] Starting deduplication...');
+        console.log('🔍 [DEDUPE] Input: ' + images.length + ' images');
 
         images.forEach((image, index) => {
             if (!uniqueMap[image.id]) {
-                // First occurrence - store it with all its usage_details
+                // First occurrence - store it
                 uniqueMap[image.id] = image;
-
-                // LOG: Show usage info for images used on multiple pages
-                if (image.usage_details && image.usage_details.length > 1) {
-                    console.log('🔍 USAGE-DEBUG: Image ID=' + image.id + ' (' + image.filename + ') used in ' + image.usage_details.length + ' pages:');
-                    image.usage_details.forEach(detail => {
-                        console.log('   - ' + detail.type + ': ' + detail.title);
-                    });
-                }
             } else {
                 // DUPLICATE FOUND!
                 duplicatesFound++;
-                console.warn('⚠️ DUPLICATE-FOUND: Image ID=' + image.id + ' at index ' + index + ' - already exists in uniqueMap');
+                duplicateDetails.push({
+                    id: image.id,
+                    filename: image.filename,
+                    index: index
+                });
             }
         });
 
         const uniqueImages = Object.values(uniqueMap);
-        console.log('DEDUPE-DEBUG: Input images:', images.length, 'Unique images:', uniqueImages.length, 'Duplicates removed:', duplicatesFound);
+
+        console.log('✅ [DEDUPE] Output: ' + uniqueImages.length + ' unique images');
+        console.log('🔍 [DEDUPE] Duplicates removed: ' + duplicatesFound);
 
         if (duplicatesFound > 0) {
-            console.warn('⚠️ WARNING: Found ' + duplicatesFound + ' duplicate image entries!');
+            console.warn('⚠️ [DEDUPE] WARNING: Found ' + duplicatesFound + ' duplicate entries!');
+            console.log('🔍 [DEDUPE] First 5 duplicates:', duplicateDetails.slice(0, 5));
         }
 
         return uniqueImages;
@@ -110,26 +113,17 @@ jQuery(document).ready(function ($) {
      * Recalculates stats from scannedImages array and updates DOM
      */
     function updateStats() {
-
         if (!scannedImages || scannedImages.length === 0) {
-
             return;
         }
 
+        console.log('📊 [STATS] Calculating stats from scannedImages array...');
+        console.log('📊 [STATS] scannedImages.length BEFORE dedupe:', scannedImages.length);
+
         // CRITICAL: Deduplicate before calculating stats to count unique images only
         const uniqueImages = deduplicateImages(scannedImages);
-        console.log('STATS-DEBUG: Total scannedImages:', scannedImages.length, 'Unique images:', uniqueImages.length);
 
-        // LOG: Show sample of images with multiple page usage
-        const multiPageImages = uniqueImages.filter(img => img.usage_details && img.usage_details.length > 1);
-        if (multiPageImages.length > 0) {
-            console.log('📊 STATS-DEBUG: Found ' + multiPageImages.length + ' images used on multiple pages');
-            console.log('📊 Sample:', multiPageImages.slice(0, 3).map(img => ({
-                id: img.id,
-                filename: img.filename,
-                pages: img.usage_details.length
-            })));
-        }
+        console.log('📊 [STATS] uniqueImages.length AFTER dedupe:', uniqueImages.length);
 
         // Recalculate stats from unique images only
         const total = uniqueImages.length;
@@ -137,6 +131,8 @@ jQuery(document).ready(function ($) {
             return img.current_alt && img.current_alt.trim().length > 0;
         }).length;
         const withoutAlt = total - withAlt;
+
+        console.log('📊 [STATS] Final counts - Total:', total, 'With Alt:', withAlt, 'Without Alt:', withoutAlt);
 
         // Update stat cards
         $('#stat-total').text(total);
@@ -1110,26 +1106,51 @@ jQuery(document).ready(function ($) {
                         } else {
                             console.log('ℹ️ ELEMENTOR-DATA: No Elementor data to parse');
                         }
-
-                        // PERFORMANCE OPTIMIZATION: Frontend image-to-post matching (10-30x FASTER!)
-                        if (response.data.raw_posts && response.data.raw_featured && response.data.image_filenames) {
-                            console.log('🚀 [RAW-DATA] Received raw data for frontend matching');
-                            console.log(`📊 [RAW-DATA] ${response.data.raw_posts.length} posts, ${Object.keys(response.data.raw_featured).length} featured, ${Object.keys(response.data.image_filenames).length} images`);
-
-                            // Apply frontend matching to ALL scanned images
-                            scannedImages = applyFrontendMatching(
-                                scannedImages,
-                                response.data.raw_posts,
-                                response.data.raw_featured,
-                                response.data.image_filenames
-                            );
-
-                            window.scannedImages = scannedImages;
-                            console.log('✅ [RAW-DATA] Frontend matching applied to all images');
-                        } else {
-                            console.log('ℹ️ [RAW-DATA] No raw data - using backend-calculated usage');
-                        }
                     }
+
+                    console.log('📦 [SCAN] Received batch results:', data.results.length, 'images');
+
+                    // PERFORMANCE OPTIMIZATION: Apply frontend matching if raw data is available
+                    if (data.raw_posts && data.raw_featured && data.image_filenames) {
+                        console.log('🚀 [SCAN] Applying frontend matching...');
+                        data.results = applyFrontendMatching(
+                            data.results,
+                            data.raw_posts,
+                            data.raw_featured,
+                            data.image_filenames
+                        );
+                        console.log('✅ [SCAN] Frontend matching applied to batch results');
+                    } else {
+                        console.log('ℹ️ [SCAN] No raw data for frontend matching in this batch');
+                    }
+
+                    // Merge Elementor data if available (should be skipped now, as it's handled in the initial batch)
+                    // This block is kept for robustness but should ideally not be hit for subsequent batches if Elementor data is only sent once.
+                    if (data.elementor_data && Object.keys(data.elementor_data).length > 0 && offset !== 0) {
+                        console.log('⚠️ [SCAN] Merging Elementor data for non-initial batch. This might be redundant.');
+                        // Re-parse Elementor data for this batch's results if needed, though it's usually done once.
+                        parseElementorUsage(data.elementor_data, data.results).then(elementorMatches => {
+                            data.results.forEach(img => {
+                                if (elementorMatches[img.id]) {
+                                    const elementorPostIds = elementorMatches[img.id];
+                                    if (!img.elementor_usage) {
+                                        img.elementor_usage = elementorPostIds.length;
+                                    }
+                                    img.total_usage = (img.total_usage || 0) + elementorPostIds.length;
+                                }
+                            });
+                            console.log('✅ [SCAN] Elementor data merged into current batch results.');
+                        }).catch(err => {
+                            console.error('❌ [SCAN] Elementor merge failed for current batch:', err);
+                        });
+                    }
+
+
+                    // Add results to scannedImages array
+                    console.log('📦 [SCAN] Adding ' + data.results.length + ' images to scannedImages');
+                    console.log('📦 [SCAN] scannedImages.length BEFORE concat:', scannedImages.length);
+                    scannedImages = scannedImages.concat(data.results);
+                    console.log('📦 [SCAN] scannedImages.length AFTER concat:', scannedImages.length);
 
                     // Update progress
                     const totalImages = window.totalImages || 500;
@@ -2542,7 +2563,7 @@ jQuery(document).ready(function ($) {
 
     // ========== INITIALIZATION ==========
     // Load initial stats from database on page load
-    console.log('Timestamp: 03:16');
+    console.log('Timestamp: 15:45');
     console.log('🚀 PAGE-LOAD: Calling loadInitialStats()...');
     loadInitialStats();
 
