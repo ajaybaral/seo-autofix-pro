@@ -216,6 +216,122 @@ class Image_Usage_Tracker
         return $elementor_data;
     }
 
+    /**
+     * Get raw posts data for frontend processing (PERFORMANCE OPTIMIZATION)
+     * Returns unprocessed post content for JavaScript matching
+     * Frontend JavaScript will do the matching (much faster than PHP)
+     * 
+     * @return array Array of posts with ID, title, content, type
+     */
+    public function get_raw_posts_data()
+    {
+        global $wpdb;
+
+        $cache_key = 'seoautofix_raw_posts_data';
+        $cache_meta_key = 'seoautofix_raw_posts_meta';
+
+        // Get current post count for change detection
+        $current_post_count = (int) $wpdb->get_var("
+            SELECT COUNT(*) FROM {$wpdb->posts}
+            WHERE post_status = 'publish' AND post_type IN ('post', 'page')
+        ");
+
+        // Get last modified timestamp for content change detection
+        $current_last_modified = $wpdb->get_var("
+            SELECT MAX(post_modified_gmt) FROM {$wpdb->posts}
+            WHERE post_status = 'publish' AND post_type IN ('post', 'page')
+        ");
+
+        // Check cache and metadata
+        $cached_data = get_transient($cache_key);
+        $cached_meta = get_transient($cache_meta_key);
+
+        // Validate cache: check if counts OR content have changed
+        $cache_valid = false;
+        if ($cached_data !== false && $cached_meta !== false) {
+            $cache_valid = (
+                $cached_meta['post_count'] === $current_post_count &&
+                $cached_meta['last_modified'] === $current_last_modified
+            );
+
+            if ($cache_valid) {
+                \SEOAutoFix_Debug_Logger::log('✅ Posts cache valid (' . count($cached_data) . ' posts)', 'image-seo');
+                return $cached_data;
+            } else {
+                \SEOAutoFix_Debug_Logger::log('🔄 Posts cache invalid - changes detected', 'image-seo');
+            }
+        }
+
+        // Cache invalid or missing - fetch fresh data
+        \SEOAutoFix_Debug_Logger::log('📊 Fetching raw posts data for ' . $current_post_count . ' posts...', 'image-seo');
+        $start_time = microtime(true);
+
+        // Simple query - just fetch the data, no processing
+        $posts = $wpdb->get_results("
+            SELECT ID, post_title, post_content, post_type 
+            FROM {$wpdb->posts} 
+            WHERE post_status = 'publish' 
+            AND post_type IN ('post', 'page')
+        ", ARRAY_A);
+
+        // Cache with metadata (NO TIME LIMIT - only invalidates on change)
+        set_transient($cache_key, $posts, 0); // 0 = never expires
+        set_transient($cache_meta_key, array(
+            'post_count' => $current_post_count,
+            'last_modified' => $current_last_modified,
+            'last_updated' => time()
+        ), 0); // 0 = never expires
+
+        $elapsed = microtime(true) - $start_time;
+        \SEOAutoFix_Debug_Logger::log('✅ Cached raw posts data for ' . count($posts) . ' posts in ' . number_format($elapsed, 3) . 's', 'image-seo');
+
+        return $posts;
+    }
+
+    /**
+     * Get raw featured images map for frontend processing
+     * Returns simple map of post_id => attachment_id
+     * 
+     * @return array Map of post_id => attachment_id
+     */
+    public function get_raw_featured_images()
+    {
+        global $wpdb;
+
+        $cache_key = 'seoautofix_raw_featured_map';
+
+        // Check cache
+        $cached_data = get_transient($cache_key);
+        if ($cached_data !== false) {
+            \SEOAutoFix_Debug_Logger::log('✅ Featured images cache valid (' . count($cached_data) . ' entries)', 'image-seo');
+            return $cached_data;
+        }
+
+        // Fetch fresh data
+        \SEOAutoFix_Debug_Logger::log('📊 Fetching featured images map...', 'image-seo');
+        $start_time = microtime(true);
+
+        $results = $wpdb->get_results("
+            SELECT post_id, meta_value as attachment_id
+            FROM {$wpdb->postmeta}
+            WHERE meta_key = '_thumbnail_id'
+            AND meta_value != ''
+        ", ARRAY_A);
+
+        $map = array();
+        foreach ($results as $row) {
+            $map[$row['post_id']] = (int) $row['attachment_id'];
+        }
+
+        // Cache it (invalidates when posts cache invalidates)
+        set_transient($cache_key, $map, 0);
+
+        $elapsed = microtime(true) - $start_time;
+        \SEOAutoFix_Debug_Logger::log('✅ Cached featured images map (' . count($map) . ' entries) in ' . number_format($elapsed, 3) . 's', 'image-seo');
+
+        return $map;
+    }
+
 
     /**
      * Get image usage information

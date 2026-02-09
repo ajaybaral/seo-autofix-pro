@@ -261,13 +261,13 @@ class SEOAutoFix_Image_SEO
         $start_time = microtime(true);
         $timing = array(); // Track timing for each operation
 
-        error_log('🚀 ===== IMAGE-SEO SCAN BATCH START =====');
-        error_log('🚀 [SCAN] Request received at: ' . date('Y-m-d H:i:s'));
+        \SEOAutoFix_Debug_Logger::log('===== IMAGE-SEO SCAN BATCH START =====', 'image-seo');
+        \SEOAutoFix_Debug_Logger::log('📥 [SCAN] AJAX Request received', 'image-seo');
 
         check_ajax_referer('imageseo_nonce', 'nonce');
 
         if (!current_user_can('manage_options')) {
-            error_log('❌ [SCAN] Permission denied for user');
+            \SEOAutoFix_Debug_Logger::log('❌ [SCAN] Permission denied for user', 'image-seo');
             wp_send_json_error(array('message' => 'Insufficient permissions'));
         }
 
@@ -275,31 +275,22 @@ class SEOAutoFix_Image_SEO
         $offset = isset($_POST['offset']) ? absint($_POST['offset']) : 0;
         $status_filter = 'all'; // Always show ALL images
 
-        error_log('📊 [SCAN] Batch Parameters:');
-        error_log('  - Batch size: ' . $batch_size);
-        error_log('  - Offset: ' . $offset);
-        error_log('  - Status filter: ' . $status_filter);
-        error_log('  - Is first batch: ' . ($offset === 0 ? 'YES' : 'NO'));
+        \SEOAutoFix_Debug_Logger::log('📥 [SCAN] Params: batch_size=' . $batch_size . ', offset=' . $offset . ', filter=' . $status_filter, 'image-seo');
+        \SEOAutoFix_Debug_Logger::log('  - Is first batch: ' . ($offset === 0 ? 'YES' : 'NO'), 'image-seo');
 
         try {
-            // Scan images
+            // Get images from analyzer
             $scan_start = microtime(true);
-            \SEOAutoFix_Debug_Logger::log('Batch: ' . $batch_size . ', Offset: ' . $offset . ', Filter: ' . $status_filter, 'image-seo');
+            \SEOAutoFix_Debug_Logger::log('🔍 [SCAN] Phase 1: Calling analyzer->scan_all_images()...', 'image-seo');
             \SEOAutoFix_Debug_Logger::log('Usage tracker: ' . (is_object($this->usage_tracker) ? get_class($this->usage_tracker) : 'NULL'), 'image-seo');
 
             // Scan images WITH usage tracker enabled
-            \SEOAutoFix_Debug_Logger::log('Calling analyzer->scan_all_images()...', 'image-seo');
             $results = $this->analyzer->scan_all_images($batch_size, $offset, $this->usage_tracker, $status_filter);
-            \SEOAutoFix_Debug_Logger::log('scan_all_images returned ' . count($results) . ' results', 'image-seo');
-
             $scan_elapsed = microtime(true) - $scan_start;
             $timing['scan_time'] = number_format($scan_elapsed, 3);
-            error_log('✅ [SCAN] Analyzer completed in ' . $timing['scan_time'] . 's');
-            error_log('📊 [SCAN] Results count: ' . count($results));
+            \SEOAutoFix_Debug_Logger::log('✅ [SCAN] Phase 1 complete: Analyzer returned ' . count($results) . ' images in ' . $timing['scan_time'] . 's', 'image-seo');
 
             if (!empty($results)) {
-                error_log('📸 [SCAN] First image: ID=' . $results[0]['id'] . ', Title=' . $results[0]['title']);
-                error_log('📸 [SCAN] Last image: ID=' . $results[count($results) - 1]['id']);
             } else {
                 error_log('⚠️ [SCAN] No results returned from analyzer');
             }
@@ -307,7 +298,7 @@ class SEOAutoFix_Image_SEO
             // 🔧 CRITICAL FIX: REMOVED history population from scan process
             // This was causing the 504 timeout by doubling the processing work
             // History population should be a separate background process
-            error_log('ℹ️ [SCAN] History population SKIPPED (runs separately to prevent timeout)');
+            \SEOAutoFix_Debug_Logger::log('ℹ️ [SCAN] History population SKIPPED (runs separately to prevent timeout)', 'image-seo');
 
             // Build response
             $response_data = array(
@@ -319,7 +310,7 @@ class SEOAutoFix_Image_SEO
             // First batch: include stats, total count, and Elementor data
             if ($offset === 0) {
                 $stats_start = microtime(true);
-                error_log('📈 [SCAN] Fetching stats from history table...');
+                \SEOAutoFix_Debug_Logger::log('📈 [SCAN] Phase 2: Fetching stats from history table...', 'image-seo');
 
                 $response_data['stats'] = $this->image_history->get_statistics();
 
@@ -340,17 +331,36 @@ class SEOAutoFix_Image_SEO
 
                 $stats_elapsed = microtime(true) - $stats_start;
                 $timing['stats_time'] = number_format($stats_elapsed, 3);
-                error_log('✅ [SCAN] Stats fetched in ' . $timing['stats_time'] . 's');
-                error_log('📊 [SCAN] Stats: ' . json_encode($response_data['stats']));
-                error_log('🎯 [SCAN] Total images in DB: ' . $total_images);
+                \SEOAutoFix_Debug_Logger::log('✅ [SCAN] Phase 2 complete: Stats fetched in ' . $timing['stats_time'] . 's', 'image-seo');
+                \SEOAutoFix_Debug_Logger::log('📊 [SCAN] Stats: ' . json_encode($response_data['stats']), 'image-seo');
+                \SEOAutoFix_Debug_Logger::log('🎯 [SCAN] Total images in DB: ' . $total_images, 'image-seo');
 
                 // PERFORMANCE OPTIMIZATION: Fetch raw Elementor data for frontend parsing
                 $elementor_start = microtime(true);
-                error_log('🔧 [SCAN] Fetching raw Elementor data for frontend parsing...');
+                \SEOAutoFix_Debug_Logger::log('🔧 [SCAN] Phase 3: Fetching raw Elementor data for frontend parsing...', 'image-seo');
                 $response_data['elementor_data'] = $this->usage_tracker->get_raw_elementor_data();
                 $elementor_elapsed = microtime(true) - $elementor_start;
                 $timing['elementor_fetch_time'] = number_format($elementor_elapsed, 3);
-                error_log('✅ [SCAN] Elementor data fetched in ' . $timing['elementor_fetch_time'] . 's (' . count($response_data['elementor_data']) . ' pages)');
+                \SEOAutoFix_Debug_Logger::log('✅ [SCAN] Phase 3 complete: Elementor data fetched in ' . $timing['elementor_fetch_time'] . 's (' . count($response_data['elementor_data']) . ' pages)', 'image-seo');
+
+                // PERFORMANCE OPTIMIZATION: Send raw data for frontend matching (10-30x faster than PHP)
+                $raw_data_start = microtime(true);
+                \SEOAutoFix_Debug_Logger::log('🚀 [SCAN] Phase 4: Fetching raw data for frontend matching...', 'image-seo');
+
+                $response_data['raw_posts'] = $this->usage_tracker->get_raw_posts_data();
+                $response_data['raw_featured'] = $this->usage_tracker->get_raw_featured_images();
+
+                // Build image filename map for frontend
+                $image_filenames = array();
+                foreach ($results as $image) {
+                    $image_filenames[$image['id']] = $image['filename'];
+                }
+                $response_data['image_filenames'] = $image_filenames;
+
+                $raw_data_elapsed = microtime(true) - $raw_data_start;
+                $timing['raw_data_time'] = number_format($raw_data_elapsed, 3);
+                \SEOAutoFix_Debug_Logger::log('✅ [SCAN] Phase 4 complete: Raw data sent in ' . $timing['raw_data_time'] . 's', 'image-seo');
+                \SEOAutoFix_Debug_Logger::log('📊 [SCAN] Raw data: ' . count($response_data['raw_posts']) . ' posts, ' . count($response_data['raw_featured']) . ' featured, ' . count($response_data['image_filenames']) . ' images', 'image-seo');
             }
 
             $total_elapsed = microtime(true) - $start_time;
@@ -365,9 +375,10 @@ class SEOAutoFix_Image_SEO
                 'peak_memory' => size_format(memory_get_peak_usage(true))
             );
 
-            error_log('⏱️ [SCAN] Total batch time: ' . $timing['total_time'] . 's');
-            error_log('📤 [SCAN] Response: results=' . count($response_data['results']) . ', hasMore=' . ($response_data['hasMore'] ? 'true' : 'false') . ', nextOffset=' . $response_data['offset']);
-            error_log('✅ ===== IMAGE-SEO SCAN BATCH END =====');
+            \SEOAutoFix_Debug_Logger::log('⏱️ [SCAN] TOTAL BATCH TIME: ' . $timing['total_time'] . 's', 'image-seo');
+            \SEOAutoFix_Debug_Logger::log('💾 [SCAN] Memory: ' . $response_data['debug']['memory_usage'] . ' (peak: ' . $response_data['debug']['peak_memory'] . ')', 'image-seo');
+            \SEOAutoFix_Debug_Logger::log('📤 [SCAN] Response: results=' . count($response_data['results']) . ', hasMore=' . ($response_data['hasMore'] ? 'true' : 'false') . ', nextOffset=' . $response_data['offset'], 'image-seo');
+            \SEOAutoFix_Debug_Logger::log('✅ ===== IMAGE-SEO SCAN BATCH END =====', 'image-seo');
 
             wp_send_json_success($response_data);
 

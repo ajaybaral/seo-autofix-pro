@@ -49,7 +49,7 @@ class Image_Analyzer
         $function_start = microtime(true);
         error_log('🔍 [ANALYZER] ===== scan_all_images() START =====');
         error_log('🔍 [ANALYZER] Parameters: batch_size=' . $batch_size . ', offset=' . $offset . ', filter=' . $status_filter);
-        
+
         global $wpdb;
         $history_table = $wpdb->prefix . 'seoautofix_image_history';
 
@@ -62,7 +62,7 @@ class Image_Analyzer
         // Build query based on filter
         if ($status_filter === 'all') {
             error_log('🔍 [ANALYZER] Querying wp_posts for ALL images');
-            
+
             // CRITICAL FIX: Only get PARENT attachments (original uploads)
             // WordPress creates multiple attachment posts for the same image:
             // - Original: post_parent = 0 (or parent post ID if attached)
@@ -111,7 +111,7 @@ class Image_Analyzer
         $query_start = microtime(true);
         $results_data = $wpdb->get_results($sql);
         $query_elapsed = microtime(true) - $query_start;
-        
+
         error_log('⏱️ [ANALYZER] Query executed in ' . number_format($query_elapsed, 3) . 's');
         error_log('📊 [ANALYZER] Query returned ' . count($results_data) . ' rows');
 
@@ -124,29 +124,29 @@ class Image_Analyzer
         // Process results
         $results = array();
         $processing_start = microtime(true);
-        
-        // OPTIMIZATION: Get usage data for ALL images at once (batch processing)
+
+        // OPTIMIZATION: Get usage data for ALL images at once (batch processing with caching)
         $batch_usage = array();
-        if ($usage_tracker && method_exists($usage_tracker, 'get_batch_image_usage')) {
+        if ($usage_tracker && method_exists($usage_tracker, 'get_cached_batch_usage')) {
             $batch_start = microtime(true);
-            
+
             // Build array of attachment IDs
             $attachment_ids = array();
             foreach ($results_data as $row) {
                 $attachment_ids[] = $row->attachment_id;
             }
-            
-            error_log('🔍 [ANALYZER] Fetching batch usage for ' . count($attachment_ids) . ' images...');
-            $batch_usage = $usage_tracker->get_batch_image_usage($attachment_ids);
-            
+
+            error_log('🔍 [ANALYZER] Fetching cached batch usage for ' . count($attachment_ids) . ' images...');
+            $batch_usage = $usage_tracker->get_cached_batch_usage($attachment_ids);
+
             $batch_elapsed = microtime(true) - $batch_start;
-            error_log('⏱️ [ANALYZER] Batch usage fetched in ' . number_format($batch_elapsed, 3) . 's');
+            error_log('⏱️ [ANALYZER] Cached batch usage fetched in ' . number_format($batch_elapsed, 3) . 's');
         }
-        
+
         foreach ($results_data as $index => $row) {
             $image_start = microtime(true);
             $attachment_id = $row->attachment_id;
-            
+
             // Get metadata
             $metadata = $this->get_image_metadata($attachment_id);
             $issues = $this->detect_issues($attachment_id);
@@ -157,7 +157,7 @@ class Image_Analyzer
 
             if (isset($batch_usage[$attachment_id])) {
                 $usage = $batch_usage[$attachment_id];
-                
+
                 $post_count = 0;
                 $page_count = 0;
 
@@ -202,9 +202,9 @@ class Image_Analyzer
                 'used_in_pages' => $usage_data['used_in_pages'],
                 'usage_details' => $usage_details
             );
-            
+
             $image_elapsed = microtime(true) - $image_start;
-            
+
             // Log first and last image processing time
             if ($index === 0 || $index === count($results_data) - 1) {
                 error_log('⏱️ [ANALYZER] Image #' . ($index + 1) . ' (ID=' . $attachment_id . ') processed in ' . number_format($image_elapsed, 4) . 's');
@@ -213,7 +213,7 @@ class Image_Analyzer
 
         $processing_elapsed = microtime(true) - $processing_start;
         $total_elapsed = microtime(true) - $function_start;
-        
+
         error_log('⏱️ [ANALYZER] Processing time: ' . number_format($processing_elapsed, 3) . 's for ' . count($results) . ' images');
         error_log('⏱️ [ANALYZER] Average per image: ' . number_format($processing_elapsed / count($results), 4) . 's');
         error_log('⏱️ [ANALYZER] Total function time: ' . number_format($total_elapsed, 3) . 's');
