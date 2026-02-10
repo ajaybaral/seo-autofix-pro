@@ -720,54 +720,41 @@ jQuery(document).ready(function ($) {
     });
 
     function downloadCSV() {
-        console.log('📥 EXPORT-CSV: Downloading audit history...');
-        console.log('📥 EXPORT-CSV: AJAX URL:', imageSeoData.ajaxUrl);
-        console.log('📥 EXPORT-CSV: Nonce:', imageSeoData.nonce);
+        console.log('📥 EXPORT-CSV: Generating CSV from scanned images...');
 
-        $.ajax({
-            url: imageSeoData.ajaxUrl,
-            type: 'POST',
-            data: {
-                action: 'imageseo_export_audit',
-                nonce: imageSeoData.nonce
-            },
-            success: function (response) {
-                console.log('📥 EXPORT-CSV: Full response:', response);
-                console.log('📥 EXPORT-CSV: response.success:', response.success);
-                console.log('📥 EXPORT-CSV: response.data:', response.data);
+        if (!scannedImages || scannedImages.length === 0) {
+            alert('No images to export. Please scan images first.');
+            return;
+        }
 
-                if (response.data) {
-                    console.log('📥 EXPORT-CSV: response.data.csv_data exists:', !!response.data.csv_data);
-                    console.log('📥 EXPORT-CSV: response.data.csv_data length:', response.data.csv_data ? response.data.csv_data.length : 'undefined');
-                    console.log('📥 EXPORT-CSV: response.data.message:', response.data.message);
-                }
+        // Generate CSV from frontend scannedImages array
+        let csv = 'Attachment ID,Title,Current Alt Text,Suggested Alt Text,Filename,Image URL,Status\n';
 
-                if (response.success && response.data.csv_data) {
-                    // Create download link
-                    const blob = new Blob([response.data.csv_data], { type: 'text/csv' });
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = 'image-seo-audit-' + new Date().toISOString().slice(0, 10) + '.csv';
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    window.URL.revokeObjectURL(url);
+        scannedImages.forEach(img => {
+            const attachmentId = img.attachment_id || '';
+            const title = (img.title || '').replace(/"/g, '""');
+            const currentAlt = (img.alt || '').replace(/"/g, '""');
+            const suggestedAlt = (img.suggested_alt || '').replace(/"/g, '""');
+            const filename = (img.filename || '').replace(/"/g, '""');
+            const imageUrl = (img.url || '').replace(/"/g, '""');
+            const status = (img.status || 'pending').replace(/"/g, '""');
 
-                    console.log('✅ EXPORT-CSV: Download complete');
-                    alert('CSV downloaded successfully!');
-                } else {
-                    console.error('❌ EXPORT-CSV: Failed -', response.data ? response.data.message : 'No data');
-                    alert('Error: ' + (response.data && response.data.message ? response.data.message : 'Failed to generate CSV'));
-                }
-            },
-            error: function (xhr, status, error) {
-                console.error('❌ EXPORT-CSV: AJAX error -', error);
-                console.error('❌ EXPORT-CSV: XHR:', xhr);
-                console.error('❌ EXPORT-CSV: Status:', status);
-                alert('Error downloading CSV. Please try again.');
-            }
+            csv += `"${attachmentId}","${title}","${currentAlt}","${suggestedAlt}","${filename}","${imageUrl}","${status}"\n`;
         });
+
+        // Create download link
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'image-seo-all-images-' + new Date().toISOString().slice(0, 10) + '.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+
+        console.log('✅ EXPORT-CSV: Downloaded ' + scannedImages.length + ' images to CSV');
+        alert('Exported ' + scannedImages.length + ' images successfully!');
     }
 
     // ========== BULK DELETE HANDLERS ==========
@@ -2667,7 +2654,7 @@ jQuery(document).ready(function ($) {
 
     // ========== INITIALIZATION ==========
     // Load initial stats from database on page load
-    console.log('Timestamp: 16:59');
+    console.log('Timestamp: 17:11');
     console.log('🚀 PAGE-LOAD: Calling loadInitialStats()...');
     loadInitialStats();
 
