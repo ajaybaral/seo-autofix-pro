@@ -676,6 +676,45 @@ jQuery(document).ready(function ($) {
         });
     });
 
+    // Export Changes in CSV button (Filter-scoped)
+    $('#export-filter-csv-btn').on('click', function () {
+        console.log('📥 EXPORT-FILTER-CSV: Exporting filter changes...');
+
+        // This button should only be visible when there are changes tracked
+        $.ajax({
+            url: imageSeoData.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'imageseo_export_filter_csv',
+                nonce: imageSeoData.nonce
+            },
+            success: function (response) {
+                if (response.success && response.data.csv_data) {
+                    // Create download link
+                    const blob = new Blob([response.data.csv_data], { type: 'text/csv' });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'image-seo-changes-' + new Date().toISOString().slice(0, 10) + '.csv';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+
+                    console.log('✅ EXPORT-FILTER-CSV: Download complete - ' + response.data.count + ' changes exported');
+                    alert('Exported ' + response.data.count + ' changes successfully!');
+                } else {
+                    console.warn('⚠️ EXPORT-FILTER-CSV: No changes to export');
+                    alert(response.data.message || 'No changes to export');
+                }
+            },
+            error: function (xhr, status, error) {
+                console.error('❌ EXPORT-FILTER-CSV: AJAX error -', error);
+                alert('Error exporting changes. Please try again.');
+            }
+        });
+    });
+
     // Delete Without Download
     $('#bulk-delete-without-download').on('click', function () {
         if (!confirm('Are you absolutely sure? This will permanently delete all unused images without saving them.')) {
@@ -2572,7 +2611,7 @@ jQuery(document).ready(function ($) {
 
     // ========== INITIALIZATION ==========
     // Load initial stats from database on page load
-    console.log('Timestamp: 17:45');
+    console.log('Timestamp: 15:46');
     console.log('🚀 PAGE-LOAD: Calling loadInitialStats()...');
     loadInitialStats();
 
