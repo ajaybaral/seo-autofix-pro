@@ -1132,25 +1132,13 @@ jQuery(document).ready(function ($) {
                         mergeElementorData(response.data.results, response.data.elementor_data);
                     }
 
-                    // Add results to scannedImages array (with deduplication)
+                    // Add results to scannedImages array (NO per-batch deduplication for performance)
+                    // Deduplication will happen ONCE at the end after 100% scan completion
                     console.log('📦 [SCAN] Adding ' + response.data.results.length + ' images to scannedImages');
                     console.log('📦 [SCAN] scannedImages.length BEFORE adding:', scannedImages.length);
 
-                    // DEDUPLICATION FIX: Check for existing images before adding
-                    let addedCount = 0;
-                    let skippedCount = 0;
-                    response.data.results.forEach(newImage => {
-                        const exists = scannedImages.some(img => img.id === newImage.id);
-                        if (!exists) {
-                            scannedImages.push(newImage);
-                            addedCount++;
-                        } else {
-                            skippedCount++;
-                            console.log('⚠️ [DEDUPE] Skipped duplicate image ID:', newImage.id);
-                        }
-                    });
+                    scannedImages = scannedImages.concat(response.data.results);
 
-                    console.log('📦 [SCAN] Added ' + addedCount + ' new images, skipped ' + skippedCount + ' duplicates');
                     console.log('📦 [SCAN] scannedImages.length AFTER adding:', scannedImages.length);
 
                     // Update progress
@@ -1194,12 +1182,17 @@ jQuery(document).ready(function ($) {
                         setTimeout(() => {
                             console.log('🎨 RENDERING-RESULTS: Total entries from scan:', scannedImages.length);
 
-                            // DEDUPE FIX: Deduplicate for initial flat view (no filter, no grouping)
+                            // FINAL DEDUPLICATION: Remove all duplicates after 100% scan complete
                             const uniqueImages = deduplicateImages(scannedImages);
                             console.log('🎨 RENDERING-RESULTS: Displaying', uniqueImages.length, 'unique images');
+                            console.log('🎨 DEDUPLICATION: Removed', scannedImages.length - uniqueImages.length, 'duplicate entries');
+
+                            // CRITICAL: Replace scannedImages with deduplicated version globally
+                            scannedImages = uniqueImages;
+                            window.scannedImages = uniqueImages;
 
                             renderResults(uniqueImages, false);
-                            updateStats(); // Already deduplicates internally now
+                            updateStats(); // Now uses deduplicated scannedImages
 
                             // UI updates
                             $exportFilterCsvBtn.show().prop('disabled', filterChanges.length === 0);
