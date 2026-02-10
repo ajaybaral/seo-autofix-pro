@@ -117,6 +117,7 @@ jQuery(document).ready(function ($) {
     /**
      * Update stats cards display
      * Recalculates stats from scannedImages array and updates DOM
+     * CRITICAL: Deduplicates scannedImages GLOBALLY so all buttons use unique data
      */
     function updateStats() {
         if (!scannedImages || scannedImages.length === 0) {
@@ -126,14 +127,16 @@ jQuery(document).ready(function ($) {
         console.log('📊 [STATS] Calculating stats from scannedImages array...');
         console.log('📊 [STATS] scannedImages.length BEFORE dedupe:', scannedImages.length);
 
-        // CRITICAL: Deduplicate before calculating stats to count unique images only
-        const uniqueImages = deduplicateImages(scannedImages);
+        // CRITICAL FIX: Deduplicate and REPLACE the global scannedImages array
+        // This ensures ALL buttons and exports work with unique images (185) not duplicates (769)
+        scannedImages = deduplicateImages(scannedImages);
+        window.scannedImages = scannedImages; // Update window reference too
 
-        console.log('📊 [STATS] uniqueImages.length AFTER dedupe:', uniqueImages.length);
+        console.log('📊 [STATS] scannedImages.length AFTER dedupe (GLOBAL UPDATED):', scannedImages.length);
 
-        // Recalculate stats from unique images only
-        const total = uniqueImages.length;
-        const withAlt = uniqueImages.filter(img => {
+        // Recalculate stats from deduplicated images
+        const total = scannedImages.length;
+        const withAlt = scannedImages.filter(img => {
             return img.current_alt && img.current_alt.trim().length > 0;
         }).length;
         const withoutAlt = total - withAlt;
@@ -2662,7 +2665,7 @@ jQuery(document).ready(function ($) {
 
     // ========== INITIALIZATION ==========
     // Load initial stats from database on page load
-    console.log('Timestamp: 16:20');
+    console.log('Timestamp: 16:26');
     console.log('🚀 PAGE-LOAD: Calling loadInitialStats()...');
     loadInitialStats();
 
