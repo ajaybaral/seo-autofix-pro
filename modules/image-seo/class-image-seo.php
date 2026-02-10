@@ -937,20 +937,25 @@ class SEOAutoFix_Image_SEO
         }
 
         global $wpdb;
-        $table_audit = $wpdb->prefix . 'seoautofix_imageseo_audit';
+        $table_history = $wpdb->prefix . 'seoautofix_image_history';
 
-        // QUERY: Get only COMPLETED actions (applied, optimized, skipped)
-        // Order by most recent update first
+        // EXPORT ALL IMAGES from history table (not just changes)
+        // This exports the current state of ALL scanned images
         $results = $wpdb->get_results("
-            SELECT * FROM $table_audit 
-            WHERE status IN ('applied', 'optimized', 'skipped')
+            SELECT 
+                attachment_id,
+                current_alt,
+                current_title,
+                image_url,
+                thumbnail_url,
+                status,
+                updated_at
+            FROM $table_history 
             ORDER BY updated_at DESC
         ");
 
-
-
         if (empty($results)) {
-            wp_send_json_error(array('message' => 'No changes found in audit log'));
+            wp_send_json_error(array('message' => 'No images found. Please scan images first.'));
         }
 
         // GENREATE CSV
@@ -958,33 +963,27 @@ class SEOAutoFix_Image_SEO
 
         // Headers
         $headers = array(
-            'Date',
-            'Image Link',
-            'Action Type',
-            'Previous Alt Text',
-            'New Alt Text',
-            'Previous Title',
-            'New Title',
-            'Media Link'
+            'Attachment ID',
+            'Image URL',
+            'Current Alt Text',
+            'Current Title',
+            'Status',
+            'Last Updated'
         );
         $csv_output .= '"' . implode('","', $headers) . '"' . "\n";
 
         // Rows
         foreach ($results as $row) {
-            // Format updated_at to site's timezone (using wp_date)
-            // strtotime converts DB UTC string to timestamp, wp_date formats it using timezone settings
-            // If updated_at is missing, fallback to current time
             $date_str = $row->updated_at ? wp_date('Y-m-d H:i:s', strtotime($row->updated_at)) : '';
+            $media_link = admin_url('post.php?post=' . $row->attachment_id . '&action=edit');
 
             $csv_row = array(
-                $date_str,
+                $row->attachment_id,
                 $row->image_url,
-                ucfirst($row->action_type), // e.g. "Generated", "Manual", "Skip"
-                $row->original_alt,        // PREVIOUS value (before this action)
-                $row->new_alt,             // NEW value (after this action)
-                $row->prev_title,
-                $row->new_title,
-                $row->media_link
+                $row->current_alt ?: '',
+                $row->current_title ?: '',
+                ucfirst($row->status),
+                $date_str
             );
 
             // Escape CSV fields
@@ -1779,16 +1778,12 @@ class SEOAutoFix_Image_SEO
             wp_send_json_error(array('message' => 'No image IDs provided'));
         }
 
-        // Save deduplicated IDs to WordPress option (transient with 24-hour expiry)
-        $saved = set_transient('imageseo_deduplicated_ids', $image_ids, 24 * HOUR_IN_SECONDS);
+        // Save deduplicated IDs to WordPress option (update_option is more reliable than transient for large arrays)
+        update_option('imageseo_deduplicated_ids', $image_ids, false);
 
-        if ($saved) {
-            wp_send_json_success(array(
-                'message' => 'Deduplicated IDs synced successfully',
-                'count' => count($image_ids)
-            ));
-        } else {
-            wp_send_json_error(array('message' => 'Failed to save deduplicated IDs'));
-        }
+        wp_send_json_success(array(
+            'message' => 'Deduplicated IDs synced successfully',
+            'count' => count($image_ids)
+        ));
     }
 }
