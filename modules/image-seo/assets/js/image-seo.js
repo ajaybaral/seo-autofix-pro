@@ -2431,44 +2431,41 @@ jQuery(document).ready(function ($) {
      * Download CSV to user's computer
      */
     function downloadCSV() {
-        console.log('FEATURE-EMAIL: Downloading CSV...');
+        console.log('📥 EXPORT-CSV: Generating CSV from scanned images...');
 
-        $.ajax({
-            url: imageSeoData.ajaxUrl,
-            type: 'POST',
-            data: {
-                action: 'imageseo_export_audit',
-                nonce: imageSeoData.nonce
-            },
-            success: function (response) {
-                console.log('CSV Export response received:', response);
+        if (!scannedImages || scannedImages.length === 0) {
+            showToast('No images to export. Please scan images first.', 'warning');
+            return;
+        }
 
-                if (response.success) {
-                    console.log('CSV data length:', response.data.csv ? response.data.csv.length : 'undefined');
-                    console.log('Filename:', response.data.filename);
-                    console.log('Record count:', response.data.count);
+        // Generate CSV from frontend scannedImages array
+        let csv = 'Attachment ID,Title,Current Alt Text,Suggested Alt Text,Filename,Image URL,Status\n';
 
-                    // Download CSV
-                    const blob = new Blob([response.data.csv], { type: 'text/csv' });
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = response.data.filename;
-                    a.click();
-                    window.URL.revokeObjectURL(url);
+        scannedImages.forEach(img => {
+            const attachmentId = img.attachment_id || '';
+            const title = (img.title || '').replace(/"/g, '""');
+            const currentAlt = (img.alt || '').replace(/"/g, '""');
+            const suggestedAlt = (img.suggested_alt || '').replace(/"/g, '""');
+            const filename = (img.filename || '').replace(/"/g, '""');
+            const imageUrl = (img.url || '').replace(/"/g, '""');
+            const status = (img.status || 'pending').replace(/"/g, '""');
 
-                    console.log('CSV download initiated');
-                    showToast(` Exported ${response.data.count} records`, 'success');
-                } else {
-                    console.error('CSV export failed:', response.data);
-                    showToast(+ (response.data.message || 'No change history found'), 'error');
-                }
-            },
-            error: function (xhr, status, error) {
-                console.error('CSV export Ajax error:', { xhr, status, error });
-                showToast(' CSV Export failed', 'error');
-            }
+            csv += `"${attachmentId}","${title}","${currentAlt}","${suggestedAlt}","${filename}","${imageUrl}","${status}"\n`;
         });
+
+        // Create download link
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'image-seo-all-images-' + new Date().toISOString().slice(0, 10) + '.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+
+        console.log('✅ EXPORT-CSV: Downloaded ' + scannedImages.length + ' images to CSV');
+        showToast(`✓ Exported ${scannedImages.length} images to CSV`, 'success');
     }
 
     /**
@@ -2654,7 +2651,7 @@ jQuery(document).ready(function ($) {
 
     // ========== INITIALIZATION ==========
     // Load initial stats from database on page load
-    console.log('Timestamp: 17:11');
+    console.log('Timestamp: 17:14');
     console.log('🚀 PAGE-LOAD: Calling loadInitialStats()...');
     loadInitialStats();
 
