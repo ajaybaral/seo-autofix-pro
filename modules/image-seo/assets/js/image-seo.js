@@ -1,5 +1,6 @@
 /**
  * Image SEO Module - Admin JavaScript
+ * Version: 4.2 - Filename-Based Deduplication (Updated: 2026-02-10 15:30)
  */
 
 jQuery(document).ready(function ($) {
@@ -68,6 +69,7 @@ jQuery(document).ready(function ($) {
      * @return {Array} Array of unique images
      */
     function deduplicateImages(images) {
+        // Deduplicate images array by FILENAME (not ID) to handle backend duplicates
         if (!images || images.length === 0) {
             return [];
         }
@@ -76,19 +78,23 @@ jQuery(document).ready(function ($) {
         let duplicatesFound = 0;
         const duplicateDetails = [];
 
-        console.log('🔍 [DEDUPE] Starting deduplication...');
+        console.log('🔍 [DEDUPE] Starting deduplication BY FILENAME...');
         console.log('🔍 [DEDUPE] Input: ' + images.length + ' images');
 
         images.forEach((image, index) => {
-            if (!uniqueMap[image.id]) {
+            // Use filename as the unique key, not ID
+            const uniqueKey = image.filename || image.url || image.id;
+
+            if (!uniqueMap[uniqueKey]) {
                 // First occurrence - store it
-                uniqueMap[image.id] = image;
+                uniqueMap[uniqueKey] = image;
             } else {
                 // DUPLICATE FOUND!
                 duplicatesFound++;
                 duplicateDetails.push({
                     id: image.id,
                     filename: image.filename,
+                    uniqueKey: uniqueKey,
                     index: index
                 });
             }
@@ -1132,14 +1138,23 @@ jQuery(document).ready(function ($) {
                         mergeElementorData(response.data.results, response.data.elementor_data);
                     }
 
-                    // Add results to scannedImages array (NO per-batch deduplication for performance)
-                    // Deduplication will happen ONCE at the end after 100% scan completion
+                    // Add results to scannedImages array (NO * Version: 4.0 - Enhanced Deduplication with ID Tracking (Updated: 2026-02-10 15:25)
+                    // Simply concatenate batches - deduplication happens ONCE at the end
                     console.log('📦 [SCAN] Adding ' + response.data.results.length + ' images to scannedImages');
-                    console.log('📦 [SCAN] scannedImages.length BEFORE adding:', scannedImages.length);
+                    console.log('📦 [SCAN] scannedImages.length BEFORE adding: ' + scannedImages.length);
+
+                    // Log first 10 IDs in this batch
+                    const batchIds = response.data.results.map(img => img.id);
+                    console.log('🔍 [SCAN] Batch IDs (first 10): ' + batchIds.slice(0, 10).join(', '));
 
                     scannedImages = scannedImages.concat(response.data.results);
 
-                    console.log('📦 [SCAN] scannedImages.length AFTER adding:', scannedImages.length);
+                    console.log('📦 [SCAN] scannedImages.length AFTER adding: ' + scannedImages.length);
+
+                    // Log total unique IDs so far
+                    const allIds = scannedImages.map(img => img.id);
+                    const uniqueIds = [...new Set(allIds)];
+                    console.log('🔍 [SCAN] Cumulative unique IDs so far: ' + uniqueIds.length + ' out of ' + allIds.length + ' total');
 
                     // Update progress
                     const totalImages = window.totalImages || 500;
