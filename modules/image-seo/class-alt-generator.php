@@ -219,6 +219,7 @@ class Alt_Generator
         $prompt .= "- Descriptive and specific based on ACTUAL image content\n";
         $prompt .= "- Include relevant keywords naturally from the page context\n";
         $prompt .= "- Accessible for screen readers\n";
+        $prompt .= "Use the same language as the page content\n";
         $prompt .= "- SEO-optimized\n\n";
 
         $prompt .= "Return ONLY the alt text, nothing else.";
