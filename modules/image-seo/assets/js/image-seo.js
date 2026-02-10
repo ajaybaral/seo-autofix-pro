@@ -1132,11 +1132,26 @@ jQuery(document).ready(function ($) {
                         mergeElementorData(response.data.results, response.data.elementor_data);
                     }
 
-                    // Add results to scannedImages array
+                    // Add results to scannedImages array (with deduplication)
                     console.log('📦 [SCAN] Adding ' + response.data.results.length + ' images to scannedImages');
-                    console.log('📦 [SCAN] scannedImages.length BEFORE concat:', scannedImages.length);
-                    scannedImages = scannedImages.concat(response.data.results);
-                    console.log('📦 [SCAN] scannedImages.length AFTER concat:', scannedImages.length);
+                    console.log('📦 [SCAN] scannedImages.length BEFORE adding:', scannedImages.length);
+
+                    // DEDUPLICATION FIX: Check for existing images before adding
+                    let addedCount = 0;
+                    let skippedCount = 0;
+                    response.data.results.forEach(newImage => {
+                        const exists = scannedImages.some(img => img.id === newImage.id);
+                        if (!exists) {
+                            scannedImages.push(newImage);
+                            addedCount++;
+                        } else {
+                            skippedCount++;
+                            console.log('⚠️ [DEDUPE] Skipped duplicate image ID:', newImage.id);
+                        }
+                    });
+
+                    console.log('📦 [SCAN] Added ' + addedCount + ' new images, skipped ' + skippedCount + ' duplicates');
+                    console.log('📦 [SCAN] scannedImages.length AFTER adding:', scannedImages.length);
 
                     // Update progress
                     const totalImages = window.totalImages || 500;
