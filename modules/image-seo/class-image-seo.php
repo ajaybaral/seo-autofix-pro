@@ -145,6 +145,7 @@ class SEOAutoFix_Image_SEO
         add_action('wp_ajax_imageseo_export_filter_csv', array($this, 'ajax_export_filter_csv'));  // NEW: Filter-scoped CSV
         add_action('wp_ajax_imageseo_migrate_db', array($this, 'ajax_migrate_database'));
         add_action('wp_ajax_imageseo_get_stats', array($this, 'ajax_get_stats'));
+        add_action('wp_ajax_imageseo_sync_deduplicated_ids', array($this, 'ajax_sync_deduplicated_ids')); // NEW: Sync deduplicated IDs
         add_action('wp_ajax_imageseo_delete_image', array($this, 'ajax_delete_image'));
         add_action('wp_ajax_imageseo_email_csv', array($this, 'ajax_email_csv'));
         add_action('wp_ajax_imageseo_get_unused_count', array($this, 'ajax_get_unused_count'));
@@ -1757,6 +1758,37 @@ class SEOAutoFix_Image_SEO
 
         } catch (Exception $e) {
             wp_send_json_error(array('message' => $e->getMessage()));
+        }
+    }
+
+    /**
+     * AJAX: Sync deduplicated image IDs from frontend
+     * Saves the unique image IDs so backend AJAX calls use deduplicated data
+     */
+    public function ajax_sync_deduplicated_ids()
+    {
+        check_ajax_referer('imageseo_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions'));
+        }
+
+        $image_ids = isset($_POST['image_ids']) ? array_map('absint', $_POST['image_ids']) : array();
+
+        if (empty($image_ids)) {
+            wp_send_json_error(array('message' => 'No image IDs provided'));
+        }
+
+        // Save deduplicated IDs to WordPress option (transient with 24-hour expiry)
+        $saved = set_transient('imageseo_deduplicated_ids', $image_ids, 24 * HOUR_IN_SECONDS);
+
+        if ($saved) {
+            wp_send_json_success(array(
+                'message' => 'Deduplicated IDs synced successfully',
+                'count' => count($image_ids)
+            ));
+        } else {
+            wp_send_json_error(array('message' => 'Failed to save deduplicated IDs'));
         }
     }
 }

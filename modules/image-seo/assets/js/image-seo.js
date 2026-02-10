@@ -147,8 +147,48 @@ jQuery(document).ready(function ($) {
         $('#stat-total').text(total);
         $('#stat-missing-alt').text(withoutAlt);
         $('#stat-has-alt').text(withAlt);
+
+        console.log('✅ [STATS] Stats cards updated in DOM');
+
+        // CRITICAL: Sync deduplicated image IDs to backend
+        // This ensures all AJAX calls use the correct unique images (179) not duplicates (769)
+        syncDeduplicatedIdsToBackend(scannedImages);
     }
 
+    /**
+     * Sync deduplicated image IDs to backend
+     * Sends the list of unique image IDs so backend AJAX calls use deduplicated data
+     */
+    function syncDeduplicatedIdsToBackend(images) {
+        if (!images || images.length === 0) {
+            console.warn('⚠️ [BACKEND-SYNC] No images to sync');
+            return;
+        }
+
+        const imageIds = images.map(img => img.id);
+
+        console.log('🔄 [BACKEND-SYNC] Syncing', imageIds.length, 'unique image IDs to backend...');
+
+        $.ajax({
+            url: imageSeoData.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'imageseo_sync_deduplicated_ids',
+                nonce: imageSeoData.nonce,
+                image_ids: imageIds
+            },
+            success: function (response) {
+                if (response.success) {
+                    console.log('✅ [BACKEND-SYNC] Successfully synced', imageIds.length, 'unique IDs to backend');
+                } else {
+                    console.error('❌ [BACKEND-SYNC] Failed:', response.data.message);
+                }
+            },
+            error: function (xhr, status, error) {
+                console.error('❌ [BACKEND-SYNC] AJAX error:', error);
+            }
+        });
+    }
     /**
      * Load initial stats from database on page load
      * This shows existing scan data from previous sessions
@@ -1833,9 +1873,7 @@ jQuery(document).ready(function ($) {
                     // Update Bulk Apply button state
                     updateBulkApplyButtonState();
 
-                    // Score both original and suggested
-                    scoreOriginal(attachmentId, $row);
-                    scoreSuggested(attachmentId, altText, $row);
+                    // Scoring removed - no longer needed
                 } else {
                     $row.find('.loading-indicator').hide();
                     $row.find('.alt-text-editable').text('Error generating suggestion').show();
@@ -2303,8 +2341,10 @@ jQuery(document).ready(function ($) {
                         console.log('EXPORT-BTN: Enabled after apply - ' + filterChanges.length + ' changes tracked');
                     }
 
-                    // Update stats cards in real-time - fetch fresh from backend
-                    loadInitialStats();
+                    // REMOVED: loadInitialStats() - Backend stats have duplicates and would overwrite our deduplicated frontend stats
+                    // Frontend already has correct stats from scannedImages deduplication
+                    // Just update the stats display from current deduplicated data
+                    updateStats();
 
                     // Update Bulk Apply button state
                     updateBulkApplyButtonState();
@@ -2665,7 +2705,7 @@ jQuery(document).ready(function ($) {
 
     // ========== INITIALIZATION ==========
     // Load initial stats from database on page load
-    console.log('Timestamp: 16:26');
+    console.log('Timestamp: 16:44');
     console.log('🚀 PAGE-LOAD: Calling loadInitialStats()...');
     loadInitialStats();
 
