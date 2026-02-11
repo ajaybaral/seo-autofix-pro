@@ -105,15 +105,15 @@ class SEO_AutoFix_Pro
      * Log when a missing AJAX endpoint is called
      */
     public function log_missing_ajax_endpoint() {
-        error_log('========================================');
-        error_log('[SEO AUTOFIX] ❌ MISSING AJAX ENDPOINT CALLED');
-        error_log('[SEO AUTOFIX] Action: ' . ($_POST['action'] ?? $_GET['action'] ?? 'UNKNOWN'));
-        error_log('[SEO AUTOFIX] Request Method: ' . $_SERVER['REQUEST_METHOD']);
-        error_log('[SEO AUTOFIX] POST Data: ' . print_r($_POST, true));
-        error_log('[SEO AUTOFIX] GET Data: ' . print_r($_GET, true));
-        error_log('[SEO AUTOFIX] Referer: ' . ($_SERVER['HTTP_REFERER'] ?? 'NONE'));
-        error_log('[SEO AUTOFIX] User Agent: ' . ($_SERVER['HTTP_USER_AGENT'] ?? 'NONE'));
-        error_log('========================================');
+        \SEOAutoFix_Debug_Logger::log('========================================');
+        \SEOAutoFix_Debug_Logger::log('[SEO AUTOFIX] ❌ MISSING AJAX ENDPOINT CALLED');
+        \SEOAutoFix_Debug_Logger::log('[SEO AUTOFIX] Action: ' . ($_POST['action'] ?? $_GET['action'] ?? 'UNKNOWN'));
+        \SEOAutoFix_Debug_Logger::log('[SEO AUTOFIX] Request Method: ' . $_SERVER['REQUEST_METHOD']);
+        \SEOAutoFix_Debug_Logger::log('[SEO AUTOFIX] POST Data: ' . print_r($_POST, true));
+        \SEOAutoFix_Debug_Logger::log('[SEO AUTOFIX] GET Data: ' . print_r($_GET, true));
+        \SEOAutoFix_Debug_Logger::log('[SEO AUTOFIX] Referer: ' . ($_SERVER['HTTP_REFERER'] ?? 'NONE'));
+        \SEOAutoFix_Debug_Logger::log('[SEO AUTOFIX] User Agent: ' . ($_SERVER['HTTP_USER_AGENT'] ?? 'NONE'));
+        \SEOAutoFix_Debug_Logger::log('========================================');
         
         wp_send_json_error(array(
             'message' => 'This AJAX endpoint does not exist. Check debug.log for details.',
@@ -129,8 +129,8 @@ class SEO_AutoFix_Pro
         add_action('wp_ajax_' . '*', function() {
             $action = $_REQUEST['action'] ?? '';
             if (strpos($action, 'seoautofix_broken_links') !== false) {
-                error_log('[SEO AUTOFIX] AJAX Request: ' . $action);
-                error_log('[SEO AUTOFIX] Request Data: ' . print_r($_REQUEST, true));
+                \SEOAutoFix_Debug_Logger::log('[SEO AUTOFIX] AJAX Request: ' . $action);
+                \SEOAutoFix_Debug_Logger::log('[SEO AUTOFIX] Request Data: ' . print_r($_REQUEST, true));
             }
         }, 1);
     }

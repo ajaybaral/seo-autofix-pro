@@ -377,7 +377,7 @@ class Image_Usage_Tracker
     public function get_batch_image_usage($attachment_ids)
     {
         if (empty($attachment_ids)) {
-            error_log('⚠️ [USAGE-TRACKER] get_batch_image_usage called with empty IDs');
+            \SEOAutoFix_Debug_Logger::log('⚠️ [USAGE-TRACKER] get_batch_image_usage called with empty IDs');
             return array();
         }
 
@@ -459,7 +459,7 @@ class Image_Usage_Tracker
         }
         $query2_time = microtime(true) - $query_start;
         \SEOAutoFix_Debug_Logger::log('Query 2 total time: ' . number_format($query2_time, 3) . 's', 'image-seo');
-        error_log('⏱️ [USAGE-TRACKER] Query 2 (featured images): ' . number_format($query2_time, 3) . 's - ' . count($featured_images) . ' matches');
+        \SEOAutoFix_Debug_Logger::log('⏱️ [USAGE-TRACKER] Query 2 (featured images): ' . number_format($query2_time, 3) . 's - ' . count($featured_images) . ' matches');
 
         // QUERY 3: REMOVED - Elementor parsing moved to frontend for performance
         // Frontend JavaScript will handle Elementor data parsing (much faster than PHP)
@@ -540,7 +540,7 @@ class Image_Usage_Tracker
 
         $matching_elapsed = microtime(true) - $matching_start;
         \SEOAutoFix_Debug_Logger::log('Matching elapsed: ' . number_format($matching_elapsed, 3) . 's', 'image-seo');
-        error_log('⏱️ [USAGE-TRACKER] Matching completed in ' . number_format($matching_elapsed, 3) . 's - ' . $matches_found . ' matches');
+        \SEOAutoFix_Debug_Logger::log('⏱️ [USAGE-TRACKER] Matching completed in ' . number_format($matching_elapsed, 3) . 's - ' . $matches_found . ' matches');
 
         \SEOAutoFix_Debug_Logger::log('Preparing final results...', 'image-seo');
         // Calculate totals and remove duplicates
@@ -552,7 +552,7 @@ class Image_Usage_Tracker
         $total_time = microtime(true) - $start_time;
         \SEOAutoFix_Debug_Logger::log('BATCH COMPLETE! Total time: ' . number_format($total_time, 3) . 's', 'image-seo');
         \SEOAutoFix_Debug_Logger::log('Returning ' . count($results) . ' results', 'image-seo');
-        error_log('✅ [USAGE-TRACKER] ===== BATCH USAGE END =====');
+        \SEOAutoFix_Debug_Logger::log('✅ [USAGE-TRACKER] ===== BATCH USAGE END =====');
 
         return $results;
     }

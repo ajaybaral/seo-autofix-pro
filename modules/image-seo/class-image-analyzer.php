@@ -47,8 +47,8 @@ class Image_Analyzer
     public function scan_all_images($batch_size = 50, $offset = 0, $usage_tracker = null, $status_filter = 'blank')
     {
         $function_start = microtime(true);
-        error_log('🔍 [ANALYZER] ===== scan_all_images() START =====');
-        error_log('🔍 [ANALYZER] Parameters: batch_size=' . $batch_size . ', offset=' . $offset . ', filter=' . $status_filter);
+        \SEOAutoFix_Debug_Logger::log('🔍 [ANALYZER] ===== scan_all_images() START =====');
+        \SEOAutoFix_Debug_Logger::log('🔍 [ANALYZER] Parameters: batch_size=' . $batch_size . ', offset=' . $offset . ', filter=' . $status_filter);
 
         global $wpdb;
         $history_table = $wpdb->prefix . 'seoautofix_image_history';
@@ -117,13 +117,13 @@ class Image_Analyzer
 
         $valid_statuses = array('blank', 'optimal', 'all');
         if (!in_array($status_filter, $valid_statuses)) {
-            error_log('⚠️ [ANALYZER] Invalid status filter "' . $status_filter . '", defaulting to "all"');
+            \SEOAutoFix_Debug_Logger::log('⚠️ [ANALYZER] Invalid status filter "' . $status_filter . '", defaulting to "all"');
             $status_filter = 'all';
         }
 
         // Build query based on filter
         if ($status_filter === 'all') {
-            error_log('🔍 [ANALYZER] Querying wp_posts for ALL images');
+            \SEOAutoFix_Debug_Logger::log('🔍 [ANALYZER] Querying wp_posts for ALL images');
 
             // CRITICAL FIX: Only get ORIGINAL attachments
             // WordPress creates child attachment records when:
@@ -158,7 +158,7 @@ class Image_Analyzer
                 $offset
             );
         } else {
-            error_log('🔍 [ANALYZER] Querying history table for status: ' . $status_filter);
+            \SEOAutoFix_Debug_Logger::log('🔍 [ANALYZER] Querying history table for status: ' . $status_filter);
             $sql = $wpdb->prepare(
                 "SELECT attachment_id, issue_type, status 
                  FROM {$history_table} 
@@ -182,15 +182,15 @@ class Image_Analyzer
 
         // Execute query
         $query_start = microtime(true);
-        error_log('🔍 [ANALYZER] Executing SQL query...');
+        \SEOAutoFix_Debug_Logger::log('🔍 [ANALYZER] Executing SQL query...');
         $results_data = $wpdb->get_results($sql);
         $query_elapsed = microtime(true) - $query_start;
 
-        error_log('✅ [ANALYZER] Query returned ' . count($results_data) . ' rows in ' . number_format($query_elapsed, 3) . 's');
-        error_log('🔍 [ANALYZER] SQL: ' . $sql);
+        \SEOAutoFix_Debug_Logger::log('✅ [ANALYZER] Query returned ' . count($results_data) . ' rows in ' . number_format($query_elapsed, 3) . 's');
+        \SEOAutoFix_Debug_Logger::log('🔍 [ANALYZER] SQL: ' . $sql);
 
         if (empty($results_data)) {
-            error_log('✅ [ANALYZER] ===== scan_all_images() END (empty) =====');
+            \SEOAutoFix_Debug_Logger::log('✅ [ANALYZER] ===== scan_all_images() END (empty) =====');
             return array();
         }
 
@@ -209,11 +209,11 @@ class Image_Analyzer
                 $attachment_ids[] = $row->attachment_id;
             }
 
-            error_log('🔍 [ANALYZER] Fetching cached batch usage for ' . count($attachment_ids) . ' images...');
+            \SEOAutoFix_Debug_Logger::log('🔍 [ANALYZER] Fetching cached batch usage for ' . count($attachment_ids) . ' images...');
             $batch_usage = $usage_tracker->get_cached_batch_usage($attachment_ids);
 
             $batch_elapsed = microtime(true) - $batch_start;
-            error_log('⏱️ [ANALYZER] Cached batch usage fetched in ' . number_format($batch_elapsed, 3) . 's');
+            \SEOAutoFix_Debug_Logger::log('⏱️ [ANALYZER] Cached batch usage fetched in ' . number_format($batch_elapsed, 3) . 's');
         }
 
         foreach ($results_data as $index => $row) {
@@ -280,17 +280,17 @@ class Image_Analyzer
 
             // Log first and last image processing time
             if ($index === 0 || $index === count($results_data) - 1) {
-                error_log('⏱️ [ANALYZER] Image #' . ($index + 1) . ' (ID=' . $attachment_id . ') processed in ' . number_format($image_elapsed, 4) . 's');
+                \SEOAutoFix_Debug_Logger::log('⏱️ [ANALYZER] Image #' . ($index + 1) . ' (ID=' . $attachment_id . ') processed in ' . number_format($image_elapsed, 4) . 's');
             }
         }
 
         $processing_elapsed = microtime(true) - $processing_start;
         $total_elapsed = microtime(true) - $function_start;
 
-        error_log('⏱️ [ANALYZER] Processing time: ' . number_format($processing_elapsed, 3) . 's for ' . count($results) . ' images');
-        error_log('⏱️ [ANALYZER] Average per image: ' . number_format($processing_elapsed / count($results), 4) . 's');
-        error_log('⏱️ [ANALYZER] Total function time: ' . number_format($total_elapsed, 3) . 's');
-        error_log('✅ [ANALYZER] ===== scan_all_images() END =====');
+        \SEOAutoFix_Debug_Logger::log('⏱️ [ANALYZER] Processing time: ' . number_format($processing_elapsed, 3) . 's for ' . count($results) . ' images');
+        \SEOAutoFix_Debug_Logger::log('⏱️ [ANALYZER] Average per image: ' . number_format($processing_elapsed / count($results), 4) . 's');
+        \SEOAutoFix_Debug_Logger::log('⏱️ [ANALYZER] Total function time: ' . number_format($total_elapsed, 3) . 's');
+        \SEOAutoFix_Debug_Logger::log('✅ [ANALYZER] ===== scan_all_images() END =====');
 
         return $results;
     }

@@ -159,24 +159,50 @@ class Database_Manager
     {
         global $wpdb;
 
-        return $wpdb->insert(
+        \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] ========== FUNCTION CALLED ==========');
+        \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] Scan ID: ' . $scan_id);
+        \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] Input data: ' . print_r($data, true));
+        \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] Table name: ' . $this->table_results);
+        
+        // Prepare insert data
+        $insert_data = array(
+            'scan_id' => $scan_id,
+            'found_on_url' => $data['found_on_url'],
+            'found_on_page_id' => isset($data['found_on_page_id']) ? $data['found_on_page_id'] : 0,
+            'found_on_page_title' => isset($data['found_on_page_title']) ? $data['found_on_page_title'] : '',
+            'broken_url' => $data['broken_url'],
+            'link_type' => $data['link_type'],
+            'status_code' => $data['status_code'],
+            'suggested_url' => isset($data['suggested_url']) ? $data['suggested_url'] : null,
+            'reason' => isset($data['reason']) ? $data['reason'] : '',
+            'anchor_text' => isset($data['anchor_text']) ? $data['anchor_text'] : '',
+            'link_location' => isset($data['location']) ? $data['location'] : 'content',
+            'created_at' => current_time('mysql')
+        );
+        
+        \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] Insert data prepared: ' . print_r($insert_data, true));
+        
+        $format = array('%s', '%s', '%d', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s');
+        \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] Format array: ' . print_r($format, true));
+        
+        \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] Calling wpdb->insert()...');
+        $result = $wpdb->insert(
             $this->table_results,
-            array(
-                'scan_id' => $scan_id,
-                'found_on_url' => $data['found_on_url'],
-                'found_on_page_id' => isset($data['found_on_page_id']) ? $data['found_on_page_id'] : 0,
-                'found_on_page_title' => isset($data['found_on_page_title']) ? $data['found_on_page_title'] : '',
-                'broken_url' => $data['broken_url'],
-                'link_type' => $data['link_type'],
-                'status_code' => $data['status_code'],
-                'suggested_url' => isset($data['suggested_url']) ? $data['suggested_url'] : null,
-                'reason' => isset($data['reason']) ? $data['reason'] : '',
-                'anchor_text' => isset($data['anchor_text']) ? $data['anchor_text'] : '',
-                'link_location' => isset($data['location']) ? $data['location'] : 'content',
-                'created_at' => current_time('mysql')
-            ),
-            array('%s', '%s', '%d', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s')
-        ) !== false;
+            $insert_data,
+            $format
+        );
+        
+        \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] wpdb->insert() returned: ' . var_export($result, true));
+        \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] wpdb->last_error: ' . $wpdb->last_error);
+        \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] wpdb->last_query: ' . $wpdb->last_query);
+        \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] wpdb->insert_id: ' . $wpdb->insert_id);
+        \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] wpdb->rows_affected: ' . $wpdb->rows_affected);
+        
+        $success = $result !== false;
+        \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] Final return value: ' . ($success ? 'TRUE' : 'FALSE'));
+        \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] ========== FUNCTION END ==========');
+        
+        return $success;
     }
 
     /**
@@ -380,7 +406,7 @@ class Database_Manager
     {
         global $wpdb;
 
-        error_log('[MARK_AS_FIXED] Marking entry ID ' . $id . ' as fixed');
+        \SEOAutoFix_Debug_Logger::log('[MARK_AS_FIXED] Marking entry ID ' . $id . ' as fixed');
 
         $result = $wpdb->update(
             $this->table_results,
@@ -393,7 +419,7 @@ class Database_Manager
             array('%d')
         );
 
-        error_log('[MARK_AS_FIXED] Update result: ' . print_r($result, true) . ', wpdb->last_error: ' . $wpdb->last_error);
+        \SEOAutoFix_Debug_Logger::log('[MARK_AS_FIXED] Update result: ' . print_r($result, true) . ', wpdb->last_error: ' . $wpdb->last_error);
 
         return $result !== false;
     }

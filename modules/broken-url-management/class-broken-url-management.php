@@ -111,13 +111,13 @@ class SEOAutoFix_Broken_Url_Management
     {
         global $wpdb;
 
-        error_log('[BROKEN URLS] create_database_tables() called');
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] create_database_tables() called');
 
         $charset_collate = $wpdb->get_charset_collate();
         $table_history = $wpdb->prefix . 'seoautofix_broken_links_fixes_history';
 
         // Scans table - UPDATED with new fields
-        error_log('[BROKEN URLS] Creating/updating scans table');
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Creating/updating scans table');
         $sql_scans = "CREATE TABLE {$this->table_scans} (
             id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             scan_id VARCHAR(50) UNIQUE NOT NULL,
@@ -138,7 +138,7 @@ class SEOAutoFix_Broken_Url_Management
         ) $charset_collate;";
 
         // Results table - UPDATED with new fields
-        error_log('[BROKEN URLS] Creating/updating results table');
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Creating/updating results table');
         $sql_results = "CREATE TABLE {$this->table_results} (
             id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             scan_id VARCHAR(50) NOT NULL,
@@ -172,7 +172,7 @@ class SEOAutoFix_Broken_Url_Management
         ) $charset_collate;";
 
         // Fixes history table - NEW for revert functionality
-        error_log('[BROKEN URLS] Creating fixes history table');
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Creating fixes history table');
         $sql_history = "CREATE TABLE {$table_history} (
             id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             fix_session_id VARCHAR(50) NOT NULL,
@@ -192,12 +192,12 @@ class SEOAutoFix_Broken_Url_Management
         ) $charset_collate;";
 
         // Activity log table - NEW for tracking fix/replace/delete actions
-        error_log('[BROKEN URLS] Creating activity log table');
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Creating activity log table');
         $table_activity = $wpdb->prefix . 'seoautofix_broken_links_activity';
 
         // Drop existing table to ensure clean recreation
         $wpdb->query("DROP TABLE IF EXISTS {$table_activity}");
-        error_log('[BROKEN URLS] Dropped existing activity log table (if exists)');
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Dropped existing activity log table (if exists)');
 
         $sql_activity = "CREATE TABLE {$table_activity} (
             id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -215,12 +215,12 @@ class SEOAutoFix_Broken_Url_Management
         ) $charset_collate;";
 
         // Snapshot table - NEW for undo changes functionality
-        error_log('[BROKEN URLS] Creating snapshot table');
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Creating snapshot table');
         $table_snapshot = $wpdb->prefix . 'seoautofix_broken_links_snapshot';
 
         // Drop existing table to ensure clean recreation
         $wpdb->query("DROP TABLE IF EXISTS {$table_snapshot}");
-        error_log('[BROKEN URLS] Dropped existing snapshot table (if exists)');
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Dropped existing snapshot table (if exists)');
 
         $sql_snapshot = "CREATE TABLE {$table_snapshot} (
             id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -240,7 +240,7 @@ class SEOAutoFix_Broken_Url_Management
         dbDelta($sql_activity);
         dbDelta($sql_snapshot);
 
-        error_log('[BROKEN URLS] Database tables created/updated successfully');
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Database tables created/updated successfully');
     }
 
     /**
@@ -401,30 +401,30 @@ class SEOAutoFix_Broken_Url_Management
     {
         \SEOAutoFix_Debug_Logger::log('[SKU] [START_SCAN] ========== AJAX ENDPOINT CALLED ==========');
         \SEOAutoFix_Debug_Logger::log('[SKU] [START_SCAN] Timestamp: ' . current_time('mysql'));
-        error_log('[BROKEN URLS] ajax_start_scan() called');
-        error_log('[BROKEN URLS] Request data: ' . print_r($_POST, true));
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] ajax_start_scan() called');
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Request data: ' . print_r($_POST, true));
 
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
         \SEOAutoFix_Debug_Logger::log('[SKU] [START_SCAN] ✅ Nonce verified');
-        error_log('[BROKEN URLS] Nonce verified');
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Nonce verified');
 
         if (!current_user_can('manage_options')) {
             \SEOAutoFix_Debug_Logger::log('[SKU] [START_SCAN] ❌ Unauthorized user');
-            error_log('[BROKEN URLS] User lacks manage_options capability');
+            \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] User lacks manage_options capability');
             wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
         }
 
         \SEOAutoFix_Debug_Logger::log('[SKU] [START_SCAN] ✅ User authorized, creating crawler');
-        error_log('[BROKEN URLS] User authorized, creating crawler');
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] User authorized, creating crawler');
 
         try {
             $crawler = new Link_Crawler();
             \SEOAutoFix_Debug_Logger::log('[SKU] [START_SCAN] Crawler instance created');
-            error_log('[BROKEN URLS] Crawler created, starting scan');
+            \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Crawler created, starting scan');
 
             $scan_id = $crawler->start_scan();
             \SEOAutoFix_Debug_Logger::log('[SKU] [START_SCAN] ✅ Scan started successfully with ID: ' . $scan_id);
-            error_log('[BROKEN URLS] Scan started with ID: ' . $scan_id);
+            \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Scan started with ID: ' . $scan_id);
 
             wp_send_json_success(array(
                 'scan_id' => $scan_id,
@@ -433,8 +433,8 @@ class SEOAutoFix_Broken_Url_Management
         } catch (\Exception $e) {
             \SEOAutoFix_Debug_Logger::log('[SKU] [START_SCAN] ❌ EXCEPTION: ' . $e->getMessage());
             \SEOAutoFix_Debug_Logger::log('[SKU] [START_SCAN] Stack trace: ' . $e->getTraceAsString());
-            error_log('[BROKEN URLS] Exception in ajax_start_scan: ' . $e->getMessage());
-            error_log('[BROKEN URLS] Stack trace: ' . $e->getTraceAsString());
+            \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Exception in ajax_start_scan: ' . $e->getMessage());
+            \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Stack trace: ' . $e->getTraceAsString());
             wp_send_json_error(array('message' => $e->getMessage()));
         }
     }
@@ -445,13 +445,13 @@ class SEOAutoFix_Broken_Url_Management
      */
     public function ajax_process_batch()
     {
-        error_log('[BROKEN URLS] ajax_process_batch() called');
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] ajax_process_batch() called');
 
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
 
         if (!current_user_can('manage_options')) {
             \SEOAutoFix_Debug_Logger::log('[SKU] [PROCESS_BATCH] ❌ Unauthorized user');
-            error_log('[BROKEN URLS] User lacks manage_options capability');
+            \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] User lacks manage_options capability');
             wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
         }
 
@@ -463,7 +463,7 @@ class SEOAutoFix_Broken_Url_Management
         }
 
         \SEOAutoFix_Debug_Logger::log('[SKU] [PROCESS_BATCH] Processing batch for scan: ' . $scan_id);
-        error_log('[BROKEN URLS] Processing batch for scan_id: ' . $scan_id);
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Processing batch for scan_id: ' . $scan_id);
 
         try {
             $crawler = new Link_Crawler();
@@ -477,7 +477,7 @@ class SEOAutoFix_Broken_Url_Management
             $broken_count = isset($result['stats']['total']) ? $result['stats']['total'] : 0;
 
             \SEOAutoFix_Debug_Logger::log('[SKU] [PROCESS_BATCH] Progress: ' . $progress . '% | Pages: ' . $pages_processed . '/' . $total_pages . ' | Broken: ' . $broken_count . ' | Complete: ' . $completed);
-            error_log('[BROKEN URLS] Batch processing result: ' . print_r($result, true));
+            \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Batch processing result: ' . print_r($result, true));
 
             if ($completed === 'YES') {
                 \SEOAutoFix_Debug_Logger::log('[SKU] [PROCESS_BATCH] ✅ SCAN COMPLETED - Total broken links: ' . $broken_count);
@@ -486,7 +486,7 @@ class SEOAutoFix_Broken_Url_Management
             wp_send_json_success($result);
         } catch (\Exception $e) {
             \SEOAutoFix_Debug_Logger::log('[SKU] [PROCESS_BATCH] ❌ EXCEPTION: ' . $e->getMessage());
-            error_log('[BROKEN URLS] Exception in ajax_process_batch: ' . $e->getMessage());
+            \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Exception in ajax_process_batch: ' . $e->getMessage());
             wp_send_json_error(array('message' => $e->getMessage()));
         }
     }
@@ -608,7 +608,7 @@ class SEOAutoFix_Broken_Url_Management
 
         $id = isset($_POST['id']) ? intval($_POST['id']) : 0;
 
-        error_log('[SEO_AUTOFIX] ajax_delete_entry called for ID: ' . $id);
+        \SEOAutoFix_Debug_Logger::log('[SEO_AUTOFIX] ajax_delete_entry called for ID: ' . $id);
 
         if (empty($id)) {
             wp_send_json_error(array('message' => __('Invalid ID', 'seo-autofix-pro')));
@@ -619,11 +619,11 @@ class SEOAutoFix_Broken_Url_Management
             $entry = $db_manager->get_entry($id);
 
             if (!$entry) {
-                error_log('[SEO_AUTOFIX] Entry not found: ' . $id);
+                \SEOAutoFix_Debug_Logger::log('[SEO_AUTOFIX] Entry not found: ' . $id);
                 wp_send_json_error(array('message' => __('Entry not found', 'seo-autofix-pro')));
             }
 
-            error_log('[SEO_AUTOFIX] Entry data: ' . print_r($entry, true));
+            \SEOAutoFix_Debug_Logger::log('[SEO_AUTOFIX] Entry data: ' . print_r($entry, true));
 
             // Remove the link from WordPress content
             $success = $this->remove_link_from_content(
@@ -636,11 +636,11 @@ class SEOAutoFix_Broken_Url_Management
                 $table_results = $wpdb->prefix . 'seoautofix_broken_links_scan_results';
                 $table_activity = $wpdb->prefix . 'seoautofix_broken_links_activity';
 
-                error_log('[ACTIVITY LOG] Attempting to log deletion activity for ID: ' . $id);
-                error_log('[ACTIVITY LOG] Scan ID: ' . $entry['scan_id']);
-                error_log('[ACTIVITY LOG] Broken URL: ' . $entry['broken_url']);
-                error_log('[ACTIVITY LOG] Page URL: ' . $entry['found_on_url']);
-                error_log('[ACTIVITY LOG] Page Title: ' . $entry['found_on_page_title']);
+                \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG] Attempting to log deletion activity for ID: ' . $id);
+                \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG] Scan ID: ' . $entry['scan_id']);
+                \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG] Broken URL: ' . $entry['broken_url']);
+                \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG] Page URL: ' . $entry['found_on_url']);
+                \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG] Page Title: ' . $entry['found_on_page_title']);
 
                 // Log activity before deleting entry
                 $insert_result = $wpdb->insert($table_activity, array(
@@ -654,10 +654,10 @@ class SEOAutoFix_Broken_Url_Management
                 ), array('%s', '%d', '%s', '%s', '%s', '%s', '%s'));
 
                 if ($insert_result === false) {
-                    error_log('[ACTIVITY LOG ERROR] Failed to insert activity log! wpdb error: ' . $wpdb->last_error);
-                    error_log('[ACTIVITY LOG ERROR] wpdb last_query: ' . $wpdb->last_query);
+                    \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG ERROR] Failed to insert activity log! wpdb error: ' . $wpdb->last_error);
+                    \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG ERROR] wpdb last_query: ' . $wpdb->last_query);
                 } else {
-                    error_log('[ACTIVITY LOG SUCCESS] Activity log entry created with ID: ' . $wpdb->insert_id);
+                    \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG SUCCESS] Activity log entry created with ID: ' . $wpdb->insert_id);
                 }
 
                 // SOFT DELETE: Mark as deleted (is_deleted = 1) instead of removing from database
@@ -665,19 +665,19 @@ class SEOAutoFix_Broken_Url_Management
                 // Same behavior as FIX (which sets is_fixed = 1)
                 $db_manager->delete_entry($id);
 
-                error_log('[SEO_AUTOFIX] Successfully removed link from content and marked as deleted (soft delete)');
+                \SEOAutoFix_Debug_Logger::log('[SEO_AUTOFIX] Successfully removed link from content and marked as deleted (soft delete)');
 
                 wp_send_json_success(array(
                     'message' => __('Link removed from content successfully', 'seo-autofix-pro')
                 ));
             } else {
-                error_log('[SEO_AUTOFIX] Failed to remove link from content');
+                \SEOAutoFix_Debug_Logger::log('[SEO_AUTOFIX] Failed to remove link from content');
                 wp_send_json_error(array(
                     'message' => __('Failed to remove link from content. Link may not exist in post.', 'seo-autofix-pro')
                 ));
             }
         } catch (\Exception $e) {
-            error_log('[SEO_AUTOFIX] Exception in ajax_delete_entry: ' . $e->getMessage());
+            \SEOAutoFix_Debug_Logger::log('[SEO_AUTOFIX] Exception in ajax_delete_entry: ' . $e->getMessage());
             wp_send_json_error(array('message' => $e->getMessage()));
         }
     }
@@ -691,82 +691,82 @@ class SEOAutoFix_Broken_Url_Management
      */
     private function remove_link_from_content($page_url, $broken_url)
     {
-        error_log('==================== REMOVE LINK DEBUG ====================');
-        error_log('[REMOVE_LINK] Starting removal process');
-        error_log('[REMOVE_LINK] Page URL: ' . $page_url);
-        error_log('[REMOVE_LINK] Broken URL: ' . $broken_url);
+        \SEOAutoFix_Debug_Logger::log('==================== REMOVE LINK DEBUG ====================');
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Starting removal process');
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Page URL: ' . $page_url);
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Broken URL: ' . $broken_url);
 
         // Get post ID from URL
         $post_id = url_to_postid($page_url);
-        error_log('[REMOVE_LINK] url_to_postid() returned: ' . $post_id);
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] url_to_postid() returned: ' . $post_id);
 
         if (!$post_id) {
-            error_log('[REMOVE_LINK] ❌ FAILED: Could not convert URL to post ID');
-            error_log('[REMOVE_LINK] This could mean:');
-            error_log('[REMOVE_LINK]   - URL is homepage or archive');
-            error_log('[REMOVE_LINK]   - URL is custom post type not supported by url_to_postid()');
-            error_log('[REMOVE_LINK]   - URL format doesn\'t match WordPress permalink structure');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ❌ FAILED: Could not convert URL to post ID');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] This could mean:');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK]   - URL is homepage or archive');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK]   - URL is custom post type not supported by url_to_postid()');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK]   - URL format doesn\'t match WordPress permalink structure');
             return false;
         }
 
         // Check if this is an Elementor page
         $link_analyzer = new Link_Analyzer();
         $is_elementor = $link_analyzer->is_elementor_page($post_id);
-        error_log('[REMOVE_LINK] Is Elementor page: ' . ($is_elementor ? 'YES' : 'NO'));
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Is Elementor page: ' . ($is_elementor ? 'YES' : 'NO'));
 
         if ($is_elementor) {
-            error_log('[REMOVE_LINK] Routing to Elementor-specific handler');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Routing to Elementor-specific handler');
             return $link_analyzer->remove_link_from_elementor($post_id, $broken_url);
         }
 
         // Regular WordPress page - continue with post_content removal
-        error_log('[REMOVE_LINK] Processing as regular WordPress page');
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Processing as regular WordPress page');
 
         // Get post content
         $post = get_post($post_id);
         if (!$post) {
-            error_log('[REMOVE_LINK] ❌ FAILED: get_post() returned null for post ID: ' . $post_id);
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ❌ FAILED: get_post() returned null for post ID: ' . $post_id);
             return false;
         }
 
-        error_log('[REMOVE_LINK] Post retrieved successfully');
-        error_log('[REMOVE_LINK] Post ID: ' . $post->ID);
-        error_log('[REMOVE_LINK] Post Title: ' . $post->post_title);
-        error_log('[REMOVE_LINK] Post Type: ' . $post->post_type);
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Post retrieved successfully');
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Post ID: ' . $post->ID);
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Post Title: ' . $post->post_title);
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Post Type: ' . $post->post_type);
 
         $content = $post->post_content;
-        error_log('[REMOVE_LINK] Original content length: ' . strlen($content) . ' characters');
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Original content length: ' . strlen($content) . ' characters');
 
         // Log first 500 chars of content to see what we're working with
         $content_preview = substr($content, 0, 500);
-        error_log('[REMOVE_LINK] Content preview (first 500 chars): ' . $content_preview);
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Content preview (first 500 chars): ' . $content_preview);
 
         // Check if broken URL exists in content AT ALL
         if (strpos($content, $broken_url) === false) {
-            error_log('[REMOVE_LINK] ⚠️ WARNING: Broken URL NOT FOUND in post_content');
-            error_log('[REMOVE_LINK] Searched for: ' . $broken_url);
-            error_log('[REMOVE_LINK] This could mean:');
-            error_log('[REMOVE_LINK]   - Link is in a widget, menu, or custom field');
-            error_log('[REMOVE_LINK]   - Link is in Elementor/page builder data');
-            error_log('[REMOVE_LINK]   - URL encoding differs (e.g., & vs &amp;)');
-            error_log('[REMOVE_LINK]   - Link was already removed');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ⚠️ WARNING: Broken URL NOT FOUND in post_content');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Searched for: ' . $broken_url);
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] This could mean:');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK]   - Link is in a widget, menu, or custom field');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK]   - Link is in Elementor/page builder data');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK]   - URL encoding differs (e.g., & vs &amp;)');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK]   - Link was already removed');
 
             // Try URL-encoded version
             $encoded_url = htmlspecialchars($broken_url);
             if (strpos($content, $encoded_url) !== false) {
-                error_log('[REMOVE_LINK] ✅ FOUND URL-ENCODED version: ' . $encoded_url);
+                \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ✅ FOUND URL-ENCODED version: ' . $encoded_url);
                 $broken_url = $encoded_url; // Use encoded version for regex
             } else {
-                error_log('[REMOVE_LINK] ❌ URL-encoded version also not found');
+                \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ❌ URL-encoded version also not found');
                 return false;
             }
         } else {
-            error_log('[REMOVE_LINK] ✅ Broken URL found in content');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ✅ Broken URL found in content');
         }
 
         // Build regex patterns
         $escaped_url = preg_quote($broken_url, '/');
-        error_log('[REMOVE_LINK] Escaped URL for regex: ' . $escaped_url);
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Escaped URL for regex: ' . $escaped_url);
 
         $patterns = array(
             '/<a\s+[^>]*href=["\']' . $escaped_url . '["\'][^>]*>(.*?)<\/a>/is',
@@ -775,10 +775,10 @@ class SEOAutoFix_Broken_Url_Management
 
         $img_pattern = '/<img\s+[^>]*src=["\']' . $escaped_url . '["\'][^>]*\/?>/i';
 
-        error_log('[REMOVE_LINK] Testing regex patterns...');
-        error_log('[REMOVE_LINK] Pattern 1 (href): ' . $patterns[0]);
-        error_log('[REMOVE_LINK] Pattern 2 (src): ' . $patterns[1]);
-        error_log('[REMOVE_LINK] Image pattern: ' . $img_pattern);
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Testing regex patterns...');
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Pattern 1 (href): ' . $patterns[0]);
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Pattern 2 (src): ' . $patterns[1]);
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Image pattern: ' . $img_pattern);
 
         // Try each pattern and log results
         $new_content = $content;
@@ -789,10 +789,10 @@ class SEOAutoFix_Broken_Url_Management
             $new_content = preg_replace($pattern, '$1', $new_content, -1, $count);
 
             if ($count > 0) {
-                error_log('[REMOVE_LINK] ✅ Pattern ' . ($index + 1) . ' matched! Replacements: ' . $count);
+                \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ✅ Pattern ' . ($index + 1) . ' matched! Replacements: ' . $count);
                 $total_replacements += $count;
             } else {
-                error_log('[REMOVE_LINK] ❌ Pattern ' . ($index + 1) . ' did not match');
+                \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ❌ Pattern ' . ($index + 1) . ' did not match');
             }
         }
 
@@ -800,30 +800,30 @@ class SEOAutoFix_Broken_Url_Management
         $img_count = 0;
         $new_content = preg_replace($img_pattern, '', $new_content, -1, $img_count);
         if ($img_count > 0) {
-            error_log('[REMOVE_LINK] ✅ Image pattern matched! Replacements: ' . $img_count);
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ✅ Image pattern matched! Replacements: ' . $img_count);
             $total_replacements += $img_count;
         } else {
-            error_log('[REMOVE_LINK] ❌ Image pattern did not match');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ❌ Image pattern did not match');
         }
 
-        error_log('[REMOVE_LINK] Total replacements made: ' . $total_replacements);
-        error_log('[REMOVE_LINK] New content length: ' . strlen($new_content) . ' characters');
-        error_log('[REMOVE_LINK] Content size difference: ' . (strlen($content) - strlen($new_content)) . ' characters removed');
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Total replacements made: ' . $total_replacements);
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] New content length: ' . strlen($new_content) . ' characters');
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Content size difference: ' . (strlen($content) - strlen($new_content)) . ' characters removed');
 
         // Check if any changes were made
         if ($new_content === $content) {
-            error_log('[REMOVE_LINK] ❌ FAILED: No changes made to content');
-            error_log('[REMOVE_LINK] Regex patterns did not match any links');
-            error_log('[REMOVE_LINK] Possible reasons:');
-            error_log('[REMOVE_LINK]   - Link syntax is different than expected');
-            error_log('[REMOVE_LINK]   - Link has HTML entities or special characters');
-            error_log('[REMOVE_LINK]   - Link is wrapped in different HTML tags');
-            error_log('[REMOVE_LINK] ==================== END DEBUG ====================');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ❌ FAILED: No changes made to content');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Regex patterns did not match any links');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Possible reasons:');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK]   - Link syntax is different than expected');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK]   - Link has HTML entities or special characters');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK]   - Link is wrapped in different HTML tags');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ==================== END DEBUG ====================');
             return false;
         }
 
-        error_log('[REMOVE_LINK] ✅ Content successfully modified!');
-        error_log('[REMOVE_LINK] Updating post...');
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ✅ Content successfully modified!');
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Updating post...');
 
         // Update post
         $result = wp_update_post(array(
@@ -832,13 +832,13 @@ class SEOAutoFix_Broken_Url_Management
         ), true);
 
         if (is_wp_error($result)) {
-            error_log('[REMOVE_LINK] ❌ wp_update_post() returned error: ' . $result->get_error_message());
-            error_log('[REMOVE_LINK] ==================== END DEBUG ====================');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ❌ wp_update_post() returned error: ' . $result->get_error_message());
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ==================== END DEBUG ====================');
             return false;
         }
 
-        error_log('[REMOVE_LINK] ✅ wp_update_post() successful! Post updated.');
-        error_log('[REMOVE_LINK] ==================== END DEBUG ====================');
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ✅ wp_update_post() successful! Post updated.');
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ==================== END DEBUG ====================');
         return true;
     }
 
@@ -847,61 +847,61 @@ class SEOAutoFix_Broken_Url_Management
      */
     public function ajax_apply_fixes()
     {
-        error_log('========================================');
-        error_log('[AJAX_APPLY_FIXES] 🔥 ENDPOINT CALLED 🔥');
-        error_log('[AJAX_APPLY_FIXES] Timestamp: ' . current_time('mysql'));
-        error_log('[AJAX_APPLY_FIXES] REQUEST_METHOD: ' . $_SERVER['REQUEST_METHOD']);
-        error_log('[AJAX_APPLY_FIXES] POST data: ' . print_r($_POST, true));
-        error_log('========================================');
+        \SEOAutoFix_Debug_Logger::log('========================================');
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] 🔥 ENDPOINT CALLED 🔥');
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Timestamp: ' . current_time('mysql'));
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] REQUEST_METHOD: ' . $_SERVER['REQUEST_METHOD']);
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] POST data: ' . print_r($_POST, true));
+        \SEOAutoFix_Debug_Logger::log('========================================');
 
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
-        error_log('[AJAX_APPLY_FIXES] ✅ Nonce verified');
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] ✅ Nonce verified');
 
         if (!current_user_can('manage_options')) {
-            error_log('[AJAX_APPLY_FIXES] ❌ Unauthorized - user lacks manage_options capability');
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] ❌ Unauthorized - user lacks manage_options capability');
             wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
         }
 
-        error_log('[AJAX_APPLY_FIXES] ✅ User authorized');
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] ✅ User authorized');
 
         $ids = isset($_POST['ids']) ? array_map('intval', (array) $_POST['ids']) : array();
         $custom_url = isset($_POST['custom_url']) ? esc_url_raw($_POST['custom_url']) : '';
 
-        error_log('[AJAX_APPLY_FIXES] Parsed IDs: ' . print_r($ids, true));
-        error_log('[AJAX_APPLY_FIXES] IDs count: ' . count($ids));
-        error_log('[AJAX_APPLY_FIXES] Custom URL: ' . $custom_url);
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Parsed IDs: ' . print_r($ids, true));
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] IDs count: ' . count($ids));
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Custom URL: ' . $custom_url);
 
         if (empty($ids)) {
-            error_log('[AJAX_APPLY_FIXES] ❌ No entries selected - sending error response');
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] ❌ No entries selected - sending error response');
             wp_send_json_error(array('message' => __('No entries selected', 'seo-autofix-pro')));
         }
 
-        error_log('[AJAX_APPLY_FIXES] ✅ IDs validated, creating Link_Analyzer instance');
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] ✅ IDs validated, creating Link_Analyzer instance');
 
         try {
             $db_manager = new Database_Manager();
             $link_analyzer = new Link_Analyzer();
 
-            error_log('[AJAX_APPLY_FIXES] Calling link_analyzer->apply_fixes()');
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Calling link_analyzer->apply_fixes()');
             $result = $link_analyzer->apply_fixes($ids, $custom_url);
 
-            error_log('========================================');
-            error_log('[AJAX_APPLY_FIXES] 📥 apply_fixes() returned');
-            error_log('[AJAX_APPLY_FIXES] Result: ' . print_r($result, true));
-            error_log('[AJAX_APPLY_FIXES] Fixed count: ' . $result['fixed_count']);
-            error_log('[AJAX_APPLY_FIXES] Failed count: ' . $result['failed_count']);
-            error_log('[AJAX_APPLY_FIXES] Skipped count: ' . $result['skipped_count']);
-            error_log('[AJAX_APPLY_FIXES] Messages: ' . print_r($result['messages'], true));
-            error_log('========================================');
+            \SEOAutoFix_Debug_Logger::log('========================================');
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] 📥 apply_fixes() returned');
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Result: ' . print_r($result, true));
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Fixed count: ' . $result['fixed_count']);
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Failed count: ' . $result['failed_count']);
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Skipped count: ' . $result['skipped_count']);
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Messages: ' . print_r($result['messages'], true));
+            \SEOAutoFix_Debug_Logger::log('========================================');
 
-            error_log('[AJAX_APPLY_FIXES] ✅ Sending success response to frontend');
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] ✅ Sending success response to frontend');
             wp_send_json_success($result);
         } catch (\Exception $e) {
-            error_log('========================================');
-            error_log('[AJAX_APPLY_FIXES] ❌ EXCEPTION CAUGHT');
-            error_log('[AJAX_APPLY_FIXES] Exception message: ' . $e->getMessage());
-            error_log('[AJAX_APPLY_FIXES] Exception trace: ' . $e->getTraceAsString());
-            error_log('========================================');
+            \SEOAutoFix_Debug_Logger::log('========================================');
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] ❌ EXCEPTION CAUGHT');
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Exception message: ' . $e->getMessage());
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Exception trace: ' . $e->getTraceAsString());
+            \SEOAutoFix_Debug_Logger::log('========================================');
             wp_send_json_error(array('message' => $e->getMessage()));
         }
     }
@@ -919,7 +919,7 @@ class SEOAutoFix_Broken_Url_Management
 
         $ids = isset($_POST['ids']) ? array_map('intval', (array) $_POST['ids']) : array();
 
-        error_log('[SEO_AUTOFIX] ajax_bulk_delete called with IDs: ' . print_r($ids, true));
+        \SEOAutoFix_Debug_Logger::log('[SEO_AUTOFIX] ajax_bulk_delete called with IDs: ' . print_r($ids, true));
 
         if (empty($ids)) {
             wp_send_json_error(array('message' => __('No entries selected', 'seo-autofix-pro')));
@@ -941,18 +941,18 @@ class SEOAutoFix_Broken_Url_Management
 
                 if ($result !== false && $result > 0) {
                     $deleted_count++;
-                    error_log('[SEO_AUTOFIX] Deleted entry ID: ' . $id);
+                    \SEOAutoFix_Debug_Logger::log('[SEO_AUTOFIX] Deleted entry ID: ' . $id);
                 }
             }
 
-            error_log('[SEO_AUTOFIX] Bulk delete completed. Permanently deleted: ' . $deleted_count . ' entries');
+            \SEOAutoFix_Debug_Logger::log('[SEO_AUTOFIX] Bulk delete completed. Permanently deleted: ' . $deleted_count . ' entries');
 
             wp_send_json_success(array(
                 'deleted_count' => $deleted_count,
                 'message' => sprintf(__('Permanently deleted %d link(s)', 'seo-autofix-pro'), $deleted_count)
             ));
         } catch (\Exception $e) {
-            error_log('[SEO_AUTOFIX] Exception in ajax_bulk_delete: ' . $e->getMessage());
+            \SEOAutoFix_Debug_Logger::log('[SEO_AUTOFIX] Exception in ajax_bulk_delete: ' . $e->getMessage());
             wp_send_json_error(array('message' => $e->getMessage()));
         }
     }
@@ -1121,50 +1121,50 @@ class SEOAutoFix_Broken_Url_Management
      */
     public function ajax_apply_fix_plan()
     {
-        error_log('========================================');
-        error_log('[AJAX_APPLY_FIX_PLAN] 🔥 ENDPOINT CALLED 🔥');
-        error_log('[AJAX_APPLY_FIX_PLAN] Timestamp: ' . current_time('mysql'));
-        error_log('[AJAX_APPLY_FIX_PLAN] POST data: ' . print_r($_POST, true));
-        error_log('========================================');
+        \SEOAutoFix_Debug_Logger::log('========================================');
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIX_PLAN] 🔥 ENDPOINT CALLED 🔥');
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIX_PLAN] Timestamp: ' . current_time('mysql'));
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIX_PLAN] POST data: ' . print_r($_POST, true));
+        \SEOAutoFix_Debug_Logger::log('========================================');
 
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
-        error_log('[AJAX_APPLY_FIX_PLAN] ✅ Nonce verified');
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIX_PLAN] ✅ Nonce verified');
 
         if (!current_user_can('manage_options')) {
-            error_log('[AJAX_APPLY_FIX_PLAN] ❌ Unauthorized');
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIX_PLAN] ❌ Unauthorized');
             wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
         }
 
-        error_log('[AJAX_APPLY_FIX_PLAN] ✅ User authorized');
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIX_PLAN] ✅ User authorized');
 
         $plan_id = isset($_POST['plan_id']) ? sanitize_text_field($_POST['plan_id']) : '';
         $selected_entry_ids = isset($_POST['selected_entry_ids']) ? array_map('intval', (array) $_POST['selected_entry_ids']) : array();
 
-        error_log('[AJAX_APPLY_FIX_PLAN] Plan ID: ' . $plan_id);
-        error_log('[AJAX_APPLY_FIX_PLAN] Selected entry IDs: ' . print_r($selected_entry_ids, true));
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIX_PLAN] Plan ID: ' . $plan_id);
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIX_PLAN] Selected entry IDs: ' . print_r($selected_entry_ids, true));
 
         if (empty($plan_id)) {
-            error_log('[AJAX_APPLY_FIX_PLAN] ❌ No plan ID provided');
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIX_PLAN] ❌ No plan ID provided');
             wp_send_json_error(array('message' => __('Plan ID required', 'seo-autofix-pro')));
         }
 
-        error_log('[AJAX_APPLY_FIX_PLAN] Creating Fix_Plan_Manager instance');
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIX_PLAN] Creating Fix_Plan_Manager instance');
         $fix_plan_manager = new Fix_Plan_Manager();
 
-        error_log('[AJAX_APPLY_FIX_PLAN] Calling apply_fix_plan()');
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIX_PLAN] Calling apply_fix_plan()');
         $result = $fix_plan_manager->apply_fix_plan($plan_id, $selected_entry_ids);
 
-        error_log('========================================');
-        error_log('[AJAX_APPLY_FIX_PLAN] 📥 apply_fix_plan() returned');
-        error_log('[AJAX_APPLY_FIX_PLAN] Result: ' . print_r($result, true));
-        error_log('[AJAX_APPLY_FIX_PLAN] Success: ' . ($result['success'] ? 'YES' : 'NO'));
-        error_log('========================================');
+        \SEOAutoFix_Debug_Logger::log('========================================');
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIX_PLAN] 📥 apply_fix_plan() returned');
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIX_PLAN] Result: ' . print_r($result, true));
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIX_PLAN] Success: ' . ($result['success'] ? 'YES' : 'NO'));
+        \SEOAutoFix_Debug_Logger::log('========================================');
 
         if ($result['success']) {
-            error_log('[AJAX_APPLY_FIX_PLAN] ✅ Sending success response');
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIX_PLAN] ✅ Sending success response');
             wp_send_json_success($result);
         } else {
-            error_log('[AJAX_APPLY_FIX_PLAN] ❌ Sending error response');
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIX_PLAN] ❌ Sending error response');
             wp_send_json_error($result);
         }
     }
@@ -1306,15 +1306,15 @@ class SEOAutoFix_Broken_Url_Management
      */
     public function ajax_export_activity_log()
     {
-        error_log('[AJAX EXPORT ACTIVITY LOG] ========== ENDPOINT CALLED ==========');
-        error_log('[AJAX EXPORT ACTIVITY LOG] REQUEST_METHOD: ' . $_SERVER['REQUEST_METHOD']);
-        error_log('[AJAX EXPORT ACTIVITY LOG] GET params: ' . print_r($_GET, true));
-        error_log('[AJAX EXPORT ACTIVITY LOG] POST params: ' . print_r($_POST, true));
+        \SEOAutoFix_Debug_Logger::log('[AJAX EXPORT ACTIVITY LOG] ========== ENDPOINT CALLED ==========');
+        \SEOAutoFix_Debug_Logger::log('[AJAX EXPORT ACTIVITY LOG] REQUEST_METHOD: ' . $_SERVER['REQUEST_METHOD']);
+        \SEOAutoFix_Debug_Logger::log('[AJAX EXPORT ACTIVITY LOG] GET params: ' . print_r($_GET, true));
+        \SEOAutoFix_Debug_Logger::log('[AJAX EXPORT ACTIVITY LOG] POST params: ' . print_r($_POST, true));
 
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
 
         if (!current_user_can('manage_options')) {
-            error_log('[AJAX EXPORT ACTIVITY LOG] Unauthorized user');
+            \SEOAutoFix_Debug_Logger::log('[AJAX EXPORT ACTIVITY LOG] Unauthorized user');
             wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
         }
 
@@ -1322,29 +1322,29 @@ class SEOAutoFix_Broken_Url_Management
         $scan_id = '';
         if (isset($_POST['scan_id'])) {
             $scan_id = sanitize_text_field($_POST['scan_id']);
-            error_log('[AJAX EXPORT ACTIVITY LOG] Scan ID from POST: ' . $scan_id);
+            \SEOAutoFix_Debug_Logger::log('[AJAX EXPORT ACTIVITY LOG] Scan ID from POST: ' . $scan_id);
         } elseif (isset($_GET['scan_id'])) {
             $scan_id = sanitize_text_field($_GET['scan_id']);
-            error_log('[AJAX EXPORT ACTIVITY LOG] Scan ID from GET: ' . $scan_id);
+            \SEOAutoFix_Debug_Logger::log('[AJAX EXPORT ACTIVITY LOG] Scan ID from GET: ' . $scan_id);
         }
 
         if (empty($scan_id)) {
-            error_log('[AJAX EXPORT ACTIVITY LOG] Missing scan ID in both GET and POST');
+            \SEOAutoFix_Debug_Logger::log('[AJAX EXPORT ACTIVITY LOG] Missing scan ID in both GET and POST');
             wp_send_json_error(array('message' => __('Missing scan ID', 'seo-autofix-pro')));
         }
 
-        error_log('[AJAX EXPORT ACTIVITY LOG] Calling Export_Manager->export_activity_log_csv()');
+        \SEOAutoFix_Debug_Logger::log('[AJAX EXPORT ACTIVITY LOG] Calling Export_Manager->export_activity_log_csv()');
         $export_manager = new Export_Manager();
         $result = $export_manager->export_activity_log_csv($scan_id);
 
         // If export returns false (no activities), send error response
         if ($result === false) {
-            error_log('[AJAX EXPORT ACTIVITY LOG] Export returned false - no activities found');
+            \SEOAutoFix_Debug_Logger::log('[AJAX EXPORT ACTIVITY LOG] Export returned false - no activities found');
             wp_send_json_error(array('message' => __('No fixed links found in activity log', 'seo-autofix-pro')));
         }
 
         // Note: export_activity_log_csv() exits after sending CSV if successful
-        error_log('[AJAX EXPORT ACTIVITY LOG] Export completed (this should not be logged if CSV was sent)');
+        \SEOAutoFix_Debug_Logger::log('[AJAX EXPORT ACTIVITY LOG] Export completed (this should not be logged if CSV was sent)');
     }
 
     /**
@@ -1353,12 +1353,12 @@ class SEOAutoFix_Broken_Url_Management
      */
     public function ajax_email_activity_log()
     {
-        error_log('[AJAX EMAIL ACTIVITY LOG] ========== ENDPOINT CALLED ==========');
+        \SEOAutoFix_Debug_Logger::log('[AJAX EMAIL ACTIVITY LOG] ========== ENDPOINT CALLED ==========');
 
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
 
         if (!current_user_can('manage_options')) {
-            error_log('[AJAX EMAIL ACTIVITY LOG] Unauthorized user');
+            \SEOAutoFix_Debug_Logger::log('[AJAX EMAIL ACTIVITY LOG] Unauthorized user');
             wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
         }
 
@@ -1366,18 +1366,18 @@ class SEOAutoFix_Broken_Url_Management
         $scan_id = '';
         if (isset($_POST['scan_id'])) {
             $scan_id = sanitize_text_field($_POST['scan_id']);
-            error_log('[AJAX EMAIL ACTIVITY LOG] Scan ID from POST: ' . $scan_id);
+            \SEOAutoFix_Debug_Logger::log('[AJAX EMAIL ACTIVITY LOG] Scan ID from POST: ' . $scan_id);
         } elseif (isset($_GET['scan_id'])) {
             $scan_id = sanitize_text_field($_GET['scan_id']);
-            error_log('[AJAX EMAIL ACTIVITY LOG] Scan ID from GET: ' . $scan_id);
+            \SEOAutoFix_Debug_Logger::log('[AJAX EMAIL ACTIVITY LOG] Scan ID from GET: ' . $scan_id);
         }
 
         if (empty($scan_id)) {
-            error_log('[AJAX EMAIL ACTIVITY LOG] Missing scan ID');
+            \SEOAutoFix_Debug_Logger::log('[AJAX EMAIL ACTIVITY LOG] Missing scan ID');
             wp_send_json_error(array('message' => __('Missing scan ID', 'seo-autofix-pro')));
         }
 
-        error_log('[AJAX EMAIL ACTIVITY LOG] Calling Export_Manager->email_activity_log()');
+        \SEOAutoFix_Debug_Logger::log('[AJAX EMAIL ACTIVITY LOG] Calling Export_Manager->email_activity_log()');
         $export_manager = new Export_Manager();
         $result = $export_manager->email_activity_log($scan_id);
 
@@ -1395,13 +1395,13 @@ class SEOAutoFix_Broken_Url_Management
     public function ajax_create_snapshot()
     {
         \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] ========== CREATE SNAPSHOT CALLED ==========');
-        error_log('[SNAPSHOT] ========== CREATE SNAPSHOT CALLED ==========');
+        \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] ========== CREATE SNAPSHOT CALLED ==========');
 
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
 
         if (!current_user_can('manage_options')) {
             \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] ❌ Unauthorized user');
-            error_log('[SNAPSHOT] Unauthorized user');
+            \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] Unauthorized user');
             wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
         }
 
@@ -1409,12 +1409,12 @@ class SEOAutoFix_Broken_Url_Management
 
         if (empty($scan_id)) {
             \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] ❌ Missing scan ID');
-            error_log('[SNAPSHOT] Missing scan ID');
+            \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] Missing scan ID');
             wp_send_json_error(array('message' => __('Missing scan ID', 'seo-autofix-pro')));
         }
 
         \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] Creating snapshot for scan: ' . $scan_id);
-        error_log('[SNAPSHOT] Creating snapshot for scan: ' . $scan_id);
+        \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] Creating snapshot for scan: ' . $scan_id);
 
         global $wpdb;
         $table_results = $wpdb->prefix . 'seoautofix_broken_links_scan_results';
@@ -1428,12 +1428,12 @@ class SEOAutoFix_Broken_Url_Management
 
         if (empty($pages)) {
             \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] ❌ No pages found for scan');
-            error_log('[SNAPSHOT] No pages found for scan');
+            \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] No pages found for scan');
             wp_send_json_error(array('message' => __('No pages to snapshot', 'seo-autofix-pro')));
         }
 
         \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] Found ' . count($pages) . ' unique pages');
-        error_log('[SNAPSHOT] Found ' . count($pages) . ' unique pages');
+        \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] Found ' . count($pages) . ' unique pages');
 
         // Store original content for each page
         $snapshot_count = 0;
@@ -1443,7 +1443,7 @@ class SEOAutoFix_Broken_Url_Management
 
             if (!$post) {
                 \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] Page ID ' . $page_id . ' not found, skipping');
-                error_log('[SNAPSHOT] Page ID ' . $page_id . ' not found, skipping');
+                \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] Page ID ' . $page_id . ' not found, skipping');
                 continue;
             }
 
@@ -1456,7 +1456,7 @@ class SEOAutoFix_Broken_Url_Management
 
             if ($existing) {
                 \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] Snapshot already exists for page ' . $page_id);
-                error_log('[SNAPSHOT] Snapshot already exists for page ' . $page_id);
+                \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] Snapshot already exists for page ' . $page_id);
                 continue;
             }
 
@@ -1467,7 +1467,7 @@ class SEOAutoFix_Broken_Url_Management
             if ($is_elementor) {
                 $elementor_data = get_post_meta($page_id, '_elementor_data', true);
                 \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] Page ' . $page_id . ' is Elementor page, storing _elementor_data as well');
-                error_log('[SNAPSHOT] Page ' . $page_id . ' is Elementor page, storing _elementor_data as well');
+                \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] Page ' . $page_id . ' is Elementor page, storing _elementor_data as well');
                 // Store Elementor data as JSON in a special format
                 $original_content = json_encode(array(
                     'is_elementor' => true,
@@ -1490,15 +1490,15 @@ class SEOAutoFix_Broken_Url_Management
             if ($inserted) {
                 $snapshot_count++;
                 \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] ✅ Saved content for page ' . $page_id . ' (post: ' . $post->post_title . ', Elementor: ' . ($is_elementor ? 'yes' : 'no') . ')');
-                error_log('[SNAPSHOT] Saved content for page ' . $page_id . ' (post: ' . $post->post_title . ', Elementor: ' . ($is_elementor ? 'yes' : 'no') . ')');
+                \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] Saved content for page ' . $page_id . ' (post: ' . $post->post_title . ', Elementor: ' . ($is_elementor ? 'yes' : 'no') . ')');
             } else {
                 \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] ❌ Failed to save snapshot for page ' . $page_id . ': ' . $wpdb->last_error);
-                error_log('[SNAPSHOT] Failed to save snapshot for page ' . $page_id . ': ' . $wpdb->last_error);
+                \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] Failed to save snapshot for page ' . $page_id . ': ' . $wpdb->last_error);
             }
         }
 
         \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] ✅ Created ' . $snapshot_count . ' snapshots');
-        error_log('[SNAPSHOT] Created ' . $snapshot_count . ' snapshots');
+        \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] Created ' . $snapshot_count . ' snapshots');
 
         wp_send_json_success(array(
             'message' => sprintf(__('Snapshot created for %d pages', 'seo-autofix-pro'), $snapshot_count),
@@ -1511,23 +1511,23 @@ class SEOAutoFix_Broken_Url_Management
      */
     public function ajax_undo_changes()
     {
-        error_log('[UNDO] ========== UNDO CHANGES CALLED ==========');
+        \SEOAutoFix_Debug_Logger::log('[UNDO] ========== UNDO CHANGES CALLED ==========');
 
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
 
         if (!current_user_can('manage_options')) {
-            error_log('[UNDO] Unauthorized user');
+            \SEOAutoFix_Debug_Logger::log('[UNDO] Unauthorized user');
             wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
         }
 
         $scan_id = isset($_POST['scan_id']) ? sanitize_text_field($_POST['scan_id']) : '';
 
         if (empty($scan_id)) {
-            error_log('[UNDO] Missing scan ID');
+            \SEOAutoFix_Debug_Logger::log('[UNDO] Missing scan ID');
             wp_send_json_error(array('message' => __('Missing scan ID', 'seo-autofix-pro')));
         }
 
-        error_log('[UNDO] Restoring from snapshot for scan: ' . $scan_id);
+        \SEOAutoFix_Debug_Logger::log('[UNDO] Restoring from snapshot for scan: ' . $scan_id);
 
         global $wpdb;
         $table_snapshot = $wpdb->prefix . 'seoautofix_broken_links_snapshot';
@@ -1539,11 +1539,11 @@ class SEOAutoFix_Broken_Url_Management
         ), ARRAY_A);
 
         if (empty($snapshots)) {
-            error_log('[UNDO] No snapshots found');
+            \SEOAutoFix_Debug_Logger::log('[UNDO] No snapshots found');
             wp_send_json_error(array('message' => __('No snapshot found to restore', 'seo-autofix-pro')));
         }
 
-        error_log('[UNDO] Found ' . count($snapshots) . ' snapshots to restore');
+        \SEOAutoFix_Debug_Logger::log('[UNDO] Found ' . count($snapshots) . ' snapshots to restore');
 
         // Restore original content for each page
         $restored_count = 0;
@@ -1556,7 +1556,7 @@ class SEOAutoFix_Broken_Url_Management
 
             if ($snapshot_data && isset($snapshot_data['is_elementor']) && $snapshot_data['is_elementor']) {
                 // Elementor page - restore both post_content and _elementor_data
-                error_log('[UNDO] Restoring Elementor page ' . $page_id);
+                \SEOAutoFix_Debug_Logger::log('[UNDO] Restoring Elementor page ' . $page_id);
 
                 $updated = wp_update_post(array(
                     'ID' => $page_id,
@@ -1570,13 +1570,13 @@ class SEOAutoFix_Broken_Url_Management
                     // Clear Elementor cache
                     if (class_exists('\Elementor\Plugin')) {
                         \Elementor\Plugin::$instance->files_manager->clear_cache();
-                        error_log('[UNDO] Cleared Elementor cache for page ' . $page_id);
+                        \SEOAutoFix_Debug_Logger::log('[UNDO] Cleared Elementor cache for page ' . $page_id);
                     }
 
                     $restored_count++;
-                    error_log('[UNDO] Restored Elementor content for page ' . $page_id);
+                    \SEOAutoFix_Debug_Logger::log('[UNDO] Restored Elementor content for page ' . $page_id);
                 } else {
-                    error_log('[UNDO] Failed to restore Elementor page ' . $page_id . ': ' . $updated->get_error_message());
+                    \SEOAutoFix_Debug_Logger::log('[UNDO] Failed to restore Elementor page ' . $page_id . ': ' . $updated->get_error_message());
                 }
             } else {
                 // Regular WordPress page - restore post_content only
@@ -1586,10 +1586,10 @@ class SEOAutoFix_Broken_Url_Management
                 ), true);
 
                 if (is_wp_error($updated)) {
-                    error_log('[UNDO] Failed to restore page ' . $page_id . ': ' . $updated->get_error_message());
+                    \SEOAutoFix_Debug_Logger::log('[UNDO] Failed to restore page ' . $page_id . ': ' . $updated->get_error_message());
                 } else {
                     $restored_count++;
-                    error_log('[UNDO] Restored content for page ' . $page_id);
+                    \SEOAutoFix_Debug_Logger::log('[UNDO] Restored content for page ' . $page_id);
                 }
             }
         }
@@ -1602,9 +1602,9 @@ class SEOAutoFix_Broken_Url_Management
 
         // OLD CODE (WRONG - deleted snapshot after first undo):
         // $deleted = $wpdb->delete($table_snapshot, array('scan_id' => $scan_id), array('%s'));
-        // error_log('[UNDO] Deleted ' . $deleted . ' snapshot entries');
+        // \SEOAutoFix_Debug_Logger::log('[UNDO] Deleted ' . $deleted . ' snapshot entries');
 
-        error_log('[UNDO] Snapshot preserved for potential future undos');
+        \SEOAutoFix_Debug_Logger::log('[UNDO] Snapshot preserved for potential future undos');
 
         // ===== CRITICAL: Clean up database entries so links appear as broken again =====
         $table_activity = $wpdb->prefix . 'seoautofix_broken_links_activity';
@@ -1612,7 +1612,7 @@ class SEOAutoFix_Broken_Url_Management
 
         // Get the page IDs that were restored
         $restored_page_ids = array_column($snapshots, 'page_id');
-        error_log('[UNDO] Cleaning up database entries for pages: ' . implode(',', $restored_page_ids));
+        \SEOAutoFix_Debug_Logger::log('[UNDO] Cleaning up database entries for pages: ' . implode(',', $restored_page_ids));
 
         // Delete activity log entries for this scan (all fixes/deletes done in this scan)
         $activity_deleted = $wpdb->delete(
@@ -1620,7 +1620,7 @@ class SEOAutoFix_Broken_Url_Management
             array('scan_id' => $scan_id),
             array('%s')
         );
-        error_log('[UNDO] Deleted ' . $activity_deleted . ' activity log entries');
+        \SEOAutoFix_Debug_Logger::log('[UNDO] Deleted ' . $activity_deleted . ' activity log entries');
 
 
 
@@ -1629,18 +1629,18 @@ class SEOAutoFix_Broken_Url_Management
         if (!empty($restored_page_ids)) {
             $placeholders = implode(',', array_fill(0, count($restored_page_ids), '%d'));
 
-            error_log('[UNDO] About to update entries for page IDs: ' . implode(',', $restored_page_ids));
-            error_log('[UNDO] Scan ID: ' . $scan_id);
-            error_log('[UNDO] Query will be: UPDATE ' . $table_scan_results . ' SET is_fixed = 0, is_deleted = 0 WHERE scan_id = ' . $scan_id . ' AND found_on_page_id IN (' . implode(',', $restored_page_ids) . ')');
+            \SEOAutoFix_Debug_Logger::log('[UNDO] About to update entries for page IDs: ' . implode(',', $restored_page_ids));
+            \SEOAutoFix_Debug_Logger::log('[UNDO] Scan ID: ' . $scan_id);
+            \SEOAutoFix_Debug_Logger::log('[UNDO] Query will be: UPDATE ' . $table_scan_results . ' SET is_fixed = 0, is_deleted = 0 WHERE scan_id = ' . $scan_id . ' AND found_on_page_id IN (' . implode(',', $restored_page_ids) . ')');
 
             $results_updated = $wpdb->query($wpdb->prepare(
                 "UPDATE {$table_scan_results} SET is_fixed = 0, is_deleted = 0 WHERE scan_id = %s AND found_on_page_id IN ($placeholders)",
                 array_merge(array($scan_id), $restored_page_ids)
             ));
 
-            error_log('[UNDO] Update query executed. Rows affected: ' . $results_updated);
-            error_log('[UNDO] WPDB last error: ' . $wpdb->last_error);
-            error_log('[UNDO] Marked ' . $results_updated . ' entries as unfixed and undeleted for restored pages');
+            \SEOAutoFix_Debug_Logger::log('[UNDO] Update query executed. Rows affected: ' . $results_updated);
+            \SEOAutoFix_Debug_Logger::log('[UNDO] WPDB last error: ' . $wpdb->last_error);
+            \SEOAutoFix_Debug_Logger::log('[UNDO] Marked ' . $results_updated . ' entries as unfixed and undeleted for restored pages');
         }
 
         wp_send_json_success(array(
@@ -1731,13 +1731,13 @@ class SEOAutoFix_Broken_Url_Management
             wp_send_json_error(array('message' => __('URL is required', 'seo-autofix-pro')));
         }
 
-        error_log('[ASYNC URL TESTING] Testing external URL: ' . $url);
+        \SEOAutoFix_Debug_Logger::log('[ASYNC URL TESTING] Testing external URL: ' . $url);
 
         // Use the URL testing proxy
         $proxy = new URL_Testing_Proxy();
         $result = $proxy->test_external_url($url);
 
-        error_log('[ASYNC URL TESTING] Result for ' . $url . ': Status ' . $result['status_code']);
+        \SEOAutoFix_Debug_Logger::log('[ASYNC URL TESTING] Result for ' . $url . ': Status ' . $result['status_code']);
 
         wp_send_json_success($result);
     }
@@ -1760,13 +1760,13 @@ class SEOAutoFix_Broken_Url_Management
             wp_send_json_error(array('message' => __('URLs are required', 'seo-autofix-pro')));
         }
 
-        error_log('[ASYNC URL TESTING] Testing batch of ' . count($urls) . ' external URLs');
+        \SEOAutoFix_Debug_Logger::log('[ASYNC URL TESTING] Testing batch of ' . count($urls) . ' external URLs');
 
         // Use the URL testing proxy
         $proxy = new URL_Testing_Proxy();
         $results = $proxy->test_external_urls_batch($urls, 10); // Test 10 URLs in parallel
 
-        error_log('[ASYNC URL TESTING] Batch complete. Tested ' . count($results) . ' URLs');
+        \SEOAutoFix_Debug_Logger::log('[ASYNC URL TESTING] Batch complete. Tested ' . count($results) . ' URLs');
 
         wp_send_json_success(array(
             'results' => $results,
@@ -1793,12 +1793,12 @@ class SEOAutoFix_Broken_Url_Management
             wp_send_json_error(array('message' => __('Scan ID is required', 'seo-autofix-pro')));
         }
 
-        error_log('[GET PAGE URLS BATCH] Scan ID: ' . $scan_id . ', Batch size: ' . $batch_size);
+        \SEOAutoFix_Debug_Logger::log('[GET PAGE URLS BATCH] Scan ID: ' . $scan_id . ', Batch size: ' . $batch_size);
 
         // Get URLs from transient
         $all_urls = get_transient('seoautofix_scan_urls_' . $scan_id);
         if ($all_urls === false) {
-            error_log('[GET PAGE URLS BATCH] No URLs found in transient');
+            \SEOAutoFix_Debug_Logger::log('[GET PAGE URLS BATCH] No URLs found in transient');
             wp_send_json_success(array(
                 'urls' => array(),
                 'completed' => true,
@@ -1813,13 +1813,13 @@ class SEOAutoFix_Broken_Url_Management
             $progress_index = 0;
         }
 
-        error_log('[GET PAGE URLS BATCH] Progress: ' . $progress_index . '/' . count($all_urls));
+        \SEOAutoFix_Debug_Logger::log('[GET PAGE URLS BATCH] Progress: ' . $progress_index . '/' . count($all_urls));
 
         // Get batch of URLs
         $batch_urls = array_slice($all_urls, $progress_index, $batch_size);
 
         if (empty($batch_urls)) {
-            error_log('[GET PAGE URLS BATCH] No more URLs to process, marking as completed');
+            \SEOAutoFix_Debug_Logger::log('[GET PAGE URLS BATCH] No more URLs to process, marking as completed');
 
             // Mark scan as complete
             $db_manager = new Database_Manager();
@@ -1846,7 +1846,7 @@ class SEOAutoFix_Broken_Url_Management
 
         $progress_percent = round(($new_progress / count($all_urls)) * 100, 2);
 
-        error_log('[GET PAGE URLS BATCH] Returning ' . count($batch_urls) . ' URLs. Progress: ' . $progress_percent . '%');
+        \SEOAutoFix_Debug_Logger::log('[GET PAGE URLS BATCH] Returning ' . count($batch_urls) . ' URLs. Progress: ' . $progress_percent . '%');
 
         wp_send_json_success(array(
             'urls' => $batch_urls,
@@ -1875,13 +1875,13 @@ class SEOAutoFix_Broken_Url_Management
             wp_send_json_error(array('message' => __('URL is required', 'seo-autofix-pro')));
         }
 
-        error_log('[TEST URL PROXY] Testing URL: ' . $url);
+        \SEOAutoFix_Debug_Logger::log('[TEST URL PROXY] Testing URL: ' . $url);
 
         // Test the URL using Link_Tester
         $link_tester = new Link_Tester();
         $result = $link_tester->test_url($url);
 
-        error_log('[TEST URL PROXY] Result for ' . $url . ': Status ' . $result['status_code'] . ', Broken: ' . ($result['is_broken'] ? 'yes' : 'no'));
+        \SEOAutoFix_Debug_Logger::log('[TEST URL PROXY] Result for ' . $url . ': Status ' . $result['status_code'] . ', Broken: ' . ($result['is_broken'] ? 'yes' : 'no'));
 
         wp_send_json_success($result);
     }
@@ -1892,20 +1892,33 @@ class SEOAutoFix_Broken_Url_Management
      */
     public function ajax_save_broken_links_batch()
     {
+        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] ========== ENDPOINT CALLED ==========');
+        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Timestamp: ' . current_time('mysql'));
+        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] POST data keys: ' . implode(', ', array_keys($_POST)));
+        
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
+        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] ✅ Nonce verified');
 
         if (!current_user_can('manage_options')) {
+            \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] ❌ Unauthorized user');
             wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
         }
+        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] ✅ User authorized');
 
         $scan_id = isset($_POST['scan_id']) ? sanitize_text_field($_POST['scan_id']) : '';
         $broken_links_json = isset($_POST['broken_links']) ? stripslashes($_POST['broken_links']) : '';
+        
+        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Scan ID: ' . $scan_id);
+        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Broken links JSON length: ' . strlen($broken_links_json) . ' characters');
+        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Broken links JSON preview (first 500 chars): ' . substr($broken_links_json, 0, 500));
 
         if (empty($scan_id)) {
+            \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] ❌ Missing scan ID');
             wp_send_json_error(array('message' => __('Scan ID is required', 'seo-autofix-pro')));
         }
 
         if (empty($broken_links_json)) {
+            \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] ℹ️ No broken links JSON provided');
             // No broken links to save is not an error
             wp_send_json_success(array(
                 'saved_count' => 0,
@@ -1915,19 +1928,28 @@ class SEOAutoFix_Broken_Url_Management
         }
 
         $broken_links = json_decode($broken_links_json, true);
+        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] JSON decode result type: ' . gettype($broken_links));
+        
         if (!is_array($broken_links)) {
+            \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] ❌ JSON decode failed or returned non-array');
+            \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] JSON error: ' . json_last_error_msg());
             wp_send_json_error(array('message' => __('Invalid broken links data', 'seo-autofix-pro')));
         }
 
-        error_log('[SAVE BROKEN LINKS BATCH] Saving ' . count($broken_links) . ' broken links for scan: ' . $scan_id);
+        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Saving ' . count($broken_links) . ' broken links for scan: ' . $scan_id);
 
         $db_manager = new Database_Manager();
         $saved_count = 0;
 
-        foreach ($broken_links as $link) {
+        foreach ($broken_links as $index => $link) {
+            \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Processing link #' . ($index + 1));
+            \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Link data: ' . print_r($link, true));
+            
             // Validate required fields
             if (empty($link['url']) || empty($link['found_on_url'])) {
-                error_log('[SAVE BROKEN LINKS BATCH] Skipping link - missing required fields');
+                \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] ⚠️ Skipping link - missing required fields');
+                \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] url present: ' . (isset($link['url']) ? 'yes' : 'no'));
+                \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] found_on_url present: ' . (isset($link['found_on_url']) ? 'yes' : 'no'));
                 continue;
             }
 
@@ -1944,18 +1966,32 @@ class SEOAutoFix_Broken_Url_Management
                 'location' => isset($link['location']) ? sanitize_text_field($link['location']) : 'content',
                 'suggested_url' => isset($link['suggested_url']) ? esc_url_raw($link['suggested_url']) : null
             );
+            
+            \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Prepared link_data: ' . print_r($link_data, true));
+            \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Calling db_manager->add_broken_link() for: ' . $link_data['broken_url']);
 
             // Save to database
             $result = $db_manager->add_broken_link($scan_id, $link_data);
+            
+            \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] add_broken_link() returned: ' . ($result ? 'TRUE' : 'FALSE'));
+            
             if ($result) {
                 $saved_count++;
+                \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] ✅ Successfully saved link #' . ($index + 1));
+            } else {
+                \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] ❌ Failed to save link #' . ($index + 1));
             }
         }
 
-        error_log('[SAVE BROKEN LINKS BATCH] Saved ' . $saved_count . ' broken links');
+        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] ========== SAVE COMPLETE ==========');
+        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Total links processed: ' . count($broken_links));
+        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Successfully saved: ' . $saved_count);
+        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Failed to save: ' . (count($broken_links) - $saved_count));
 
         // Update scan statistics
+        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Getting scan progress for statistics...');
         $broken_count = $db_manager->get_scan_progress($scan_id)['broken_count'];
+        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Current broken count in database: ' . $broken_count);
 
         wp_send_json_success(array(
             'saved_count' => $saved_count,

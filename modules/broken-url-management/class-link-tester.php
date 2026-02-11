@@ -299,7 +299,7 @@ class Link_Tester
             return array();
         }
 
-        error_log('[LINK TESTER] 🚀 Starting parallel testing for ' . count($urls) . ' URLs (limit: ' . $parallel_limit . ' concurrent)');
+        \SEOAutoFix_Debug_Logger::log('[LINK TESTER] 🚀 Starting parallel testing for ' . count($urls) . ' URLs (limit: ' . $parallel_limit . ' concurrent)');
         
         $results = array();
         
@@ -307,22 +307,22 @@ class Link_Tester
         $url_chunks = array_chunk($urls, $parallel_limit, true);
         $total_chunks = count($url_chunks);
         
-        error_log('[LINK TESTER] Processing ' . $total_chunks . ' chunks');
+        \SEOAutoFix_Debug_Logger::log('[LINK TESTER] Processing ' . $total_chunks . ' chunks');
         
         foreach ($url_chunks as $chunk_index => $chunk) {
             $chunk_num = $chunk_index + 1;
-            error_log('[LINK TESTER] Chunk ' . $chunk_num . '/' . $total_chunks . ': Testing ' . count($chunk) . ' URLs simultaneously...');
+            \SEOAutoFix_Debug_Logger::log('[LINK TESTER] Chunk ' . $chunk_num . '/' . $total_chunks . ': Testing ' . count($chunk) . ' URLs simultaneously...');
             
             $start_time = microtime(true);
             $chunk_results = $this->execute_parallel_curl($chunk);
             $duration = round(microtime(true) - $start_time, 2);
             
-            error_log('[LINK TESTER] Chunk ' . $chunk_num . '/' . $total_chunks . ' complete (' . $duration . ' seconds)');
+            \SEOAutoFix_Debug_Logger::log('[LINK TESTER] Chunk ' . $chunk_num . '/' . $total_chunks . ' complete (' . $duration . ' seconds)');
             
             $results = array_merge($results, $chunk_results);
         }
         
-        error_log('[LINK TESTER] ✅ Parallel testing complete. Tested ' . count($results) . ' URLs');
+        \SEOAutoFix_Debug_Logger::log('[LINK TESTER] ✅ Parallel testing complete. Tested ' . count($results) . ' URLs');
         
         return $results;
     }

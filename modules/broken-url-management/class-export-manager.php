@@ -393,8 +393,8 @@ class Export_Manager
         global $wpdb;
         $table_activity = $wpdb->prefix . 'seoautofix_broken_links_activity';
         
-        error_log('[EXPORT ACTIVITY LOG] Starting export for scan_id: ' . $scan_id);
-        error_log('[EXPORT ACTIVITY LOG] Table name: ' . $table_activity);
+        \SEOAutoFix_Debug_Logger::log('[EXPORT ACTIVITY LOG] Starting export for scan_id: ' . $scan_id);
+        \SEOAutoFix_Debug_Logger::log('[EXPORT ACTIVITY LOG] Table name: ' . $table_activity);
         
         // Get all activity for this scan
         $query = $wpdb->prepare(
@@ -402,18 +402,18 @@ class Export_Manager
             $scan_id
         );
         
-        error_log('[EXPORT ACTIVITY LOG] Query: ' . $query);
+        \SEOAutoFix_Debug_Logger::log('[EXPORT ACTIVITY LOG] Query: ' . $query);
         
         $activities = $wpdb->get_results($query, ARRAY_A);
         
-        error_log('[EXPORT ACTIVITY LOG] Found ' . count($activities) . ' activity entries');
+        \SEOAutoFix_Debug_Logger::log('[EXPORT ACTIVITY LOG] Found ' . count($activities) . ' activity entries');
         
         if (!empty($activities)) {
-            error_log('[EXPORT ACTIVITY LOG] First entry: ' . print_r($activities[0], true));
+            \SEOAutoFix_Debug_Logger::log('[EXPORT ACTIVITY LOG] First entry: ' . print_r($activities[0], true));
         }
 
         if (empty($activities)) {
-            error_log('[EXPORT ACTIVITY LOG] No activities found, returning false');
+            \SEOAutoFix_Debug_Logger::log('[EXPORT ACTIVITY LOG] No activities found, returning false');
             return false;
         }
 
@@ -466,7 +466,7 @@ class Export_Manager
         global $wpdb;
         $table_activity = $wpdb->prefix . 'seoautofix_broken_links_activity';
         
-        error_log('[EMAIL ACTIVITY LOG] Starting for scan_id: ' . $scan_id);
+        \SEOAutoFix_Debug_Logger::log('[EMAIL ACTIVITY LOG] Starting for scan_id: ' . $scan_id);
         
         // Get all activity for this scan
         $activities = $wpdb->get_results($wpdb->prepare(
@@ -475,14 +475,14 @@ class Export_Manager
         ), ARRAY_A);
 
         if (empty($activities)) {
-            error_log('[EMAIL ACTIVITY LOG] No activities found');
+            \SEOAutoFix_Debug_Logger::log('[EMAIL ACTIVITY LOG] No activities found');
             return array(
                 'success' => false,
                 'message' => __('No fixed links to export', 'seo-autofix-pro')
             );
         }
 
-        error_log('[EMAIL ACTIVITY LOG] Found ' . count($activities) . ' activities');
+        \SEOAutoFix_Debug_Logger::log('[EMAIL ACTIVITY LOG] Found ' . count($activities) . ' activities');
 
         // Generate CSV content
         $csv_content = '';
@@ -509,7 +509,7 @@ class Export_Manager
 
         // Get admin email automatically
         $admin_email = get_option('admin_email');
-        error_log('[EMAIL ACTIVITY LOG] Sending to admin email: ' . $admin_email);
+        \SEOAutoFix_Debug_Logger::log('[EMAIL ACTIVITY LOG] Sending to admin email: ' . $admin_email);
 
         // Email subject
         $subject = 'Broken Links Fixed Report - ' . get_bloginfo('name');
@@ -533,14 +533,14 @@ class Export_Manager
         $written = file_put_contents($temp_file, $csv_content);
         
         if (!$written) {
-            error_log('[EMAIL ACTIVITY LOG] Failed to create temp file');
+            \SEOAutoFix_Debug_Logger::log('[EMAIL ACTIVITY LOG] Failed to create temp file');
             return array(
                 'success' => false,
                 'message' => __('Failed to create CSV file', 'seo-autofix-pro')
             );
         }
 
-        error_log('[EMAIL ACTIVITY LOG] Temp file created: ' . $temp_file);
+        \SEOAutoFix_Debug_Logger::log('[EMAIL ACTIVITY LOG] Temp file created: ' . $temp_file);
 
         // Send email
         $sent = wp_mail($admin_email, $subject, $message, '', array($temp_file));
@@ -548,17 +548,17 @@ class Export_Manager
         // Clean up temp file
         if (file_exists($temp_file)) {
             unlink($temp_file);
-            error_log('[EMAIL ACTIVITY LOG] Temp file deleted');
+            \SEOAutoFix_Debug_Logger::log('[EMAIL ACTIVITY LOG] Temp file deleted');
         }
 
         if ($sent) {
-            error_log('[EMAIL ACTIVITY LOG] Email sent successfully');
+            \SEOAutoFix_Debug_Logger::log('[EMAIL ACTIVITY LOG] Email sent successfully');
             return array(
                 'success' => true,
                 'message' => sprintf(__('Report sent to %s', 'seo-autofix-pro'), $admin_email)
             );
         } else {
-            error_log('[EMAIL ACTIVITY LOG] Failed to send email');
+            \SEOAutoFix_Debug_Logger::log('[EMAIL ACTIVITY LOG] Failed to send email');
             
             // Check if localhost
             $is_localhost = (strpos($_SERVER['HTTP_HOST'], 'localhost') !== false || strpos($_SERVER['HTTP_HOST'], '127.0.0.1') !== false);

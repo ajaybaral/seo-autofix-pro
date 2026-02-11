@@ -67,15 +67,15 @@ class Link_Crawler
      */
     public function start_scan()
     {
-        error_log('[CRAWLER] start_scan() called');
+        \SEOAutoFix_Debug_Logger::log('[CRAWLER] start_scan() called');
 
         // Create new scan entry
         $scan_id = $this->db_manager->create_scan();
-        error_log('[CRAWLER] Created scan with ID: ' . $scan_id);
+        \SEOAutoFix_Debug_Logger::log('[CRAWLER] Created scan with ID: ' . $scan_id);
 
         // Get all URLs to crawl and store in scan metadata
         $all_urls = $this->get_all_site_urls();
-        error_log('[CRAWLER] Found ' . count($all_urls) . ' URLs to crawl');
+        \SEOAutoFix_Debug_Logger::log('[CRAWLER] Found ' . count($all_urls) . ' URLs to crawl');
 
         // Update scan with total URLs found
         $this->db_manager->update_scan($scan_id, array(
@@ -86,7 +86,7 @@ class Link_Crawler
         set_transient('seoautofix_scan_urls_' . $scan_id, $all_urls, DAY_IN_SECONDS);
         set_transient('seoautofix_scan_progress_' . $scan_id, 0, DAY_IN_SECONDS);
 
-        error_log('[CRAWLER] Scan initialized, ready for batch processing');
+        \SEOAutoFix_Debug_Logger::log('[CRAWLER] Scan initialized, ready for batch processing');
 
         return $scan_id;
     }
@@ -100,12 +100,12 @@ class Link_Crawler
      */
     public function process_batch($scan_id, $batch_size = 5)
     {
-        error_log('[CRAWLER] process_batch() called for scan: ' . $scan_id . ', batch_size: ' . $batch_size);
+        \SEOAutoFix_Debug_Logger::log('[CRAWLER] process_batch() called for scan: ' . $scan_id . ', batch_size: ' . $batch_size);
 
         // Get URLs to process
         $all_urls = get_transient('seoautofix_scan_urls_' . $scan_id);
         if ($all_urls === false) {
-            error_log('[CRAWLER] No URLs found in transient, scan may have expired');
+            \SEOAutoFix_Debug_Logger::log('[CRAWLER] No URLs found in transient, scan may have expired');
             return array(
                 'completed' => true,
                 'error' => 'Scan data expired'
@@ -118,13 +118,13 @@ class Link_Crawler
             $progress_index = 0;
         }
 
-        error_log('[CRAWLER] Current progress: ' . $progress_index . '/' . count($all_urls));
+        \SEOAutoFix_Debug_Logger::log('[CRAWLER] Current progress: ' . $progress_index . '/' . count($all_urls));
 
         // Get the batch of URLs to process
         $batch_urls = array_slice($all_urls, $progress_index, $batch_size);
 
         if (empty($batch_urls)) {
-            error_log('[CRAWLER] No more URLs to process, marking scan as completed');
+            \SEOAutoFix_Debug_Logger::log('[CRAWLER] No more URLs to process, marking scan as completed');
 
             // Mark scan as complete
             $this->db_manager->update_scan($scan_id, array(
@@ -165,11 +165,11 @@ class Link_Crawler
             $page_id = is_array($page_data) && isset($page_data['page_id']) ? $page_data['page_id'] : 0;
             $page_title = is_array($page_data) && isset($page_data['page_title']) ? $page_data['page_title'] : '';
 
-            error_log('[CRAWLER] Extracting links from: ' . $page_url . ' (Title: ' . $page_title . ')');
+            \SEOAutoFix_Debug_Logger::log('[CRAWLER] Extracting links from: ' . $page_url . ' (Title: ' . $page_title . ')');
 
             // Use v2 method to get links with metadata
             $links = $this->extract_links_from_page_v2($page_url, $page_id, $page_title);
-            error_log('[CRAWLER] Found ' . count($links) . ' links on this page');
+            \SEOAutoFix_Debug_Logger::log('[CRAWLER] Found ' . count($links) . ' links on this page');
 
             foreach ($links as $link_data) {
                 $link_url = $link_data['url'];
@@ -202,14 +202,14 @@ class Link_Crawler
 
         $progress_percent = round(($new_progress / count($all_urls)) * 100, 2);
 
-        error_log('[CRAWLER] Batch completed. Progress: ' . $new_progress . '/' . count($all_urls) . ' (' . $progress_percent . '%)');
+        \SEOAutoFix_Debug_Logger::log('[CRAWLER] Batch completed. Progress: ' . $new_progress . '/' . count($all_urls) . ' (' . $progress_percent . '%)');
 
         // Get current broken links and stats for real-time frontend updates
         $broken_links = $this->get_broken_links_for_scan($scan_id);
         $stats = $this->get_scan_stats($scan_id);
 
-        error_log('[CRAWLER] 🔵 Returning batch response with ' . count($broken_links) . ' broken links');
-        error_log('[CRAWLER] Stats: total=' . $stats['total'] . ', 4xx=' . $stats['4xx'] . ', 5xx=' . $stats['5xx']);
+        \SEOAutoFix_Debug_Logger::log('[CRAWLER] 🔵 Returning batch response with ' . count($broken_links) . ' broken links');
+        \SEOAutoFix_Debug_Logger::log('[CRAWLER] Stats: total=' . $stats['total'] . ', 4xx=' . $stats['4xx'] . ', 5xx=' . $stats['5xx']);
 
         return array(
             'completed' => false,
@@ -316,10 +316,10 @@ class Link_Crawler
         $max_links_per_batch = 30;
         if (count($links_to_test) > $max_links_per_batch) {
             $links_to_test = array_slice($links_to_test, 0, $max_links_per_batch, true);
-            error_log('[CRAWLER] Limited to ' . $max_links_per_batch . ' links per batch (from ' . count($all_links) . ' total)');
+            \SEOAutoFix_Debug_Logger::log('[CRAWLER] Limited to ' . $max_links_per_batch . ' links per batch (from ' . count($all_links) . ' total)');
         }
 
-        error_log('[CRAWLER] Testing ' . count($links_to_test) . ' new links');
+        \SEOAutoFix_Debug_Logger::log('[CRAWLER] Testing ' . count($links_to_test) . ' new links');
 
         // Get valid internal URLs for similarity matching
         $valid_internal_urls_data = $this->get_all_site_urls();
@@ -330,7 +330,7 @@ class Link_Crawler
         $broken_urls_in_scan = $this->db_manager->get_broken_urls_for_scan($scan_id);
         if (!empty($broken_urls_in_scan)) {
             $valid_internal_urls = array_diff($valid_internal_urls, $broken_urls_in_scan);
-            error_log('[CRAWLER] Filtered out ' . count($broken_urls_in_scan) . ' broken URLs from suggestions');
+            \SEOAutoFix_Debug_Logger::log('[CRAWLER] Filtered out ' . count($broken_urls_in_scan) . ' broken URLs from suggestions');
         }
 
         $tested_count = 0;
@@ -347,7 +347,7 @@ class Link_Crawler
 
             // Skip template-generated links (theme/plugin auto-generated)
             if ($this->is_template_generated_link($link)) {
-                error_log('[CRAWLER] Skipping template-generated link: ' . $link);
+                \SEOAutoFix_Debug_Logger::log('[CRAWLER] Skipping template-generated link: ' . $link);
                 $template_links[] = $link;
                 $tested_count++;
                 continue;
@@ -361,11 +361,11 @@ class Link_Crawler
             }
         }
 
-        error_log('[CRAWLER] 📊 URL categorization: Internal=' . count($internal_links) . ', External=' . count($external_links) . ', Skipped=' . count($template_links));
+        \SEOAutoFix_Debug_Logger::log('[CRAWLER] 📊 URL categorization: Internal=' . count($internal_links) . ', External=' . count($external_links) . ', Skipped=' . count($template_links));
 
         // ✅ PROCESS INTERNAL URLs (FAST - WordPress functions)
         if (!empty($internal_links)) {
-            error_log('[CRAWLER] ⚡ Testing ' . count($internal_links) . ' internal URLs (fast WordPress functions)...');
+            \SEOAutoFix_Debug_Logger::log('[CRAWLER] ⚡ Testing ' . count($internal_links) . ' internal URLs (fast WordPress functions)...');
 
             foreach ($internal_links as $link => $found_on_pages) {
                 $test_result = $this->link_tester->test_url($link);
@@ -378,19 +378,19 @@ class Link_Crawler
                 }
             }
 
-            error_log('[CRAWLER] ✅ Internal URLs testing complete');
+            \SEOAutoFix_Debug_Logger::log('[CRAWLER] ✅ Internal URLs testing complete');
         }
 
         // ✅ PROCESS EXTERNAL URLs (PARALLEL - cURL multi-handle)
         if (!empty($external_links)) {
-            error_log('[CRAWLER] 🚀 Testing ' . count($external_links) . ' external URLs (parallel testing)...');
+            \SEOAutoFix_Debug_Logger::log('[CRAWLER] 🚀 Testing ' . count($external_links) . ' external URLs (parallel testing)...');
 
             $external_urls_list = array_keys($external_links);
             $start_time = microtime(true);
             $parallel_results = $this->link_tester->test_urls_parallel($external_urls_list, self::PARALLEL_LIMIT);
             $duration = round(microtime(true) - $start_time, 2);
 
-            error_log('[CRAWLER] ✅ Parallel testing complete (' . $duration . ' seconds for ' . count($external_urls_list) . ' URLs)');
+            \SEOAutoFix_Debug_Logger::log('[CRAWLER] ✅ Parallel testing complete (' . $duration . ' seconds for ' . count($external_urls_list) . ' URLs)');
 
             foreach ($parallel_results as $link => $test_result) {
                 $tested_count++;
@@ -414,7 +414,7 @@ class Link_Crawler
         // Save tested links
         set_transient('seoautofix_scan_tested_' . $scan_id, $tested_links, DAY_IN_SECONDS);
 
-        error_log('[CRAWLER] Testing batch complete. Tested: ' . $tested_count . ', Broken: ' . $broken_count);
+        \SEOAutoFix_Debug_Logger::log('[CRAWLER] Testing batch complete. Tested: ' . $tested_count . ', Broken: ' . $broken_count);
     }
 
 
@@ -445,8 +445,8 @@ class Link_Crawler
 
         $query = new \WP_Query($args);
 
-        error_log('[CRAWLER] WP_Query found ' . $query->found_posts . ' total posts/pages');
-        error_log('[CRAWLER] Post types queried: ' . implode(', ', $args['post_type']));
+        \SEOAutoFix_Debug_Logger::log('[CRAWLER] WP_Query found ' . $query->found_posts . ' total posts/pages');
+        \SEOAutoFix_Debug_Logger::log('[CRAWLER] Post types queried: ' . implode(', ', $args['post_type']));
 
         if ($query->have_posts()) {
             while ($query->have_posts()) {
@@ -456,12 +456,12 @@ class Link_Crawler
                     'page_id' => get_the_ID(),
                     'page_title' => get_the_title()
                 );
-                error_log('[CRAWLER] Added URL: ' . get_the_title() . ' (' . get_permalink() . ')');
+                \SEOAutoFix_Debug_Logger::log('[CRAWLER] Added URL: ' . get_the_title() . ' (' . get_permalink() . ')');
             }
             wp_reset_postdata();
         }
 
-        error_log('[CRAWLER] Total URLs to crawl (including homepage): ' . count($urls));
+        \SEOAutoFix_Debug_Logger::log('[CRAWLER] Total URLs to crawl (including homepage): ' . count($urls));
 
         return $urls;
     }
@@ -543,7 +543,7 @@ class Link_Crawler
         if ($page_id > 0) {
             $elementor_links = $this->extract_links_from_elementor_data($page_id, $page_title, $url);
             if (!empty($elementor_links)) {
-                error_log('[CRAWLER] 🎨 Found ' . count($elementor_links) . ' links in Elementor data for page: ' . $page_title);
+                \SEOAutoFix_Debug_Logger::log('[CRAWLER] 🎨 Found ' . count($elementor_links) . ' links in Elementor data for page: ' . $page_title);
                 $links = array_merge($links, $elementor_links);
             }
         }
@@ -694,13 +694,13 @@ class Link_Crawler
             return array();
         }
         
-        error_log('[CRAWLER] 🎨 Page ID ' . $page_id . ' (' . $page_title . ') is an Elementor page - extracting links from _elementor_data');
+        \SEOAutoFix_Debug_Logger::log('[CRAWLER] 🎨 Page ID ' . $page_id . ' (' . $page_title . ') is an Elementor page - extracting links from _elementor_data');
         
         // Get Elementor data
         $elementor_data = get_post_meta($page_id, '_elementor_data', true);
         
         if (empty($elementor_data)) {
-            error_log('[CRAWLER] ⚠️ No _elementor_data found for page ID ' . $page_id);
+            \SEOAutoFix_Debug_Logger::log('[CRAWLER] ⚠️ No _elementor_data found for page ID ' . $page_id);
             return array();
         }
         
@@ -708,7 +708,7 @@ class Link_Crawler
         $data = json_decode($elementor_data, true);
         
         if (!is_array($data)) {
-            error_log('[CRAWLER] ⚠️ Failed to decode _elementor_data JSON for page ID ' . $page_id);
+            \SEOAutoFix_Debug_Logger::log('[CRAWLER] ⚠️ Failed to decode _elementor_data JSON for page ID ' . $page_id);
             return array();
         }
         
@@ -717,7 +717,7 @@ class Link_Crawler
         // Recursively search for URLs in Elementor data
         $this->search_elementor_data_for_links($data, $page_id, $page_title, $page_url, $links);
         
-        error_log('[CRAWLER] 🎨 Extracted ' . count($links) . ' links from Elementor data');
+        \SEOAutoFix_Debug_Logger::log('[CRAWLER] 🎨 Extracted ' . count($links) . ' links from Elementor data');
         
         return $links;
     }
@@ -994,7 +994,7 @@ class Link_Crawler
         );
 
         $attachments = get_posts($args);
-        error_log('[CRAWLER] Found ' . count($attachments) . ' attachments of type: ' . $content_type);
+        \SEOAutoFix_Debug_Logger::log('[CRAWLER] Found ' . count($attachments) . ' attachments of type: ' . $content_type);
 
         foreach ($attachments as $attachment) {
             $url = wp_get_attachment_url($attachment->ID);
@@ -1015,7 +1015,7 @@ class Link_Crawler
         }
 
         $unique_urls = array_unique($media_urls);
-        error_log('[CRAWLER] Total unique ' . $content_type . ' URLs: ' . count($unique_urls));
+        \SEOAutoFix_Debug_Logger::log('[CRAWLER] Total unique ' . $content_type . ' URLs: ' . count($unique_urls));
 
         return $unique_urls;
     }
@@ -1063,7 +1063,7 @@ class Link_Crawler
      */
     private function process_broken_link($scan_id, $link, $found_on_pages, $test_result, $valid_internal_urls)
     {
-        error_log('[CRAWLER] 🔴 Processing broken link: ' . $link);
+        \SEOAutoFix_Debug_Logger::log('[CRAWLER] 🔴 Processing broken link: ' . $link);
 
         $is_internal = $this->url_similarity->is_internal_url($link);
         $link_type = $is_internal ? 'internal' : 'external';
@@ -1093,7 +1093,7 @@ class Link_Crawler
                 // ✅ CONTENT-TYPE AWARE SUGGESTION MATCHING
                 // Detect what type of URL this is (image, document, video, or page)
                 $broken_url_type = $this->get_url_content_type($link);
-                error_log('[CRAWLER] 🔍 Broken URL type detected: ' . $broken_url_type . ' for URL: ' . $link);
+                \SEOAutoFix_Debug_Logger::log('[CRAWLER] 🔍 Broken URL type detected: ' . $broken_url_type . ' for URL: ' . $link);
 
                 // Get appropriate candidate URLs based on content type
                 $candidate_urls = array();
@@ -1101,19 +1101,19 @@ class Link_Crawler
                 if ($broken_url_type === 'image') {
                     // Get all image URLs from media library
                     $candidate_urls = $this->get_all_media_urls('image');
-                    error_log('[CRAWLER] Searching within ' . count($candidate_urls) . ' image URLs for match');
+                    \SEOAutoFix_Debug_Logger::log('[CRAWLER] Searching within ' . count($candidate_urls) . ' image URLs for match');
                 } elseif ($broken_url_type === 'document') {
                     // Get all document URLs from media library
                     $candidate_urls = $this->get_all_media_urls('document');
-                    error_log('[CRAWLER] Searching within ' . count($candidate_urls) . ' document URLs for match');
+                    \SEOAutoFix_Debug_Logger::log('[CRAWLER] Searching within ' . count($candidate_urls) . ' document URLs for match');
                 } elseif ($broken_url_type === 'video') {
                     // Get all video URLs from media library
                     $candidate_urls = $this->get_all_media_urls('video');
-                    error_log('[CRAWLER] Searching within ' . count($candidate_urls) . ' video URLs for match');
+                    \SEOAutoFix_Debug_Logger::log('[CRAWLER] Searching within ' . count($candidate_urls) . ' video URLs for match');
                 } elseif ($broken_url_type === 'audio') {
                     // Get all audio URLs from media library
                     $candidate_urls = $this->get_all_media_urls('audio');
-                    error_log('[CRAWLER] Searching within ' . count($candidate_urls) . ' audio URLs for match');
+                    \SEOAutoFix_Debug_Logger::log('[CRAWLER] Searching within ' . count($candidate_urls) . ' audio URLs for match');
                 } else {
                     // For regular page URLs, use site pages/posts
                     // Filter out the page where this broken link was found
@@ -1121,7 +1121,7 @@ class Link_Crawler
                         // Normalize URLs for comparison (remove trailing slashes)
                         return untrailingslashit($url) !== untrailingslashit($found_on_url);
                     });
-                    error_log('[CRAWLER] Searching within ' . count($candidate_urls) . ' page URLs for match');
+                    \SEOAutoFix_Debug_Logger::log('[CRAWLER] Searching within ' . count($candidate_urls) . ' page URLs for match');
                 }
 
                 // Find best match within same content type
@@ -1135,7 +1135,7 @@ class Link_Crawler
                     if ($score >= $min_score_threshold) {
                         $suggested_url = $match['url'];
                         $reason = $match['reason'];
-                        error_log('[CRAWLER] ✅ Found good match: ' . $suggested_url . ' (score: ' . $score . ')');
+                        \SEOAutoFix_Debug_Logger::log('[CRAWLER] ✅ Found good match: ' . $suggested_url . ' (score: ' . $score . ')');
                     } else {
                         // Score too low - don't suggest inappropriate match
                         $suggested_url = null;
@@ -1144,7 +1144,7 @@ class Link_Crawler
                             $broken_url_type,
                             $broken_url_type
                         );
-                        error_log('[CRAWLER] ⚠️ Match score too low (' . $score . ' < ' . $min_score_threshold . ') - no suggestion');
+                        \SEOAutoFix_Debug_Logger::log('[CRAWLER] ⚠️ Match score too low (' . $score . ' < ' . $min_score_threshold . ') - no suggestion');
                     }
                 } else {
                     // No candidate URLs of this type available
@@ -1154,7 +1154,7 @@ class Link_Crawler
                         $broken_url_type,
                         $broken_url_type
                     );
-                    error_log('[CRAWLER] ❌ No candidate URLs of type: ' . $broken_url_type);
+                    \SEOAutoFix_Debug_Logger::log('[CRAWLER] ❌ No candidate URLs of type: ' . $broken_url_type);
                 }
             } else {
                 $reason = __('This link is not working, either delete it or provide a new link', 'seo-autofix-pro');

@@ -293,7 +293,7 @@ class SEOAutoFix_Image_SEO
 
             if (!empty($results)) {
             } else {
-                error_log('⚠️ [SCAN] No results returned from analyzer');
+                \SEOAutoFix_Debug_Logger::log('⚠️ [SCAN] No results returned from analyzer');
             }
 
             // 🔧 CRITICAL FIX: REMOVED history population from scan process
@@ -382,9 +382,9 @@ class SEOAutoFix_Image_SEO
 
         } catch (\Exception $e) {
             $total_elapsed = microtime(true) - $start_time;
-            error_log('❌ [SCAN-ERROR] Exception after ' . number_format($total_elapsed, 3) . 's');
-            error_log('❌ [SCAN-ERROR] Message: ' . $e->getMessage());
-            error_log('❌ [SCAN-ERROR] Trace: ' . $e->getTraceAsString());
+            \SEOAutoFix_Debug_Logger::log('❌ [SCAN-ERROR] Exception after ' . number_format($total_elapsed, 3) . 's');
+            \SEOAutoFix_Debug_Logger::log('❌ [SCAN-ERROR] Message: ' . $e->getMessage());
+            \SEOAutoFix_Debug_Logger::log('❌ [SCAN-ERROR] Trace: ' . $e->getTraceAsString());
 
             $this->logger->log_error('Scan failed', $e->getMessage());
             wp_send_json_error(array(
@@ -837,7 +837,7 @@ class SEOAutoFix_Image_SEO
             $processed_offset = 0;
         }
 
-        error_log("[IMAGE-SEO] populate_history_batch called - offset: $processed_offset, batch: $batch_size");
+        \SEOAutoFix_Debug_Logger::log("[IMAGE-SEO] populate_history_batch called - offset: $processed_offset, batch: $batch_size");
 
         // Get a batch of images
         $images = get_posts(array(
@@ -850,12 +850,12 @@ class SEOAutoFix_Image_SEO
             'order' => 'ASC'
         ));
 
-        error_log("[IMAGE-SEO] Retrieved " . count($images) . " images for history population");
+        \SEOAutoFix_Debug_Logger::log("[IMAGE-SEO] Retrieved " . count($images) . " images for history population");
 
         // If no images found, we're done
         if (empty($images)) {
             delete_transient('seoautofix_history_offset');
-            error_log("[IMAGE-SEO] History population COMPLETE - no more images");
+            \SEOAutoFix_Debug_Logger::log("[IMAGE-SEO] History population COMPLETE - no more images");
             return true;
         }
 
@@ -901,12 +901,12 @@ class SEOAutoFix_Image_SEO
         $new_offset = $processed_offset + $processed;
         set_transient('seoautofix_history_offset', $new_offset, HOUR_IN_SECONDS);
 
-        error_log("[IMAGE-SEO] Processed $processed images. New offset: $new_offset");
+        \SEOAutoFix_Debug_Logger::log("[IMAGE-SEO] Processed $processed images. New offset: $new_offset");
 
         // Check if we processed fewer than batch size (means we're done)
         if (count($images) < $batch_size) {
             delete_transient('seoautofix_history_offset');
-            error_log("[IMAGE-SEO] History population COMPLETE - processed all images");
+            \SEOAutoFix_Debug_Logger::log("[IMAGE-SEO] History population COMPLETE - processed all images");
             return true;
         }
 

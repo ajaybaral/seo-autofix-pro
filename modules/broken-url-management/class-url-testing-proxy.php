@@ -111,7 +111,7 @@ class URL_Testing_Proxy
             return array();
         }
 
-        error_log('[URL TESTING PROXY] Testing ' . count($urls) . ' external URLs (limit: ' . $parallel_limit . ' concurrent)');
+        \SEOAutoFix_Debug_Logger::log('[URL TESTING PROXY] Testing ' . count($urls) . ' external URLs (limit: ' . $parallel_limit . ' concurrent)');
 
         $results = array();
 
@@ -123,7 +123,7 @@ class URL_Testing_Proxy
             $results = array_merge($results, $chunk_results);
         }
 
-        error_log('[URL TESTING PROXY] Completed testing ' . count($results) . ' URLs');
+        \SEOAutoFix_Debug_Logger::log('[URL TESTING PROXY] Completed testing ' . count($results) . ' URLs');
 
         return $results;
     }
