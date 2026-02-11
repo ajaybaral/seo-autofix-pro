@@ -1870,10 +1870,14 @@
     }
 
     /**
-     * Escape HTML
+     * Escape HTML special characters
      */
     function escapeHtml(text) {
-        const map = {
+        if (text === null || text === undefined) {
+            return '';
+        }
+        text = String(text); // Convert to string if not already
+        var map = {
             '&': '&amp;',
             '<': '&lt;',
             '>': '&gt;',
