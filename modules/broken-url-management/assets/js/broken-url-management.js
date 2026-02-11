@@ -450,110 +450,186 @@
     }
 
     /**
-     * Process a batch of URLs
+     * Process a batch of URLs (Frontend-driven v3.0)
+     * NEW: Fetches page URLs from backend, then uses frontend to:
+     * - Fetch rendered HTML
+     * - Parse with native DOMParser (works with ALL page builders)
+     * - Test URLs asynchronously
+     * - Save broken links to database
      */
-    function processBatch() {
-        console.log('[SCAN DEBUG] processBatch() called for scan_id:', currentScanId);
+    async function processBatch() {
+        console.log('[SCAN V3] processBatch() called for scan_id:', currentScanId);
 
-        $.ajax({
-            url: seoautofixBrokenUrls.ajaxUrl,
-            method: 'POST',
-            data: {
-                action: 'seoautofix_broken_links_process_batch',
-                nonce: seoautofixBrokenUrls.nonce,
-                scan_id: currentScanId
-            },
-            success: function (response) {
-                console.log('[SCAN DEBUG] Batch response:', response);
-
-                if (response.success) {
-                    const data = response.data;
-
-                    // Update progress BAR directly (bypass function to avoid cache issues)
-                    console.log('📊 UPDATING PROGRESS:', {
-                        progress: data.progress,
-                        pages: data.pages_processed + '/' + data.total_pages,
-                        links_tested: data.links_found,
-                        broken: data.stats ? data.stats.total : 0,
-                        completed: data.completed
-                    });
-
-                    // Update progress bar percentage
-                    const progress = Math.round(data.progress || 0);
-                    $('#scan-progress-fill').css('width', progress + '%');
-                    $('#scan-progress-percentage').text(progress + '%');
-
-                    // Show LINKS tested (not pages)
-                    if (data.links_found !== undefined) {
-                        const linksTested = data.links_found || 0;
-                        // While scanning: show "X" for both tested and total
-                        // This will update as more links are found
-                        $('#scan-urls-tested').text(linksTested);
-                        $('#scan-urls-total').text(linksTested);
-                        console.log('✅ Updated links tested:', linksTested);
-                    }
-
-                    if (data.stats && data.stats.total !== undefined) {
-                        $('#scan-broken-count').text(data.stats.total);
-                        console.log('✅ Updated broken count:', data.stats.total);
-
-                        // ✅ UPDATE 4xx AND 5xx STATS DYNAMICALLY
-                        if (data.stats['4xx'] !== undefined) {
-                            $('#header-4xx-count').text(data.stats['4xx']);
-                            console.log('✅ Updated 4xx count:', data.stats['4xx']);
-                        }
-                        if (data.stats['5xx'] !== undefined) {
-                            $('#header-5xx-count').text(data.stats['5xx']);
-                            console.log('✅ Updated 5xx count:', data.stats['5xx']);
-                        }
-                    }
-
-                    $('#scan-progress-text').text('Scanning...');
-
-                    console.log('✅ PROGRESS UPDATED');
-
-                    // NEW: Update results and stats in real-time if broken links found
-                    if (data.broken_links && data.broken_links.length > 0) {
-                        console.log('[SCAN DEBUG] 🟢 Found', data.broken_links.length, 'broken links, calling updateDynamicResults NOW');
-                        console.log('[SCAN DEBUG] Broken links data:', data.broken_links);
-                        console.log('[SCAN DEBUG] Stats:', data.stats);
-                        updateDynamicResults(data.broken_links, data.stats);
-                        console.log('[SCAN DEBUG] ✅ updateDynamicResults completed');
-                    } else {
-                        console.log('[SCAN DEBUG] No broken links in this batch');
-                    }
-
-                    if (data.completed) {
-                        console.log('[SCAN DEBUG] Scan completed!');
-                        $('#scan-progress-text').text(seoautofixBrokenUrls.strings.scanComplete || 'Scan complete!');
-
-                        // ✅ RE-ENABLE BUTTONS AND REMOVE LOADING ANIMATION
-                        isScanInProgress = false;
-                        setTableButtonsState(true); // Enable Fix/Remove/Replace buttons
-                        $('#results-table-body').closest('table').removeClass('scan-in-progress');
-                        console.log('[SCAN COMPLETE] Set isScanInProgress = false, enabled all action buttons');
-
-                        onScanComplete();
-                    } else {
-                        // Process next batch after a short delay
-                        setTimeout(processBatch, 500);
-                    }
-                } else {
-                    console.error('[SCAN DEBUG] Batch processing failed:', response.data);
-                    alert('Batch processing failed: ' + (response.data.message || 'Unknown error'));
-                    resetScanState();
+        try {
+            // Step 1: Get next batch of page URLs from backend
+            const pageUrlsResponse = await $.ajax({
+                url: seoautofixBrokenUrls.ajaxUrl,
+                method: 'POST',
+                data: {
+                    action: 'seoautofix_broken_links_get_page_urls_batch',
+                    nonce: seoautofixBrokenUrls.nonce,
+                    scan_id: currentScanId,
+                    batch_size: 5 // Process 5 pages at a time
                 }
-            },
-            error: function (jqXHR, textStatus, errorThrown) {
-                console.error('[SCAN DEBUG] Batch processing error:', {
-                    status: jqXHR.status,
-                    statusText: textStatus,
-                    error: errorThrown
-                });
-                alert('Error processing batch. See console for details.');
-                resetScanState();
+            });
+
+            if (!pageUrlsResponse.success) {
+                throw new Error(pageUrlsResponse.data.message || 'Failed to get page URLs');
             }
-        });
+
+            const data = pageUrlsResponse.data;
+            console.log('[SCAN V3] Received page URLs batch:', data);
+
+            // Update progress bar
+            const progress = Math.round(data.progress || 0);
+            $('#scan-progress-fill').css('width', progress + '%');
+            $('#scan-progress-percentage').text(progress + '%');
+            $('#scan-progress-text').text('Scanning...');
+
+            // Check if scan is complete
+            if (data.completed) {
+                console.log('[SCAN V3] Scan completed!');
+                $('#scan-progress-text').text(seoautofixBrokenUrls.strings.scanComplete || 'Scan complete!');
+                
+                isScanInProgress = false;
+                setTableButtonsState(true);
+                $('#results-table-body').closest('table').removeClass('scan-in-progress');
+                
+                onScanComplete();
+                return;
+            }
+
+            const pageUrls = data.urls || [];
+            if (pageUrls.length === 0) {
+                console.log('[SCAN V3] No URLs in batch, continuing...');
+                setTimeout(processBatch, 100);
+                return;
+            }
+
+            console.log('[SCAN V3] Processing ' + pageUrls.length + ' pages...');
+
+            // Step 2: Fetch and parse HTML for each page (in parallel)
+            const pageParsingPromises = pageUrls.map(async (pageData) => {
+                const pageUrl = pageData.url;
+                const pageTitle = pageData.page_title || '';
+                const pageId = pageData.page_id || 0;
+
+                console.log('[SCAN V3] Fetching HTML from:', pageUrl);
+
+                try {
+                    // Fetch rendered HTML  
+                    const html = await fetchPageHTML(pageUrl);
+                    
+                    // Extract links using native browser DOMParser
+                    const links = extractLinksFromHTML(html, pageUrl, pageTitle, pageId);
+                    
+                    return { pageUrl, pageTitle, pageId, links };
+                } catch (error) {
+                    console.error('[SCAN V3] Error processing page ' + pageUrl + ':', error);
+                    return { pageUrl, pageTitle, pageId, links: [] };
+                }
+            });
+
+            const pagesWithLinks = await Promise.all(pageParsingPromises);
+            console.log('[SCAN V3] ✅ Parsed ' + pagesWithLinks.length + ' pages');
+
+            // Step 3: Collect all unique links
+            const allLinks = {};
+            let totalLinksFound = 0;
+
+            pagesWithLinks.forEach(({ links }) => {
+                links.forEach(link => {
+                    if (!allLinks[link.url]) {
+                        allLinks[link.url] = {
+                            url: link.url,
+                            link_type: link.link_type,
+                            occurrences: []
+                        };
+                    }
+                    allLinks[link.url].occurrences.push({
+                        found_on_url: link.found_on_url,
+                        found_on_page_id: link.found_on_page_id,
+                        found_on_page_title: link.found_on_page_title,
+                        anchor_text: link.anchor_text,
+                        location: link.location
+                    });
+                    totalLinksFound++;
+                });
+            });
+
+            const uniqueUrls = Object.keys(allLinks);
+            console.log('[SCAN V3] Found ' + totalLinksFound + ' total links (' + uniqueUrls.length + ' unique)');
+
+            // Update UI with links found
+            $('#scan-urls-tested').text(totalLinksFound);
+            $('#scan-urls-total').text(totalLinksFound);
+
+            // Step 4: Test all unique URLs via proxy
+            console.log('[SCAN V3] Testing ' + uniqueUrls.length + ' unique URLs...');
+
+            const testResults = await testURLsBatch(uniqueUrls, 10); // Test 10 URLs concurrency
+
+            console.log('[SCAN V3] ✅ Tested ' + testResults.length + ' URLs');
+
+            // Step 5: Identify broken links
+            const brokenLinks = [];
+            
+            testResults.forEach((result, index) => {
+                const url = uniqueUrls[index];
+                const linkData = allLinks[url];
+
+                if (result.is_broken) {
+                    // Add each occurrence as a separate broken link entry
+                    linkData.occurrences.forEach(occurrence => {
+                        brokenLinks.push({
+                            url: url,
+                            status_code: result.status_code,
+                            error_type: result.error_type,
+                            found_on_url: occurrence.found_on_url,
+                            found_on_page_id: occurrence.found_on_page_id,
+                            found_on_page_title: occurrence.found_on_page_title,
+                            anchor_text: occurrence.anchor_text,
+                            link_type: linkData.link_type,
+                            location: occurrence.location,
+                            suggested_url: result.suggested_url || null
+                        });
+                    });
+                }
+            });
+
+            console.log('[SCAN V3] Found ' + brokenLinks.length + ' broken link occurrences');
+
+            // Step 6: Save broken links to database
+            if (brokenLinks.length > 0) {
+                await saveBrokenLinksBatch(currentScanId, brokenLinks);
+                console.log('[SCAN V3] ✅ Saved broken links to database');
+
+                // Update UI with broken links count
+                $('#scan-broken-count').text(brokenLinks.length);
+
+                // Update 4xx/5xx stats
+                const stats4xx = brokenLinks.filter(l => l.error_type === '4xx').length;
+                const stats5xx = brokenLinks.filter(l => l.error_type === '5xx').length;
+                $('#header-4xx-count').text(stats4xx);
+                $('#header-5xx-count').text(stats5xx);
+
+                // Display broken links in real-time
+                updateDynamicResults(brokenLinks, {
+                    total: brokenLinks.length,
+                    '4xx': stats4xx,
+                    '5xx': stats5xx
+                });
+            }
+
+            // Step 7: Process next batch
+            console.log('[SCAN V3] Batch complete, processing next batch...');
+            setTimeout(processBatch, 100);
+
+        } catch (error) {
+            console.error('[SCAN V3] ❌ Error in processBatch:', error);
+            alert('Error processing batch: ' + error.message);
+            resetScanState();
+        }
     }
 
     /**
@@ -5309,5 +5385,217 @@
         return null; // Success codes (2xx, 3xx)
     }
 
-})(jQuery);
+    // ========================================
+    // FRONTEND-DRIVEN SCANNING (v3.0)
+    // Universal Page Builder Support
+    // ========================================
 
+    /**
+     * Fetch rendered HTML from a page URL
+     * Works with ALL page builders (Elementor, Gutenberg, Divi, etc.)
+     * because we're getting the final rendered output
+     */
+    async function fetchPageHTML(pageUrl) {
+        console.log('[FETCH HTML] Fetching:', pageUrl);
+        try {
+            const response = await fetch(pageUrl, {
+                method: 'GET',
+                credentials: 'same-origin', // Include cookies for logged-in checks
+                headers: {
+                    'Accept': 'text/html'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const html = await response.text();
+            console.log('[FETCH HTML] ✅ Fetched ' + html.length + ' bytes from:', pageUrl);
+            return html;
+        } catch (error) {
+            console.error('[FETCH HTML] ❌ Error fetching ' + pageUrl + ':', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Extract all links from HTML using native browser DOMParser
+     * UNIVERSAL: Works with Elementor, Gutenberg, Divi, WPBakery, etc.
+     * because we parse the final rendered HTML
+     */
+    function extractLinksFromHTML(html, pageUrl, pageTitle, pageId) {
+        console.log('[EXTRACT LINKS] Parsing HTML from:', pageUrl);
+
+        // Use native browser DOMParser (fast!)
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+
+        const links = [];
+        const siteUrl = window.location.origin;
+
+        // Find all anchor tags
+        doc.querySelectorAll('a[href]').forEach((anchor) => {
+            try {
+                const href = anchor.getAttribute('href');
+
+                // Skip empty hrefs, anchors, javascript:, mailto:, tel:
+                if (!href || href.startsWith('#') || href.startsWith('javascript:') || 
+                    href.startsWith('mailto:') || href.startsWith('tel:')) {
+                    return;
+                }
+
+                // Convert relative URLs to absolute
+                const absoluteUrl = new URL(href, pageUrl).href;
+
+                // Determine if internal or external
+                const isInternal = absoluteUrl.startsWith(siteUrl);
+
+                // Get anchor text
+                const anchorText = anchor.textContent.trim() || '';
+
+                // Detect location (header, footer, sidebar, content)
+                const location = detectLinkLocationDOM(anchor);
+
+                links.push({
+                    url: absoluteUrl,
+                    anchor_text: anchorText,
+                    found_on_url: pageUrl,
+                    found_on_page_title: pageTitle,
+                    found_on_page_id: pageId,
+                    location: location,
+                    link_type: isInternal ? 'internal' : 'external'
+                });
+            } catch (error) {
+                console.warn('[EXTRACT LINKS] Error processing link:', error);
+            }
+        });
+
+        console.log('[EXTRACT LINKS] ✅ Found ' + links.length + ' links in:', pageUrl);
+        return links;
+    }
+
+    /**
+     * Detect link location within page using DOM navigation
+     * Checks parent elements to determine if link is in header, footer, sidebar, or content
+     */
+    function detectLinkLocationDOM(anchorElement) {
+        let element = anchorElement;
+        
+        // Traverse up the DOM tree to find location markers
+        while (element && element.parentElement) {
+            const tagName = element.tagName ? element.tagName.toLowerCase() : '';
+            const className = element.className || '';
+            const id = element.id || '';
+
+            // Check for header
+            if (tagName === 'header' || className.includes('header') || className.includes('navbar') || id.includes('header')) {
+                return 'header';
+            }
+
+            // Check for footer
+            if (tagName === 'footer' || className.includes('footer') || id.includes('footer')) {
+                return 'footer';
+            }
+
+            // Check for sidebar
+            if (className.includes('sidebar') || className.includes('aside') || tagName === 'aside' || id.includes('sidebar')) {
+                return 'sidebar';
+            }
+
+            element = element.parentElement;
+        }
+
+        // Default to content
+        return 'content';
+    }
+
+    /**
+     * Test external URL via backend proxy
+     * Uses AJAX to bypass CORS restrictions
+     */
+    async function testURLviaProxy(url) {
+        console.log('[TEST URL PROXY] Testing:', url);
+
+        return new Promise((resolve, reject) => {
+            $.ajax({
+                url: seoautofixBrokenUrls.ajaxUrl,
+                method: 'POST',
+                data: {
+                    action: 'seoautofix_broken_links_test_url_proxy',
+                    nonce: seoautofixBrokenUrls.nonce,
+                    url: url
+                },
+                success: function (response) {
+                    if (response.success) {
+                        console.log('[TEST URL PROXY] ✅ Result for ' + url + ':', response.data);
+                        resolve(response.data);
+                    } else {
+                        reject(new Error(response.data.message || 'Test failed'));
+                    }
+                },
+                error: function (jqXHR, textStatus, errorThrown) {
+                    console.error('[TEST URL PROXY] ❌ Error testing ' + url + ':', errorThrown);
+                    reject(new Error(errorThrown));
+                }
+            });
+        });
+    }
+
+    /**
+     * Test multiple URLs in parallel using Promise.all
+     * Limits concurrency to avoid overwhelming the server
+     */
+    async function testURLsBatch(urls, concurrency = 10) {
+        console.log('[TEST URLS BATCH] Testing ' + urls.length + ' URLs with concurrency: ' + concurrency);
+
+        const results = [];
+        
+        // Process URLs in chunks to limit concurrency
+        for (let i = 0; i < urls.length; i += concurrency) {
+            const chunk = urls.slice(i, i + concurrency);
+            console.log('[TEST URLS BATCH] Testing chunk ' + (i / concurrency + 1) + ': ' + chunk.length + ' URLs');
+
+            const chunkPromises = chunk.map(url => testURLviaProxy(url));
+            const chunkResults = await Promise.all(chunkPromises);
+            
+            results.push(...chunkResults);
+        }
+
+        console.log('[TEST URLS BATCH] ✅ Tested ' + results.length + ' URLs');
+        return results;
+    }
+
+    /**
+     * Save broken links batch to database
+     */
+    async function saveBrokenLinksBatch(scanId, brokenLinks) {
+        console.log('[SAVE BROKEN LINKS] Saving ' + brokenLinks.length + ' broken links');
+
+        return new Promise((resolve, reject) => {
+            $.ajax({
+                url: seoautofixBrokenUrls.ajaxUrl,
+                method: 'POST',
+                data: {
+                    action: 'seoautofix_broken_links_save_broken_links_batch',
+                    nonce: seoautofixBrokenUrls.nonce,
+                    scan_id: scanId,
+                    broken_links: JSON.stringify(brokenLinks)
+                },
+                success: function (response) {
+                    if (response.success) {
+                        console.log('[SAVE BROKEN LINKS] ✅ Saved:', response.data);
+                        resolve(response.data);
+                    } else {
+                        reject(new Error(response.data.message || 'Save failed'));
+                    }
+                },
+                error: function (jqXHR, textStatus, errorThrown) {
+                    console.error('[SAVE BROKEN LINKS] ❌ Error:', errorThrown);
+                    reject(new Error(errorThrown));
+                }
+            });
+        });
+    }
+
+})(jQuery);

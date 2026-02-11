@@ -387,6 +387,11 @@ class SEOAutoFix_Broken_Url_Management
         // NEW: Async URL testing endpoints
         add_action('wp_ajax_seoautofix_broken_links_test_external_url', array($this, 'ajax_test_external_url'));
         add_action('wp_ajax_seoautofix_broken_links_test_external_urls_batch', array($this, 'ajax_test_external_urls_batch'));
+
+        // NEW v3.0: Frontend-driven scanning endpoints
+        add_action('wp_ajax_seoautofix_broken_links_get_page_urls_batch', array($this, 'ajax_get_page_urls_batch'));
+        add_action('wp_ajax_seoautofix_broken_links_test_url_proxy', array($this, 'ajax_test_url_proxy'));
+        add_action('wp_ajax_seoautofix_broken_links_save_broken_links_batch', array($this, 'ajax_save_broken_links_batch'));
     }
 
     /**
@@ -1766,6 +1771,196 @@ class SEOAutoFix_Broken_Url_Management
         wp_send_json_success(array(
             'results' => $results,
             'total' => count($results)
+        ));
+    }
+
+    /**
+     * AJAX: Get page URLs batch (Frontend-driven scanning v3.0)
+     * Returns next batch of page URLs for frontend to fetch and parse
+     */
+    public function ajax_get_page_urls_batch()
+    {
+        check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
+        }
+
+        $scan_id = isset($_POST['scan_id']) ? sanitize_text_field($_POST['scan_id']) : '';
+        $batch_size = isset($_POST['batch_size']) ? intval($_POST['batch_size']) : 10;
+
+        if (empty($scan_id)) {
+            wp_send_json_error(array('message' => __('Scan ID is required', 'seo-autofix-pro')));
+        }
+
+        error_log('[GET PAGE URLS BATCH] Scan ID: ' . $scan_id . ', Batch size: ' . $batch_size);
+
+        // Get URLs from transient
+        $all_urls = get_transient('seoautofix_scan_urls_' . $scan_id);
+        if ($all_urls === false) {
+            error_log('[GET PAGE URLS BATCH] No URLs found in transient');
+            wp_send_json_success(array(
+                'urls' => array(),
+                'completed' => true,
+                'progress' => 100
+            ));
+            return;
+        }
+
+        // Get current progress
+        $progress_index = get_transient('seoautofix_scan_progress_' . $scan_id);
+        if ($progress_index === false) {
+            $progress_index = 0;
+        }
+
+        error_log('[GET PAGE URLS BATCH] Progress: ' . $progress_index . '/' . count($all_urls));
+
+        // Get batch of URLs
+        $batch_urls = array_slice($all_urls, $progress_index, $batch_size);
+
+        if (empty($batch_urls)) {
+            error_log('[GET PAGE URLS BATCH] No more URLs to process, marking as completed');
+
+            // Mark scan as complete
+            $db_manager = new Database_Manager();
+            $db_manager->update_scan($scan_id, array(
+                'status' => 'completed',
+                'completed_at' => current_time('mysql')
+            ));
+
+            // Clean up transients
+            delete_transient('seoautofix_scan_urls_' . $scan_id);
+            delete_transient('seoautofix_scan_progress_' . $scan_id);
+
+            wp_send_json_success(array(
+                'urls' => array(),
+                'completed' => true,
+                'progress' => 100
+            ));
+            return;
+        }
+
+        // Update progress
+        $new_progress = $progress_index + count($batch_urls);
+        set_transient('seoautofix_scan_progress_' . $scan_id, $new_progress, DAY_IN_SECONDS);
+
+        $progress_percent = round(($new_progress / count($all_urls)) * 100, 2);
+
+        error_log('[GET PAGE URLS BATCH] Returning ' . count($batch_urls) . ' URLs. Progress: ' . $progress_percent . '%');
+
+        wp_send_json_success(array(
+            'urls' => $batch_urls,
+            'completed' => false,
+            'progress' => $progress_percent,
+            'pages_processed' => $new_progress,
+            'total_pages' => count($all_urls)
+        ));
+    }
+
+    /**
+     * AJAX: Test URL proxy (Frontend-driven scanning v3.0)
+     * Proxy endpoint to test URLs from frontend (bypasses CORS)
+     */
+    public function ajax_test_url_proxy()
+    {
+        check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
+        }
+
+        $url = isset($_POST['url']) ? esc_url_raw($_POST['url']) : '';
+
+        if (empty($url)) {
+            wp_send_json_error(array('message' => __('URL is required', 'seo-autofix-pro')));
+        }
+
+        error_log('[TEST URL PROXY] Testing URL: ' . $url);
+
+        // Test the URL using Link_Tester
+        $link_tester = new Link_Tester();
+        $result = $link_tester->test_url($url);
+
+        error_log('[TEST URL PROXY] Result for ' . $url . ': Status ' . $result['status_code'] . ', Broken: ' . ($result['is_broken'] ? 'yes' : 'no'));
+
+        wp_send_json_success($result);
+    }
+
+    /**
+     * AJAX: Save broken links batch (Frontend-driven scanning v3.0)
+     * Saves broken links found by frontend to database
+     */
+    public function ajax_save_broken_links_batch()
+    {
+        check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
+        }
+
+        $scan_id = isset($_POST['scan_id']) ? sanitize_text_field($_POST['scan_id']) : '';
+        $broken_links_json = isset($_POST['broken_links']) ? stripslashes($_POST['broken_links']) : '';
+
+        if (empty($scan_id)) {
+            wp_send_json_error(array('message' => __('Scan ID is required', 'seo-autofix-pro')));
+        }
+
+        if (empty($broken_links_json)) {
+            // No broken links to save is not an error
+            wp_send_json_success(array(
+                'saved_count' => 0,
+                'message' => 'No broken links to save'
+            ));
+            return;
+        }
+
+        $broken_links = json_decode($broken_links_json, true);
+        if (!is_array($broken_links)) {
+            wp_send_json_error(array('message' => __('Invalid broken links data', 'seo-autofix-pro')));
+        }
+
+        error_log('[SAVE BROKEN LINKS BATCH] Saving ' . count($broken_links) . ' broken links for scan: ' . $scan_id);
+
+        $db_manager = new Database_Manager();
+        $saved_count = 0;
+
+        foreach ($broken_links as $link) {
+            // Validate required fields
+            if (empty($link['url']) || empty($link['found_on_url'])) {
+                error_log('[SAVE BROKEN LINKS BATCH] Skipping link - missing required fields');
+                continue;
+            }
+
+            // Prepare link data for database
+            $link_data = array(
+                'broken_url' => $link['url'],
+                'status_code' => isset($link['status_code']) ? intval($link['status_code']) : 0,
+                'error_type' => isset($link['error_type']) ? sanitize_text_field($link['error_type']) : null,
+                'found_on_url' => $link['found_on_url'],
+                'found_on_page_id' => isset($link['found_on_page_id']) ? intval($link['found_on_page_id']) : 0,
+                'found_on_page_title' => isset($link['found_on_page_title']) ? sanitize_text_field($link['found_on_page_title']) : '',
+                'anchor_text' => isset($link['anchor_text']) ? sanitize_text_field($link['anchor_text']) : '',
+                'link_type' => isset($link['link_type']) ? sanitize_text_field($link['link_type']) : 'external',
+                'location' => isset($link['location']) ? sanitize_text_field($link['location']) : 'content',
+                'suggested_url' => isset($link['suggested_url']) ? esc_url_raw($link['suggested_url']) : null
+            );
+
+            // Save to database
+            $result = $db_manager->add_broken_link($scan_id, $link_data);
+            if ($result) {
+                $saved_count++;
+            }
+        }
+
+        error_log('[SAVE BROKEN LINKS BATCH] Saved ' . $saved_count . ' broken links');
+
+        // Update scan statistics
+        $broken_count = $db_manager->get_scan_progress($scan_id)['broken_count'];
+
+        wp_send_json_success(array(
+            'saved_count' => $saved_count,
+            'total_broken' => $broken_count,
+            'message' => sprintf(__('Saved %d broken links', 'seo-autofix-pro'), $saved_count)
         ));
     }
 }
