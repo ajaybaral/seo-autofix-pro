@@ -114,11 +114,42 @@ class SEOAutoFix_Broken_Url_Management
         \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] create_database_tables() called');
 
         $charset_collate = $wpdb->get_charset_collate();
-        $table_history = $wpdb->prefix . 'seoautofix_broken_links_fixes_history';
 
-        // Scans table - UPDATED with new fields
-        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Creating/updating scans table');
-        $sql_scans = "CREATE TABLE {$this->table_scans} (
+        // Define all table names
+        $table_scans = $this->table_scans;
+        $table_results = $this->table_results;
+        $table_history = $wpdb->prefix . 'seoautofix_broken_links_fixes_history';
+        $table_activity = $wpdb->prefix . 'seoautofix_broken_links_activity';
+        $table_snapshot = $wpdb->prefix . 'seoautofix_broken_links_snapshot';
+
+        // ========================================
+        // STEP 1: DROP ALL TABLES IF THEY EXIST
+        // ========================================
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] STEP 1: Dropping existing tables...');
+
+        $wpdb->query("DROP TABLE IF EXISTS {$table_scans}");
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] - Dropped scans table (if exists)');
+
+        $wpdb->query("DROP TABLE IF EXISTS {$table_results}");
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] - Dropped results table (if exists)');
+
+        $wpdb->query("DROP TABLE IF EXISTS {$table_history}");
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] - Dropped history table (if exists)');
+
+        $wpdb->query("DROP TABLE IF EXISTS {$table_activity}");
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] - Dropped activity table (if exists)');
+
+        $wpdb->query("DROP TABLE IF EXISTS {$table_snapshot}");
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] - Dropped snapshot table (if exists)');
+
+        // ========================================
+        // STEP 2: CREATE ALL TABLES
+        // ========================================
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] STEP 2: Creating new tables...');
+
+        // Scans table
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] - Creating scans table');
+        $sql_scans = "CREATE TABLE {$table_scans} (
             id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             scan_id VARCHAR(50) UNIQUE NOT NULL,
             total_pages_found INT DEFAULT 0,
@@ -137,9 +168,9 @@ class SEOAutoFix_Broken_Url_Management
             INDEX idx_status (status)
         ) $charset_collate;";
 
-        // Results table - UPDATED with new fields
-        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Creating/updating results table');
-        $sql_results = "CREATE TABLE {$this->table_results} (
+        // Results table
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] - Creating results table');
+        $sql_results = "CREATE TABLE {$table_results} (
             id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             scan_id VARCHAR(50) NOT NULL,
             found_on_page_id BIGINT(20) DEFAULT 0,
@@ -171,8 +202,8 @@ class SEOAutoFix_Broken_Url_Management
             INDEX idx_is_fixed (is_fixed)
         ) $charset_collate;";
 
-        // Fixes history table - NEW for revert functionality
-        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Creating fixes history table');
+        // Fixes history table
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] - Creating fixes history table');
         $sql_history = "CREATE TABLE {$table_history} (
             id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             fix_session_id VARCHAR(50) NOT NULL,
@@ -191,14 +222,8 @@ class SEOAutoFix_Broken_Url_Management
             INDEX idx_is_reverted (is_reverted)
         ) $charset_collate;";
 
-        // Activity log table - NEW for tracking fix/replace/delete actions
-        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Creating activity log table');
-        $table_activity = $wpdb->prefix . 'seoautofix_broken_links_activity';
-
-        // Drop existing table to ensure clean recreation
-        $wpdb->query("DROP TABLE IF EXISTS {$table_activity}");
-        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Dropped existing activity log table (if exists)');
-
+        // Activity log table
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] - Creating activity log table');
         $sql_activity = "CREATE TABLE {$table_activity} (
             id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             scan_id VARCHAR(50) NOT NULL,
@@ -214,14 +239,8 @@ class SEOAutoFix_Broken_Url_Management
             INDEX idx_action_type (action_type)
         ) $charset_collate;";
 
-        // Snapshot table - NEW for undo changes functionality
-        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Creating snapshot table');
-        $table_snapshot = $wpdb->prefix . 'seoautofix_broken_links_snapshot';
-
-        // Drop existing table to ensure clean recreation
-        $wpdb->query("DROP TABLE IF EXISTS {$table_snapshot}");
-        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Dropped existing snapshot table (if exists)');
-
+        // Snapshot table
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] - Creating snapshot table');
         $sql_snapshot = "CREATE TABLE {$table_snapshot} (
             id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             scan_id VARCHAR(50) NOT NULL,
@@ -233,6 +252,7 @@ class SEOAutoFix_Broken_Url_Management
             UNIQUE KEY unique_scan_page (scan_id, page_id)
         ) $charset_collate;";
 
+        // Execute table creation
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         dbDelta($sql_scans);
         dbDelta($sql_results);
@@ -240,7 +260,7 @@ class SEOAutoFix_Broken_Url_Management
         dbDelta($sql_activity);
         dbDelta($sql_snapshot);
 
-        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Database tables created/updated successfully');
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] ✅ All 5 database tables created successfully');
     }
 
     /**
