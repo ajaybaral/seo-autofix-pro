@@ -590,7 +590,7 @@ jQuery(document).ready(function ($) {
         // Show ALL unique images (no filtering, no grouping)
         currentPage = 1;
         renderResults(uniqueImages, false);
-        showToast(`Showing all ${uniqueImages.length} unique images`, 'success');
+        showToast(`Showing all ${uniqueImages.length} images`, 'success');
     });
 
     /**

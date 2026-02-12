@@ -490,11 +490,11 @@
             if (data.completed) {
                 console.log('[SCAN V3] Scan completed!');
                 $('#scan-progress-text').text(seoautofixBrokenUrls.strings.scanComplete || 'Scan complete!');
-                
+
                 isScanInProgress = false;
                 setTableButtonsState(true);
                 $('#results-table-body').closest('table').removeClass('scan-in-progress');
-                
+
                 onScanComplete();
                 return;
             }
@@ -519,10 +519,10 @@
                 try {
                     // Fetch rendered HTML  
                     const html = await fetchPageHTML(pageUrl);
-                    
+
                     // Extract links using native browser DOMParser
                     const links = extractLinksFromHTML(html, pageUrl, pageTitle, pageId);
-                    
+
                     return { pageUrl, pageTitle, pageId, links };
                 } catch (error) {
                     console.error('[SCAN V3] Error processing page ' + pageUrl + ':', error);
@@ -573,7 +573,7 @@
 
             // Step 5: Identify broken links
             const brokenLinks = [];
-            
+
             testResults.forEach((result, index) => {
                 const url = uniqueUrls[index];
                 const linkData = allLinks[url];
@@ -601,21 +601,24 @@
 
             // Step 6: Save broken links to database
             if (brokenLinks.length > 0) {
-                await saveBrokenLinksBatch(currentScanId, brokenLinks);
+                const savedData = await saveBrokenLinksBatch(currentScanId, brokenLinks);
                 console.log('[SCAN V3] ✅ Saved broken links to database');
 
+                // ✅ Use saved data which contains database IDs
+                const savedBrokenLinks = savedData.broken_links || brokenLinks;
+
                 // Update UI with broken links count
-                $('#scan-broken-count').text(brokenLinks.length);
+                $('#scan-broken-count').text(savedBrokenLinks.length);
 
                 // Update 4xx/5xx stats
-                const stats4xx = brokenLinks.filter(l => l.error_type === '4xx').length;
-                const stats5xx = brokenLinks.filter(l => l.error_type === '5xx').length;
+                const stats4xx = savedBrokenLinks.filter(l => l.error_type === '4xx').length;
+                const stats5xx = savedBrokenLinks.filter(l => l.error_type === '5xx').length;
                 $('#header-4xx-count').text(stats4xx);
                 $('#header-5xx-count').text(stats5xx);
 
-                // Display broken links in real-time
-                updateDynamicResults(brokenLinks, {
-                    total: brokenLinks.length,
+                // Display broken links in real-time (using saved data with IDs!)
+                updateDynamicResults(savedBrokenLinks, {
+                    total: savedBrokenLinks.length,
                     '4xx': stats4xx,
                     '5xx': stats5xx
                 });
@@ -5444,7 +5447,7 @@
                 const href = anchor.getAttribute('href');
 
                 // Skip empty hrefs, anchors, javascript:, mailto:, tel:
-                if (!href || href.startsWith('#') || href.startsWith('javascript:') || 
+                if (!href || href.startsWith('#') || href.startsWith('javascript:') ||
                     href.startsWith('mailto:') || href.startsWith('tel:')) {
                     return;
                 }
@@ -5485,7 +5488,7 @@
      */
     function detectLinkLocationDOM(anchorElement) {
         let element = anchorElement;
-        
+
         // Traverse up the DOM tree to find location markers
         while (element && element.parentElement) {
             const tagName = element.tagName ? element.tagName.toLowerCase() : '';
@@ -5554,7 +5557,7 @@
         console.log('[TEST URLS BATCH] Testing ' + urls.length + ' URLs with concurrency: ' + concurrency);
 
         const results = [];
-        
+
         // Process URLs in chunks to limit concurrency
         for (let i = 0; i < urls.length; i += concurrency) {
             const chunk = urls.slice(i, i + concurrency);
@@ -5562,7 +5565,7 @@
 
             const chunkPromises = chunk.map(url => testURLviaProxy(url));
             const chunkResults = await Promise.all(chunkPromises);
-            
+
             results.push(...chunkResults);
         }
 

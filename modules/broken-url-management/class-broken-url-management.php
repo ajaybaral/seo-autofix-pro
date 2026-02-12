@@ -1895,7 +1895,7 @@ class SEOAutoFix_Broken_Url_Management
         \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] ========== ENDPOINT CALLED ==========');
         \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Timestamp: ' . current_time('mysql'));
         \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] POST data keys: ' . implode(', ', array_keys($_POST)));
-        
+
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
         \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] ✅ Nonce verified');
 
@@ -1907,7 +1907,7 @@ class SEOAutoFix_Broken_Url_Management
 
         $scan_id = isset($_POST['scan_id']) ? sanitize_text_field($_POST['scan_id']) : '';
         $broken_links_json = isset($_POST['broken_links']) ? stripslashes($_POST['broken_links']) : '';
-        
+
         \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Scan ID: ' . $scan_id);
         \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Broken links JSON length: ' . strlen($broken_links_json) . ' characters');
         \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Broken links JSON preview (first 500 chars): ' . substr($broken_links_json, 0, 500));
@@ -1929,7 +1929,7 @@ class SEOAutoFix_Broken_Url_Management
 
         $broken_links = json_decode($broken_links_json, true);
         \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] JSON decode result type: ' . gettype($broken_links));
-        
+
         if (!is_array($broken_links)) {
             \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] ❌ JSON decode failed or returned non-array');
             \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] JSON error: ' . json_last_error_msg());
@@ -1940,11 +1940,12 @@ class SEOAutoFix_Broken_Url_Management
 
         $db_manager = new Database_Manager();
         $saved_count = 0;
+        $saved_broken_links = array(); // ✅ NEW: Track saved links with IDs
 
         foreach ($broken_links as $index => $link) {
             \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Processing link #' . ($index + 1));
             \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Link data: ' . print_r($link, true));
-            
+
             // Validate required fields
             if (empty($link['url']) || empty($link['found_on_url'])) {
                 \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] ⚠️ Skipping link - missing required fields');
@@ -1966,18 +1967,25 @@ class SEOAutoFix_Broken_Url_Management
                 'location' => isset($link['location']) ? sanitize_text_field($link['location']) : 'content',
                 'suggested_url' => isset($link['suggested_url']) ? esc_url_raw($link['suggested_url']) : null
             );
-            
+
             \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Prepared link_data: ' . print_r($link_data, true));
             \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Calling db_manager->add_broken_link() for: ' . $link_data['broken_url']);
 
             // Save to database
             $result = $db_manager->add_broken_link($scan_id, $link_data);
-            
+
             \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] add_broken_link() returned: ' . ($result ? 'TRUE' : 'FALSE'));
-            
+
             if ($result) {
+                global $wpdb;
+                $inserted_id = $wpdb->insert_id; // ✅ Get the inserted ID
+
+                // ✅ Add the ID to the link data and store it
+                $link['id'] = $inserted_id;
+                $saved_broken_links[] = $link;
+
                 $saved_count++;
-                \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] ✅ Successfully saved link #' . ($index + 1));
+                \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] ✅ Successfully saved link #' . ($index + 1) . ' with ID: ' . $inserted_id);
             } else {
                 \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] ❌ Failed to save link #' . ($index + 1));
             }
@@ -1993,9 +2001,11 @@ class SEOAutoFix_Broken_Url_Management
         $broken_count = $db_manager->get_scan_progress($scan_id)['broken_count'];
         \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Current broken count in database: ' . $broken_count);
 
+        // ✅ Return saved broken links with IDs
         wp_send_json_success(array(
             'saved_count' => $saved_count,
             'total_broken' => $broken_count,
+            'broken_links' => $saved_broken_links, // ✅ NEW: Include saved links with IDs
             'message' => sprintf(__('Saved %d broken links', 'seo-autofix-pro'), $saved_count)
         ));
     }
