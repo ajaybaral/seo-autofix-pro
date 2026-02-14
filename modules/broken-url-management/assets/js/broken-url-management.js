@@ -13,6 +13,15 @@
     let perPage = 25; // Default entries per page
     let isScanning = false;
     let scanProgressInterval = null;
+
+    // Cumulative scan statistics (tracks totals across all batches)
+    let cumulativeTotalUrls = 0;
+    let cumulativeUrlsTested = 0;
+    let cumulativeBrokenCount = 0;
+
+    // Header/Footer link deduplication tracking
+    // Key format: "url__location" (e.g., "https://broken.com__footer")
+    let seenHeaderFooterLinks = {};
     let isScanInProgress = false; // Track if scan is actively running to disable buttons
 
     // Track fixed links in current session (for export)
@@ -380,6 +389,14 @@
                 if (response.success) {
                     console.log('[SCAN DEBUG] Scan started successfully, scan_id:', response.data.scan_id);
                     currentScanId = response.data.scan_id;
+
+                    // Reset cumulative stats for new scan
+                    cumulativeTotalUrls = 0;
+                    cumulativeUrlsTested = 0;
+                    cumulativeBrokenCount = 0;
+                    seenHeaderFooterLinks = {}; // Reset header/footer tracking
+                    console.log('[SCAN DEBUG] Reset cumulative stats and header/footer tracking');
+
                     startProgressMonitoring();
                 } else {
                     console.error('[SCAN DEBUG] Scan failed:', response.data.message);
@@ -560,9 +577,15 @@
             const uniqueUrls = Object.keys(allLinks);
             console.log('[SCAN V3] Found ' + totalLinksFound + ' total links (' + uniqueUrls.length + ' unique)');
 
-            // Update UI with links found
-            $('#scan-urls-tested').text(totalLinksFound);
-            $('#scan-urls-total').text(totalLinksFound);
+            // Update cumulative stats with batch data
+            cumulativeTotalUrls += totalLinksFound;
+            cumulativeUrlsTested += uniqueUrls.length;
+
+            // Update UI with cumulative totals
+            $('#scan-urls-tested').text(cumulativeUrlsTested);
+            $('#scan-urls-total').text(cumulativeTotalUrls);
+
+            console.log('[SCAN V3] Cumulative stats - Tested:', cumulativeUrlsTested, 'Total:', cumulativeTotalUrls);
 
             // Step 4: Test all unique URLs via proxy
             console.log('[SCAN V3] Testing ' + uniqueUrls.length + ' unique URLs...');
@@ -581,16 +604,36 @@
                 if (result.is_broken) {
                     // Add each occurrence as a separate broken link entry
                     linkData.occurrences.forEach(occurrence => {
+                        const location = occurrence.location;
+                        const isHeaderFooter = location === 'header' || location === 'footer';
+
+                        // Deduplication: Skip header/footer links if already seen
+                        if (isHeaderFooter) {
+                            const trackingKey = `${url}__${location}`;
+                            if (seenHeaderFooterLinks[trackingKey]) {
+                                console.log('[SCAN V3] ⏭️ Skipping duplicate header/footer link:', url, 'Location:', location);
+                                return; // Skip this occurrence
+                            }
+                            // Mark as seen
+                            seenHeaderFooterLinks[trackingKey] = true;
+                            console.log('[SCAN V3] ✅ First occurrence of header/footer link:', url, 'Location:', location);
+                        }
+
+                        // For header/footer: attribute to home page, for content: use actual page
+                        const foundOnUrl = isHeaderFooter ? window.location.origin : occurrence.found_on_url;
+                        const foundOnPageId = isHeaderFooter ? 0 : occurrence.found_on_page_id;
+                        const foundOnPageTitle = isHeaderFooter ? 'Home Page' : occurrence.found_on_page_title;
+
                         brokenLinks.push({
                             url: url,
                             status_code: result.status_code,
                             error_type: result.error_type,
-                            found_on_url: occurrence.found_on_url,
-                            found_on_page_id: occurrence.found_on_page_id,
-                            found_on_page_title: occurrence.found_on_page_title,
+                            found_on_url: foundOnUrl,
+                            found_on_page_id: foundOnPageId,
+                            found_on_page_title: foundOnPageTitle,
                             anchor_text: occurrence.anchor_text,
                             link_type: linkData.link_type,
-                            location: occurrence.location,
+                            location: location,
                             suggested_url: result.suggested_url || null
                         });
                     });
@@ -607,8 +650,13 @@
                 // ✅ Use saved data which contains database IDs
                 const savedBrokenLinks = savedData.broken_links || brokenLinks;
 
-                // Update UI with broken links count
-                $('#scan-broken-count').text(savedBrokenLinks.length);
+                // Update cumulative broken count
+                cumulativeBrokenCount += savedBrokenLinks.length;
+
+                // Update UI with cumulative broken links count
+                $('#scan-broken-count').text(cumulativeBrokenCount);
+
+                console.log('[SCAN V3] Cumulative broken count:', cumulativeBrokenCount);
 
                 // Update 4xx/5xx stats
                 const stats4xx = savedBrokenLinks.filter(l => l.error_type === '4xx').length;
@@ -5454,28 +5502,10 @@
      * @returns {Element|null} Main content container or null if not found
      */
     function getMainContentContainer(doc) {
-        // Common WordPress content container selectors (in priority order)
-        const contentSelectors = [
-            '.entry-content',          // Most WordPress themes
-            '.post-content',           // Alternative theme pattern
-            '.wp-block-post-content',  // Block themes
-            'article .content',        // Semantic HTML5
-            'main',                    // HTML5 main element
-            '#content',                // Legacy themes
-            '#main-content',           // Alternative ID
-            '.content',                // Generic fallback
-        ];
-
-        for (const selector of contentSelectors) {
-            const container = doc.querySelector(selector);
-            if (container) {
-                console.log('[EXTRACT LINKS] ✅ Found main content container:', selector);
-                return container;
-            }
-        }
-
-        console.warn('[EXTRACT LINKS] ⚠️ No main content container found, using body (may include ads/scripts)');
-        return doc.body; // Fallback to body if no content container found
+        // Return entire body to scan header, footer, and content
+        // This ensures we catch broken links in navigation, footer, and main content
+        console.log('[EXTRACT LINKS] ✅ Scanning full page (header, footer, content)');
+        return doc.body;
     }
 
     /**
