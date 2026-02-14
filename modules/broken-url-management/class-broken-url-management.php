@@ -52,6 +52,9 @@ class SEOAutoFix_Broken_Url_Management
         // Check if plugin was just activated and create tables immediately
         // This must happen in init() because activation hooks fire before modules are loaded
         if (get_option('seoautofix_activated')) {
+            // Clear debug logs on activation for a fresh start
+            \SEOAutoFix_Debug_Logger::clear('general');
+            
             \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Plugin activation detected, creating tables...');
             $this->create_database_tables();
             // Clear the flag so we don't recreate on every page load
@@ -2028,15 +2031,27 @@ class SEOAutoFix_Broken_Url_Management
         \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Successfully saved: ' . $saved_count);
         \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Failed to save: ' . (count($broken_links) - $saved_count));
 
-        // Update scan statistics
-        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Getting scan progress for statistics...');
-        $broken_count = $db_manager->get_scan_progress($scan_id)['broken_count'];
-        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Current broken count in database: ' . $broken_count);
+        // ✅ FIX: Get actual count from database and update the scans table
+        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Getting actual broken link count from database...');
+        global $wpdb;
+        $results_table = $wpdb->prefix . 'seoautofix_broken_links_scan_results';
+        $actual_broken_count = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$results_table} WHERE scan_id = %s AND is_fixed = 0",
+            $scan_id
+        ));
+        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Actual broken count from COUNT query: ' . $actual_broken_count);
+
+        // ✅ Update the scans table with the correct count
+        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Updating scans table with broken count: ' . $actual_broken_count);
+        $update_result = $db_manager->update_scan($scan_id, array(
+            'total_broken_links' => intval($actual_broken_count)
+        ));
+        \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Update scans table result: ' . ($update_result ? 'SUCCESS' : 'FAILED'));
 
         // ✅ Return saved broken links with IDs
         wp_send_json_success(array(
             'saved_count' => $saved_count,
-            'total_broken' => $broken_count,
+            'total_broken' => intval($actual_broken_count),
             'broken_links' => $saved_broken_links, // ✅ NEW: Include saved links with IDs
             'message' => sprintf(__('Saved %d broken links', 'seo-autofix-pro'), $saved_count)
         ));
