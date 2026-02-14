@@ -36,6 +36,85 @@ class Database_Manager
     }
 
     /**
+     * Ensure database tables exist, create them if they don't
+     * This is a safety fallback in case plugin activation didn't work
+     * 
+     * @return void
+     */
+    private function ensure_tables_exist()
+    {
+        global $wpdb;
+
+        // Check if results table exists (main table we need for saving broken links)
+        $table = $this->table_results;
+        $query = $wpdb->prepare("SHOW TABLES LIKE %s", $table);
+        
+        if ($wpdb->get_var($query) != $table) {
+            \SEOAutoFix_Debug_Logger::log('[DB SAFETY] Table ' . $table . ' does not exist! Creating tables now...');
+            
+            // Create tables directly - this is a last-resort fallback
+            require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+            
+            $charset_collate = $wpdb->get_charset_collate();
+            
+            // Create scans table
+            $sql_scans = "CREATE TABLE {$this->table_scans} (
+                id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                scan_id VARCHAR(50) UNIQUE NOT NULL,
+                total_pages_found INT DEFAULT 0,
+                total_pages_scanned INT DEFAULT 0,
+                total_urls_found INT DEFAULT 0,
+                total_urls_tested INT DEFAULT 0,
+                total_broken_links INT DEFAULT 0,
+                total_4xx_errors INT DEFAULT 0,
+                total_5xx_errors INT DEFAULT 0,
+                status ENUM('in_progress', 'completed', 'failed', 'paused') DEFAULT 'in_progress',
+                current_batch INT DEFAULT 0,
+                total_batches INT DEFAULT 0,
+                started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                completed_at DATETIME NULL,
+                INDEX idx_scan_id (scan_id),
+                INDEX idx_status (status)
+            ) $charset_collate;";
+            
+            // Create results table
+            $sql_results = "CREATE TABLE {$this->table_results} (
+                id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                scan_id VARCHAR(50) NOT NULL,
+                found_on_page_id BIGINT(20) DEFAULT 0,
+                found_on_page_title VARCHAR(255) DEFAULT '',
+                found_on_url TEXT NOT NULL,
+                broken_url TEXT NOT NULL,
+                link_location ENUM('header', 'footer', 'content', 'sidebar', 'image') DEFAULT 'content',
+                anchor_text TEXT NULL,
+                link_context TEXT NULL,
+                link_type ENUM('internal', 'external') NOT NULL,
+                status_code INT NOT NULL,
+                error_type ENUM('4xx', '5xx', 'timeout', 'dns') DEFAULT NULL,
+                suggested_url TEXT NULL,
+                suggestion_confidence INT DEFAULT 0,
+                user_modified_url TEXT NULL,
+                fix_type ENUM('replace', 'remove', 'redirect') DEFAULT NULL,
+                reason TEXT NOT NULL,
+                occurrences_count INT DEFAULT 1,
+                is_fixed TINYINT(1) DEFAULT 0,
+                is_deleted TINYINT(1) DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NULL,
+                 INDEX idx_scan_id (scan_id),
+                INDEX idx_broken_url (broken_url(191)),
+                INDEX idx_fixed (is_fixed),
+                INDEX idx_deleted (is_deleted)
+            ) $charset_collate;";
+            
+            dbDelta($sql_scans);
+            dbDelta($sql_results);
+            
+            \SEOAutoFix_Debug_Logger::log('[DB SAFETY] ✅ Tables created successfully');
+        }
+    }
+
+    /**
      * Create new scan entry
      * 
      * @return string Scan ID
@@ -158,6 +237,9 @@ class Database_Manager
     public function add_broken_link($scan_id, $data)
     {
         global $wpdb;
+        
+        // SAFETY: Ensure tables exist before trying to insert
+        $this->ensure_tables_exist();
 
         \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] ========== FUNCTION CALLED ==========');
         \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] Scan ID: ' . $scan_id);
