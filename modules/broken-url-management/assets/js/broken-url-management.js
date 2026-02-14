@@ -5446,6 +5446,85 @@
      * UNIVERSAL: Works with Elementor, Gutenberg, Divi, WPBakery, etc.
      * because we parse the final rendered HTML
      */
+    /**
+     * Get the main content container from the parsed HTML document
+     * Tries common WordPress content selectors in priority order
+     * 
+     * @param {Document} doc Parsed HTML document
+     * @returns {Element|null} Main content container or null if not found
+     */
+    function getMainContentContainer(doc) {
+        // Common WordPress content container selectors (in priority order)
+        const contentSelectors = [
+            '.entry-content',          // Most WordPress themes
+            '.post-content',           // Alternative theme pattern
+            '.wp-block-post-content',  // Block themes
+            'article .content',        // Semantic HTML5
+            'main',                    // HTML5 main element
+            '#content',                // Legacy themes
+            '#main-content',           // Alternative ID
+            '.content',                // Generic fallback
+        ];
+
+        for (const selector of contentSelectors) {
+            const container = doc.querySelector(selector);
+            if (container) {
+                console.log('[EXTRACT LINKS] ✅ Found main content container:', selector);
+                return container;
+            }
+        }
+
+        console.warn('[EXTRACT LINKS] ⚠️ No main content container found, using body (may include ads/scripts)');
+        return doc.body; // Fallback to body if no content container found
+    }
+
+    /**
+     * Clean unwanted elements from the container before link extraction
+     * Removes scripts, styles, iframes, ads, and other injected content
+     * 
+     * @param {Element} container Container to clean
+     * @returns {Element} Cleaned container
+     */
+    function cleanContainer(container) {
+        if (!container) return container;
+
+        // Clone the container to avoid modifying the original
+        const cleaned = container.cloneNode(true);
+
+        // Remove scripts, styles, iframes, and noscript tags
+        cleaned.querySelectorAll('script, style, iframe, noscript').forEach(el => el.remove());
+
+        // Remove elements with ad-related classes/IDs
+        const adSelectors = [
+            '[id*="google"]',
+            '[class*="google"]',
+            '[id*="ad-"]',
+            '[class*="ad-"]',
+            '[id*="advertisement"]',
+            '[class*="advertisement"]',
+            '[id*="doubleclick"]',
+            '[class*="doubleclick"]',
+            '[class*="adsbygoogle"]',
+            '.wp-block-embed',  // Embedded content blocks
+            '.wpseo-breadcrumb', // Yoast breadcrumbs
+        ];
+
+        adSelectors.forEach(selector => {
+            try {
+                cleaned.querySelectorAll(selector).forEach(el => el.remove());
+            } catch (e) {
+                // Ignore invalid selectors
+            }
+        });
+
+        console.log('[EXTRACT LINKS] ✅ Cleaned container of scripts/ads/injected content');
+        return cleaned;
+    }
+
+    /**
+     * Extract links from HTML, focusing only on main content area
+     * Filters out ads, analytics, admin links, and other injected content
+     */
     function extractLinksFromHTML(html, pageUrl, pageTitle, pageId) {
         console.log('[EXTRACT LINKS] Parsing HTML from:', pageUrl);
 
@@ -5453,11 +5532,25 @@
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
 
+        // ============================================
+        // NEW: Get main content container only
+        // ============================================
+        const mainContent = getMainContentContainer(doc);
+        if (!mainContent) {
+            console.error('[EXTRACT LINKS] ❌ Could not find any content container');
+            return [];
+        }
+
+        // ============================================
+        // NEW: Clean the container before parsing
+        // ============================================
+        const cleanedContent = cleanContainer(mainContent);
+
         const links = [];
         const siteUrl = window.location.origin;
 
-        // Find all anchor tags
-        doc.querySelectorAll('a[href]').forEach((anchor) => {
+        // Find all anchor tags IN THE CLEANED MAIN CONTENT ONLY
+        cleanedContent.querySelectorAll('a[href]').forEach((anchor) => {
             try {
                 const href = anchor.getAttribute('href');
 
@@ -5527,6 +5620,8 @@
             'pagead2.googlesyndication.com',
             'developers.google.com/speed/pagespeed/insights',
             'search.google.com/test/rich-results',
+            'search.google.com/search-console',
+            'gstatic.com',
             
             // Facebook/Meta
             'facebook.com/tr',
@@ -5549,6 +5644,10 @@
             'outbrain.com',
             'taboola.com',
             
+            // Yoast SEO Links (commonly injected in admin bar)
+            'yoa.st/',
+            'yoast.com',
+            
             // Social Media Sharing/Tracking
             'twitter.com/intent',
             'linkedin.com/shareArticle',
@@ -5568,6 +5667,7 @@
             'customize.php?url=',
             'post.php?post=',
             'edit.php',
+            'admin.php',
             
             // Other tracking
             'hotjar.com',
