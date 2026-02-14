@@ -24,11 +24,23 @@ class Link_Analyzer
     private $db_manager;
 
     /**
+     * Universal replacement engine (builder-agnostic)
+     */
+    private $universal_engine;
+
+    /**
+     * Header/Footer replacer (site-wide elements)
+     */
+    private $header_footer_replacer;
+
+    /**
      * Constructor
      */
     public function __construct()
     {
         $this->db_manager = new Database_Manager();
+        $this->universal_engine = new Universal_Replacement_Engine();
+        $this->header_footer_replacer = new Header_Footer_Replacer();
     }
 
     /**
@@ -127,6 +139,9 @@ class Link_Analyzer
                 $fixed_count++;
                 $mark_result = $this->db_manager->mark_as_fixed($entry_id);
                 \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Mark as fixed result for ID ' . $entry_id . ': ' . ($mark_result ? 'SUCCESS' : 'FAILED'));
+
+                // Also replace in site-wide elements (menus, widgets, theme templates) if enabled
+                $this->replace_in_site_wide_elements($entry['broken_url'], $replacement_url);
 
                 // Log activity for reporting
                 global $wpdb;
@@ -298,6 +313,28 @@ class Link_Analyzer
             return false;
         }
 
+        // Check feature flag for universal replacement engine
+        $use_universal = $this->use_universal_engine();
+        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Use universal engine: ' . ($use_universal ? 'YES' : 'NO (legacy mode)'));
+
+        if ($use_universal) {
+            // NEW: Universal replacement approach (builder-agnostic)
+            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Using universal replacement engine');
+            
+            $result = $this->universal_engine->replace_url_in_post($post_id, $broken_url, $replacement_url);
+            
+            if ($result['success']) {
+                \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ✅ Universal engine succeeded');
+                \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Replacements made: ' . $result['stats']['replacements_made']);
+                return true;
+            }
+            
+            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ⚠️ Universal engine found no occurrences');
+            return false;
+        }
+
+        // LEGACY: Original Elementor-specific approach (kept for backward compatibility)
+        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Using LEGACY replacement mode');
 
         // Check if this is an Elementor page
         $is_elementor = $this->is_elementor_page($post_id);
@@ -984,12 +1021,70 @@ class Link_Analyzer
                 }
             }
         }
-
+        
         if ($depth === 0) {
             \SEOAutoFix_Debug_Logger::log('[ELEMENTOR DELETE RECURSIVE] ==================== END ====================');
-            \SEOAutoFix_Debug_Logger::log('[ELEMENTOR DELETE RECURSIVE] Removal status: ' . ($removed ? 'SUCCESS' : 'NOT FOUND'));
         }
 
         return $data;
+    }
+
+    /**
+     * Check if universal replacement engine should be used
+     * 
+     * @return bool True to use universal engine, false for legacy mode
+     */
+    private function use_universal_engine()
+    {
+        // Allow filtering via code
+        $use_universal = apply_filters('seoautofix_use_universal_replacement', true);
+        
+        // Check settings option
+        $settings = get_option('seoautofix_settings', []);
+        if (isset($settings['universal_replacement'])) {
+            $use_universal = (bool) $settings['universal_replacement'];
+        }
+        
+        return $use_universal;
+    }
+
+    /**
+     * Check if header/footer replacement is enabled
+     * 
+     * @return bool True if enabled
+     */
+    private function is_header_footer_replacement_enabled()
+    {
+        // Allow filtering via code
+        $enabled = apply_filters('seoautofix_replace_in_header_footer', false);
+        
+        // Check settings option
+        $settings = get_option('seoautofix_settings', []);
+        if (isset($settings['replace_in_header_footer'])) {
+            $enabled = (bool) $settings['replace_in_header_footer'];
+        }
+        
+        return $enabled;
+    }
+
+    /**
+     * Replace URL in site-wide elements (menus, widgets, templates)
+     * 
+     * @param string $old_url URL to replace
+     * @param string $new_url Replacement URL
+     * @return bool Success
+     */
+    private function replace_in_site_wide_elements($old_url, $new_url)
+    {
+        if (!$this->is_header_footer_replacement_enabled()) {
+            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Header/footer replacement is disabled in settings');
+            return false;
+        }
+
+        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Replacing in site-wide elements (menus, widgets, templates)');
+        
+        $result = $this->header_footer_replacer->replace_in_site_wide_elements($old_url, $new_url);
+        
+        return $result['success'];
     }
 }
