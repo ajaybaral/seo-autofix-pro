@@ -1892,6 +1892,9 @@ class SEOAutoFix_Broken_Url_Management
      */
     public function ajax_test_url_proxy()
     {
+        // Increase PHP execution time for slow external URLs
+        @set_time_limit(180); // 3 minutes for slow external services
+
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
 
         if (!current_user_can('manage_options')) {

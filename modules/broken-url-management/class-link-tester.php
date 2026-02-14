@@ -20,8 +20,9 @@ class Link_Tester
 
     /**
      * Timeout for requests (seconds)
+     * Increased to 60 seconds to handle slow external services
      */
-    const REQUEST_TIMEOUT = 10;
+    const REQUEST_TIMEOUT = 60;
 
     /**
      * User agent string
