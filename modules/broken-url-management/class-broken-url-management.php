@@ -49,7 +49,16 @@ class SEOAutoFix_Broken_Url_Management
      */
     private function init()
     {
-        // Create database tables on activation
+        // Check if plugin was just activated and create tables immediately
+        // This must happen in init() because activation hooks fire before modules are loaded
+        if (get_option('seoautofix_activated')) {
+            \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Plugin activation detected, creating tables...');
+            $this->create_database_tables();
+            // Clear the flag so we don't recreate on every page load
+            delete_option('seoautofix_activated');
+        }
+
+        // Also listen for future activations
         add_action('seoautofix_activated', array($this, 'create_database_tables'));
 
         // Wait for WordPress to load before registering admin hooks
