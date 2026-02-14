@@ -5455,6 +5455,14 @@
                 // Convert relative URLs to absolute
                 const absoluteUrl = new URL(href, pageUrl).href;
 
+                // ============================================
+                // FILTER OUT THIRD-PARTY TRACKING URLS
+                // ============================================
+                if (shouldExcludeURL(absoluteUrl)) {
+                    console.log('[EXTRACT LINKS] ⚠️ Excluded tracking URL:', absoluteUrl);
+                    return;
+                }
+
                 // Determine if internal or external
                 const isInternal = absoluteUrl.startsWith(siteUrl);
 
@@ -5480,6 +5488,88 @@
 
         console.log('[EXTRACT LINKS] ✅ Found ' + links.length + ' links in:', pageUrl);
         return links;
+    }
+
+    /**
+     * Check if URL should be excluded from scanning
+     * Excludes tracking, analytics, and third-party service URLs
+     * 
+     * @param {string} url URL to check
+     * @returns {boolean} True if URL should be excluded
+     */
+    function shouldExcludeURL(url) {
+        // List of domains/patterns to exclude (tracking, analytics, ads, social media pixels)
+        const excludePatterns = [
+            // Google Services
+            'google.com/search',
+            'google.com/url',
+            'google-analytics.com',
+            'googletagmanager.com',
+            'googlesyndication.com',
+            'doubleclick.net',
+            'googleadservices.com',
+            'adservice.google.com',
+            'pagead2.googlesyndication.com',
+            'developers.google.com/speed/pagespeed/insights',
+            'search.google.com/test/rich-results',
+            
+            // Facebook/Meta
+            'facebook.com/tr',
+            'facebook.com/plugins',
+            'connect.facebook.net',
+            'developers.facebook.com/tools/debug',
+            
+            // Analytics & Tracking
+            'analytics.google.com',
+            'stats.wp.com',
+            'pixel.wp.com',
+            'tracking.',
+            'track.',
+            
+            // Ad Networks
+            'adnxs.com',
+            'adsystem.com',
+            'advertising.com',
+            'criteo.com',
+            'outbrain.com',
+            'taboola.com',
+            
+            // Social Media Sharing/Tracking
+            'twitter.com/intent',
+            'linkedin.com/shareArticle',
+            'pinterest.com/pin/create',
+            
+            // Common tracking parameters
+            '?utm_',
+            '&utm_',
+            '?fbclid=',
+            '&fbclid=',
+            '?gclid=',
+            '&gclid=',
+            
+            // WordPress Admin URLs (should never be scanned)
+            '/wp-admin/',
+            '/wp-login.php',
+            'customize.php?url=',
+            'post.php?post=',
+            'edit.php',
+            
+            // Other tracking
+            'hotjar.com',
+            'mouseflow.com',
+            'crazyegg.com',
+            'quantserve.com'
+        ];
+
+        // Check if URL matches any exclude pattern
+        const urlLower = url.toLowerCase();
+        for (const pattern of excludePatterns) {
+            if (urlLower.includes(pattern.toLowerCase())) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
