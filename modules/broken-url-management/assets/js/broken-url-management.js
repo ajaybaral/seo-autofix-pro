@@ -5404,14 +5404,22 @@
      */
     async function fetchPageHTML(pageUrl) {
         console.log('[FETCH HTML] Fetching:', pageUrl);
+        
+        // Create AbortController for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 90000); // 90 seconds timeout
+        
         try {
             const response = await fetch(pageUrl, {
                 method: 'GET',
                 credentials: 'same-origin', // Include cookies for logged-in checks
                 headers: {
                     'Accept': 'text/html'
-                }
+                },
+                signal: controller.signal // Add abort signal
             });
+
+            clearTimeout(timeoutId); // Clear timeout if request completes
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -5421,6 +5429,13 @@
             console.log('[FETCH HTML] ✅ Fetched ' + html.length + ' bytes from:', pageUrl);
             return html;
         } catch (error) {
+            clearTimeout(timeoutId); // Clear timeout on error
+            
+            if (error.name === 'AbortError') {
+                console.error('[FETCH HTML] ⏱️ Timeout fetching ' + pageUrl + ' (90s limit exceeded)');
+                throw new Error('Fetch timeout - page took too long to load');
+            }
+            
             console.error('[FETCH HTML] ❌ Error fetching ' + pageUrl + ':', error);
             throw error;
         }
