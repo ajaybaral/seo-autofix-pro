@@ -89,6 +89,12 @@ class URL_Similarity
         // 🎯 PATH 3: ANCHOR TEXT EXISTS (Weighted Matching)
         \SEOAutoFix_Debug_Logger::log('[SUGGESTION] 📝 PATH 3: Anchor text exists - using weighted matching');
         
+        // Check if we have titles to match against
+        if (empty($valid_urls_with_titles)) {
+            \SEOAutoFix_Debug_Logger::log('[SUGGESTION] ⚠️ No page titles available - falling back to URL-only matching');
+            return $this->match_by_url_only($broken_url, $valid_urls);
+        }
+        
         // Step A: Primary weighted matching (anchor text + URL)
         $weighted_match = $this->match_by_anchor_and_url($broken_url, $anchor_text, $valid_urls_with_titles);
         
