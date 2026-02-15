@@ -50,7 +50,7 @@
     $(document).ready(function () {
         console.log('=================================================');
         console.log('🔥 BROKEN URL MANAGEMENT JS - VERSION 3.1 - SEQUENTIAL PROCESSING 🔥');
-        console.log('🆕 Timestamp: 2026-02-15 15:14 - SERVER OVERLOAD FIX 🆕');
+        console.log('🆕 Timestamp: 2026-02-15 22:20 - SERVER OVERLOAD FIX 🆕');
         console.log('🆕 fixedLinksSession starts at:', fixedLinksSession.length);
         console.log('🆕 skippedLinksSession starts at:', skippedLinksSession.length);
         console.log('=================================================');
@@ -570,8 +570,8 @@
                     
                     // Add delay between pages to prevent server overload
                     if (i < pageUrls.length - 1) {
-                        console.log('[SCAN V3] ⏱️ Throttling: waiting 1s before next page...');
-                        await sleep(1000); // 1 second delay
+                        console.log('[SCAN V3] ⏱️ Throttling: waiting 500ms before next page...');
+                        await sleep(500); // 1 second delay
                     }
                 } catch (error) {
                     console.error('[SCAN V3] Error processing page ' + pageUrl + ':', error);
@@ -5856,8 +5856,8 @@
                 
                 // Add delay between URL tests to prevent AJAX spam (only for actual tests)
                 if (i < urls.length - 1) {
-                    console.log('[TEST URLS BATCH] ⏱️ Throttling: 500ms delay...');
-                    await sleep(500); // 500ms delay between each test
+                    console.log('[TEST URLS BATCH] ⏱️ Throttling: 100ms delay...');
+                    await sleep(100); // 500ms delay between each test
                 }
             } catch (error) {
                 console.error('[TEST URLS BATCH] Error testing URL:', url, error);
