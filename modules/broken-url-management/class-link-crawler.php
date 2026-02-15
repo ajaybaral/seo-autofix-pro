@@ -325,11 +325,21 @@ class Link_Crawler
         $valid_internal_urls_data = $this->get_all_site_urls();
         // Extract just the URL strings from the array of arrays
         $valid_internal_urls = array_column($valid_internal_urls_data, 'url');
+        
+        // Build URL => Title mapping for anchor text matching
+        $valid_urls_with_titles = array();
+        foreach ($valid_internal_urls_data as $url_data) {
+            $valid_urls_with_titles[$url_data['url']] = $url_data['page_title'];
+        }
 
         // Remove any URLs that are in our broken links list for this scan
         $broken_urls_in_scan = $this->db_manager->get_broken_urls_for_scan($scan_id);
         if (!empty($broken_urls_in_scan)) {
             $valid_internal_urls = array_diff($valid_internal_urls, $broken_urls_in_scan);
+            // Also remove from titles mapping
+            foreach ($broken_urls_in_scan as $broken_url) {
+                unset($valid_urls_with_titles[$broken_url]);
+            }
             \SEOAutoFix_Debug_Logger::log('[CRAWLER] Filtered out ' . count($broken_urls_in_scan) . ' broken URLs from suggestions');
         }
 
@@ -373,7 +383,7 @@ class Link_Crawler
 
                 // Process if broken
                 if ($test_result['is_broken']) {
-                    $this->process_broken_link($scan_id, $link, $found_on_pages, $test_result, $valid_internal_urls);
+                    $this->process_broken_link($scan_id, $link, $found_on_pages, $test_result, $valid_internal_urls, $valid_urls_with_titles);
                     $broken_count++;
                 }
             }
@@ -398,7 +408,7 @@ class Link_Crawler
                 // Process if broken
                 if ($test_result['is_broken']) {
                     $found_on_pages = $external_links[$link];
-                    $this->process_broken_link($scan_id, $link, $found_on_pages, $test_result, $valid_internal_urls);
+                    $this->process_broken_link($scan_id, $link, $found_on_pages, $test_result, $valid_internal_urls, $valid_urls_with_titles);
                     $broken_count++;
                 }
             }
@@ -1060,8 +1070,9 @@ class Link_Crawler
      * @param array $found_on_pages Pages where link was found
      * @param array $test_result Test result from link tester
      * @param array $valid_internal_urls Valid internal URLs for suggestions
+     * @param array $valid_urls_with_titles Valid URLs mapped to page titles
      */
-    private function process_broken_link($scan_id, $link, $found_on_pages, $test_result, $valid_internal_urls)
+    private function process_broken_link($scan_id, $link, $found_on_pages, $test_result, $valid_internal_urls, $valid_urls_with_titles = array())
     {
         \SEOAutoFix_Debug_Logger::log('[CRAWLER] 🔴 Processing broken link: ' . $link);
 
@@ -1097,6 +1108,7 @@ class Link_Crawler
 
                 // Get appropriate candidate URLs based on content type
                 $candidate_urls = array();
+                $candidate_urls_with_titles = array();
 
                 if ($broken_url_type === 'image') {
                     // Get all image URLs from media library
@@ -1121,30 +1133,43 @@ class Link_Crawler
                         // Normalize URLs for comparison (remove trailing slashes)
                         return untrailingslashit($url) !== untrailingslashit($found_on_url);
                     });
+                    
+                    // Filter titles mapping as well
+                    $candidate_urls_with_titles = array_filter($valid_urls_with_titles, function ($url) use ($found_on_url) {
+                        return untrailingslashit($url) !== untrailingslashit($found_on_url);
+                    }, ARRAY_FILTER_USE_KEY);
+                    
                     \SEOAutoFix_Debug_Logger::log('[CRAWLER] Searching within ' . count($candidate_urls) . ' page URLs for match');
+                    \SEOAutoFix_Debug_Logger::log('[CRAWLER] Anchor text for matching: ' . ($anchor_text ? $anchor_text : '[NONE]'));
                 }
 
                 // Find best match within same content type
                 if (!empty($candidate_urls)) {
-                    $match = $this->url_similarity->find_closest_match($link, $candidate_urls);
+                    // Pass anchor text and titles to the updated suggestion algorithm
+                    $match = $this->url_similarity->find_closest_match(
+                        $link, 
+                        $candidate_urls,
+                        $anchor_text,
+                        $candidate_urls_with_titles
+                    );
 
-                    // Only use suggestion if score is good enough
-                    $min_score_threshold = 0.3; // Minimum similarity score required
-                    $score = isset($match['score']) ? $match['score'] : 0;
-
-                    if ($score >= $min_score_threshold) {
+                    // Check if a valid suggestion was returned (url is not null)
+                    if (isset($match['url']) && $match['url'] !== null) {
                         $suggested_url = $match['url'];
-                        $reason = $match['reason'];
-                        \SEOAutoFix_Debug_Logger::log('[CRAWLER] ✅ Found good match: ' . $suggested_url . ' (score: ' . $score . ')');
+                        $reason = isset($match['reason']) ? $match['reason'] : '';
+                        $score = isset($match['score']) ? $match['score'] : 0;
+                        \SEOAutoFix_Debug_Logger::log('[CRAWLER] ✅ Found suggestion: ' . $suggested_url . ' (score: ' . $score . ')');
                     } else {
-                        // Score too low - don't suggest inappropriate match
+                        // No suggestion found (score below threshold or no match)
                         $suggested_url = null;
+                        $score = isset($match['score']) ? $match['score'] : 0;
                         $reason = sprintf(
-                            __('No suitable %s replacement found. Please provide a new %s URL or remove this link.', 'seo-autofix-pro'),
+                            __('No suitable %s replacement found (best match: %s%%). Please provide a new %s URL or remove this link.', 'seo-autofix-pro'),
                             $broken_url_type,
+                            round($score, 0),
                             $broken_url_type
                         );
-                        \SEOAutoFix_Debug_Logger::log('[CRAWLER] ⚠️ Match score too low (' . $score . ' < ' . $min_score_threshold . ') - no suggestion');
+                        \SEOAutoFix_Debug_Logger::log('[CRAWLER] ❌ No suggestion found (best score: ' . $score . '%)');
                     }
                 } else {
                     // No candidate URLs of this type available
