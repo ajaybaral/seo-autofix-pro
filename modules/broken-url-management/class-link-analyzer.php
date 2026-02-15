@@ -38,9 +38,34 @@ class Link_Analyzer
      */
     public function __construct()
     {
-        $this->db_manager = new Database_Manager();
-        $this->universal_engine = new Universal_Replacement_Engine();
-        $this->header_footer_replacer = new Header_Footer_Replacer();
+        \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] ==========  CONSTRUCTOR CALLED ==========');
+        
+        try {
+            \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] Creating Database_Manager...');
+            $this->db_manager = new Database_Manager();
+            \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] ✅ Database_Manager created');
+            
+            \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] Checking if Universal_Replacement_Engine class exists: ' . (class_exists('SEOAutoFix\\BrokenUrlManagement\\Universal_Replacement_Engine') ? 'YES' : 'NO'));
+            \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] Creating Universal_Replacement_Engine...');
+            $this->universal_engine = new Universal_Replacement_Engine();
+            \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] ✅ Universal_Replacement_Engine created');
+            
+            \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] Checking if Header_Footer_Replacer class exists: ' . (class_exists('SEOAutoFix\\BrokenUrlManagement\\Header_Footer_Replacer') ? 'YES' : 'NO'));
+            \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] Creating Header_Footer_Replacer...');
+            $this->header_footer_replacer = new Header_Footer_Replacer();
+            \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] ✅ Header_Footer_Replacer created');
+            
+            \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] ✅ Constructor completed successfully');
+        } catch (\Exception $e) {
+            \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] ❌ EXCEPTION in constructor: ' . $e->getMessage());
+            \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] Exception trace: ' . $e->getTraceAsString());
+            throw $e;
+        } catch (\Error $e) {
+            \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] ❌ FATAL ERROR in constructor: ' . $e->getMessage());
+            \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] Error file: ' . $e->getFile() . ' line ' . $e->getLine());
+            \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] Error trace: ' . $e->getTraceAsString());
+            throw $e;
+        }
     }
 
     /**

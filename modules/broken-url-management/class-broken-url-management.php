@@ -98,6 +98,15 @@ class SEOAutoFix_Broken_Url_Management
         require_once $module_dir . '/class-link-crawler.php';
         require_once $module_dir . '/class-link-tester.php';
         require_once $module_dir . '/class-url-similarity.php';
+        
+        // Load required classes for Link_Analyzer BEFORE loading Link_Analyzer itself
+        if (file_exists($module_dir . '/class-universal-replacement-engine.php')) {
+            require_once $module_dir . '/class-universal-replacement-engine.php';
+        }
+        if (file_exists($module_dir . '/class-header-footer-replacer.php')) {
+            require_once $module_dir . '/class-header-footer-replacer.php';
+        }
+        
         require_once $module_dir . '/class-link-analyzer.php';
         require_once $module_dir . '/class-url-testing-proxy.php';
 
@@ -908,13 +917,21 @@ class SEOAutoFix_Broken_Url_Management
             wp_send_json_error(array('message' => __('No entries selected', 'seo-autofix-pro')));
         }
 
-        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] ✅ IDs validated, creating Link_Analyzer instance');
+        \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] ✅ IDs validated, creating instances...');
 
         try {
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Creating Database_Manager instance...');
             $db_manager = new Database_Manager();
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] ✅ Database_Manager created');
+            
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Creating Link_Analyzer instance...');
             $link_analyzer = new Link_Analyzer();
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] ✅ Link_Analyzer created successfully');
 
-            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Calling link_analyzer->apply_fixes()');
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Calling link_analyzer->apply_fixes() with:');
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] - IDs: ' . implode(', ', $ids));
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] - Custom URL: ' . $custom_url);
+            
             $result = $link_analyzer->apply_fixes($ids, $custom_url);
 
             \SEOAutoFix_Debug_Logger::log('========================================');
@@ -935,6 +952,14 @@ class SEOAutoFix_Broken_Url_Management
             \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Exception trace: ' . $e->getTraceAsString());
             \SEOAutoFix_Debug_Logger::log('========================================');
             wp_send_json_error(array('message' => $e->getMessage()));
+        } catch (\Error $e) {
+            \SEOAutoFix_Debug_Logger::log('========================================');
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] ❌ FATAL ERROR CAUGHT');
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Error message: ' . $e->getMessage());
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Error file: ' . $e->getFile() . ' line ' . $e->getLine());
+            \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Error trace: ' . $e->getTraceAsString());
+            \SEOAutoFix_Debug_Logger::log('========================================');
+            wp_send_json_error(array('message' => 'Fatal error: ' . $e->getMessage()));
         }
     }
 
