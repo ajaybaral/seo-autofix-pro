@@ -33,6 +33,10 @@
     // Undo stack for tracking changes
     let undoStack = [];
 
+    // URL test result cache - stores test results across batches within a scan
+    // Key: URL, Value: {is_broken, status_code, error_type, suggested_url}
+    let urlTestCache = {};
+
     /**
      * Throttling helper - adds delay to prevent server overload
      * @param {number} ms - Milliseconds to wait
@@ -413,7 +417,8 @@
                     cumulativeUrlsTested = 0;
                     cumulativeBrokenCount = 0;
                     seenHeaderFooterLinks = {}; // Reset header/footer tracking
-                    console.log('[SCAN DEBUG] Reset cumulative stats and header/footer tracking');
+                    urlTestCache = {}; // Clear URL test cache for new scan
+                    console.log('[SCAN DEBUG] Reset cumulative stats, header/footer tracking, and URL test cache');
 
                     startProgressMonitoring();
                 } else {
@@ -5828,28 +5833,44 @@
 
         const results = [];
 
-        // Process URLs one at a time (SEQUENTIAL)
+        // Process URLs one at a time (SEQUENTIAL with caching)
         for (let i = 0; i < urls.length; i++) {
             const url = urls[i];
-            console.log(`[TEST URLS BATCH] Testing URL ${i + 1}/${urls.length}:`, url);
+            
+            // 💾 Check cache first - avoid redundant testing
+            if (urlTestCache[url]) {
+                console.log(`[TEST URLS BATCH] 💾 Using cached result for: ${url}`);
+                results.push(urlTestCache[url]);
+                continue; // Skip actual test - no delay needed for cached results!
+            }
+            
+            // Not cached - test it via proxy
+            console.log(`[TEST URLS BATCH] 🔍 Testing URL ${i + 1}/${urls.length}:`, url);
 
             try {
                 const result = await testURLviaProxy(url);
+                
+                // Cache the result for future use within this scan
+                urlTestCache[url] = result;
                 results.push(result);
                 
-                // Add delay between URL tests to prevent AJAX spam
+                // Add delay between URL tests to prevent AJAX spam (only for actual tests)
                 if (i < urls.length - 1) {
                     console.log('[TEST URLS BATCH] ⏱️ Throttling: 500ms delay...');
                     await sleep(500); // 500ms delay between each test
                 }
             } catch (error) {
                 console.error('[TEST URLS BATCH] Error testing URL:', url, error);
-                results.push({
+                const errorResult = {
                     is_broken: true,
                     status_code: 0,
                     error_type: 'timeout',
                     suggested_url: null
-                });
+                };
+                
+                // Cache error results too (avoid retesting timeouts)
+                urlTestCache[url] = errorResult;
+                results.push(errorResult);
             }
         }
 
