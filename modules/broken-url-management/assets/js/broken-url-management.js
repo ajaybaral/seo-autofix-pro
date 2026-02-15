@@ -345,9 +345,11 @@
         isScanning = true;
         
         // Suspend WordPress Heartbeat during scan to reduce server load
-        if (typeof wp !== 'undefined' && wp.heartbeat) {
+        if (typeof wp !== 'undefined' && wp.heartbeat && typeof wp.heartbeat.suspend === 'function') {
             console.log('[SCAN DEBUG] ⏸️ Suspending WordPress Heartbeat to reduce server load');
             wp.heartbeat.suspend();
+        } else {
+            console.log('[SCAN DEBUG] ℹ️ WordPress Heartbeat not available or suspend not supported');
         }
         
         $('#start-auto-fix-btn').prop('disabled', true).text(seoautofixBrokenUrls.strings.startingScan);
@@ -724,9 +726,11 @@
         isScanning = false;
         
         // Resume WordPress Heartbeat after scan completes
-        if (typeof wp !== 'undefined' && wp.heartbeat) {
+        if (typeof wp !== 'undefined' && wp.heartbeat && typeof wp.heartbeat.resume === 'function') {
             console.log('[SCAN COMPLETE] ▶️ Resuming WordPress Heartbeat');
             wp.heartbeat.resume();
+        } else {
+            console.log('[SCAN COMPLETE] ℹ️ WordPress Heartbeat not available or resume not supported');
         }
         
         $('#scan-progress-text').text(seoautofixBrokenUrls.strings.scanComplete);
