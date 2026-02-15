@@ -150,64 +150,91 @@ class Link_Analyzer
             }
 
             // Apply fix to the content
-            \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Attempting to replace link in content. Found on: ' . $entry['found_on_url'] . ', Broken: ' . $entry['broken_url'] . ', Replacement: ' . $replacement_url);
+        \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Attempting to replace link. Found on: ' . $entry['found_on_url'] . ', Broken: ' . $entry['broken_url'] . ', Replacement: ' . $replacement_url);
 
+        // Determine replacement strategy based on link location
+        $location = isset($entry['location']) ? $entry['location'] : 'content';
+        $success = false;
+
+        \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Link location: ' . $location);
+
+        // For header/footer/sidebar links, try site-wide replacement FIRST
+        if (in_array($location, ['header', 'footer', 'sidebar'])) {
+            \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Header/Footer/Sidebar link - trying site-wide elements first');
+            
+            $success = $this->replace_in_site_wide_elements($entry['broken_url'], $replacement_url);
+            
+            if (!$success) {
+                \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Site-wide replacement failed, trying content as fallback');
+                $success = $this->replace_link_in_content(
+                    $entry['found_on_url'],
+                    $entry['broken_url'],
+                    $replacement_url
+                );
+            }
+        } else {
+            // Regular content link - try content replacement first
+            \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Content link - trying post content first');
+            
             $success = $this->replace_link_in_content(
                 $entry['found_on_url'],
                 $entry['broken_url'],
                 $replacement_url
             );
-
-            \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Replace link result: ' . ($success ? 'SUCCESS' : 'FAILED'));
-
-            if ($success) {
-                $fixed_count++;
-                $mark_result = $this->db_manager->mark_as_fixed($entry_id);
-                \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Mark as fixed result for ID ' . $entry_id . ': ' . ($mark_result ? 'SUCCESS' : 'FAILED'));
-
-                // Also replace in site-wide elements (menus, widgets, theme templates) if enabled
-                $this->replace_in_site_wide_elements($entry['broken_url'], $replacement_url);
-
-                // Log activity for reporting
-                global $wpdb;
-                $table_activity = $wpdb->prefix . 'seoautofix_broken_links_activity';
-
-                \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG] Attempting to log fix/replace activity for ID: ' . $entry_id);
-                \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG] Scan ID: ' . $entry['scan_id']);
-                \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG] Broken URL: ' . $entry['broken_url']);
-                \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG] Replacement URL: ' . $replacement_url);
-                \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG] Action type: ' . ($custom_url ? 'replaced' : 'fixed'));
-
-                $insert_result = $wpdb->insert($table_activity, array(
-                    'scan_id' => $entry['scan_id'],
-                    'entry_id' => $entry_id,
-                    'broken_url' => $entry['broken_url'],
-                    'replacement_url' => $replacement_url,
-                    'action_type' => $custom_url ? 'replaced' : 'fixed',
-                    'page_url' => $entry['found_on_url'],
-                    'page_title' => $entry['found_on_page_title']
-                ), array('%s', '%d', '%s', '%s', '%s', '%s', '%s'));
-
-                if ($insert_result === false) {
-                    \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG ERROR] Failed to insert activity log! wpdb error: ' . $wpdb->last_error);
-                    \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG ERROR] wpdb last_query: ' . $wpdb->last_query);
-                } else {
-                    \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG SUCCESS] Activity log entry created with ID: ' . $wpdb->insert_id);
-                }
-
-                $messages[] = sprintf(
-                    __('✅ Fixed: %s → %s', 'seo-autofix-pro'),
-                    esc_url($entry['broken_url']),
-                    esc_url($replacement_url)
-                );
-            } else {
-                $failed_count++;
-                $messages[] = sprintf(
-                    __('❌ Failed to fix: %s - Link not found in post content', 'seo-autofix-pro'),
-                    esc_url($entry['broken_url'])
-                );
+            
+            if (!$success) {
+                \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Content replacement failed, trying site-wide elements as fallback');
+                $success = $this->replace_in_site_wide_elements($entry['broken_url'], $replacement_url);
             }
         }
+
+        \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Final replacement result: ' . ($success ? 'SUCCESS' : 'FAILED'));
+
+        if ($success) {
+            $fixed_count++;
+            $mark_result = $this->db_manager->mark_as_fixed($entry_id);
+            \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Mark as fixed result for ID ' . $entry_id . ': ' . ($mark_result ? 'SUCCESS' : 'FAILED'));
+
+            // Log activity for reporting
+            global $wpdb;
+            $table_activity = $wpdb->prefix . 'seoautofix_broken_links_activity';
+
+            \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG] Attempting to log fix/replace activity for ID: ' . $entry_id);
+            \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG] Scan ID: ' . $entry['scan_id']);
+            \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG] Broken URL: ' . $entry['broken_url']);
+            \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG] Replacement URL: ' . $replacement_url);
+            \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG] Action type: ' . ($custom_url ? 'replaced' : 'fixed'));
+
+            $insert_result = $wpdb->insert($table_activity, array(
+                'scan_id' => $entry['scan_id'],
+                'entry_id' => $entry_id,
+                'broken_url' => $entry['broken_url'],
+                'replacement_url' => $replacement_url,
+                'action_type' => $custom_url ? 'replaced' : 'fixed',
+                'page_url' => $entry['found_on_url'],
+                'page_title' => $entry['found_on_page_title']
+            ), array('%s', '%d', '%s', '%s', '%s', '%s', '%s'));
+
+            if ($insert_result === false) {
+                \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG ERROR] Failed to insert activity log! wpdb error: ' . $wpdb->last_error);
+                \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG ERROR] wpdb last_query: ' . $wpdb->last_query);
+            } else {
+                \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG SUCCESS] Activity log entry created with ID: ' . $wpdb->insert_id);
+            }
+
+            $messages[] = sprintf(
+                __('✅ Fixed: %s → %s', 'seo-autofix-pro'),
+                esc_url($entry['broken_url']),
+                esc_url($replacement_url)
+            );
+        } else {
+            $failed_count++;
+            $messages[] = sprintf(
+                __('❌ Failed to fix: %s - Link not found in post content or site-wide elements', 'seo-autofix-pro'),
+                esc_url($entry['broken_url'])
+            );
+        }    }
+        
 
         \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Completed. Fixed: ' . $fixed_count . ', Failed: ' . $failed_count . ', Skipped: ' . $skipped_count);
 
@@ -1081,7 +1108,7 @@ class Link_Analyzer
     private function is_header_footer_replacement_enabled()
     {
         // Allow filtering via code
-        $enabled = apply_filters('seoautofix_replace_in_header_footer', false);
+        $enabled = apply_filters('seoautofix_replace_in_header_footer', true);
         
         // Check settings option
         $settings = get_option('seoautofix_settings', []);
