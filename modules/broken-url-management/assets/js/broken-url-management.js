@@ -33,11 +33,20 @@
     // Undo stack for tracking changes
     let undoStack = [];
 
+    /**
+     * Throttling helper - adds delay to prevent server overload
+     * @param {number} ms - Milliseconds to wait
+     * @returns {Promise}
+     */
+    function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
     // Initialize on document ready
     $(document).ready(function () {
         console.log('=================================================');
-        console.log('🔥 BROKEN URL MANAGEMENT JS - VERSION 3.0 - SIMPLIFIED BUTTON LOGIC 🔥');
-        console.log('🆕 Timestamp: 2026-02-15 14:57 - FIXED ALERT MESSAGES 🆕');
+        console.log('🔥 BROKEN URL MANAGEMENT JS - VERSION 3.1 - SEQUENTIAL PROCESSING 🔥');
+        console.log('🆕 Timestamp: 2026-02-15 15:14 - SERVER OVERLOAD FIX 🆕');
         console.log('🆕 fixedLinksSession starts at:', fixedLinksSession.length);
         console.log('🆕 skippedLinksSession starts at:', skippedLinksSession.length);
         console.log('=================================================');
@@ -334,6 +343,13 @@
 
         console.log('[SCAN DEBUG] Setting up scan UI');
         isScanning = true;
+        
+        // Suspend WordPress Heartbeat during scan to reduce server load
+        if (typeof wp !== 'undefined' && wp.heartbeat) {
+            console.log('[SCAN DEBUG] ⏸️ Suspending WordPress Heartbeat to reduce server load');
+            wp.heartbeat.suspend();
+        }
+        
         $('#start-auto-fix-btn').prop('disabled', true).text(seoautofixBrokenUrls.strings.startingScan);
 
         // Reset progress bar values to 0
@@ -525,29 +541,36 @@
 
             console.log('[SCAN V3] Processing ' + pageUrls.length + ' pages...');
 
-            // Step 2: Fetch and parse HTML for each page (in parallel)
-            const pageParsingPromises = pageUrls.map(async (pageData) => {
+            // Step 2: Fetch and parse HTML for each page (SEQUENTIAL to prevent overload)
+            const pagesWithLinks = [];
+            
+            for (let i = 0; i < pageUrls.length; i++) {
+                const pageData = pageUrls[i];
                 const pageUrl = pageData.url;
                 const pageTitle = pageData.page_title || '';
                 const pageId = pageData.page_id || 0;
 
-                console.log('[SCAN V3] Fetching HTML from:', pageUrl);
+                console.log(`[SCAN V3] 🔄 Processing page ${i + 1}/${pageUrls.length}:`, pageUrl);
 
                 try {
-                    // Fetch rendered HTML  
+                    // Fetch rendered HTML
                     const html = await fetchPageHTML(pageUrl);
 
                     // Extract links using native browser DOMParser
                     const links = extractLinksFromHTML(html, pageUrl, pageTitle, pageId);
 
-                    return { pageUrl, pageTitle, pageId, links };
+                    pagesWithLinks.push({ pageUrl, pageTitle, pageId, links });
+                    
+                    // Add delay between pages to prevent server overload
+                    if (i < pageUrls.length - 1) {
+                        console.log('[SCAN V3] ⏱️ Throttling: waiting 1s before next page...');
+                        await sleep(1000); // 1 second delay
+                    }
                 } catch (error) {
                     console.error('[SCAN V3] Error processing page ' + pageUrl + ':', error);
-                    return { pageUrl, pageTitle, pageId, links: [] };
+                    pagesWithLinks.push({ pageUrl, pageTitle, pageId, links: [] });
                 }
-            });
-
-            const pagesWithLinks = await Promise.all(pageParsingPromises);
+            }
             console.log('[SCAN V3] ✅ Parsed ' + pagesWithLinks.length + ' pages');
 
             // Step 3: Collect all unique links
@@ -699,6 +722,13 @@
      */
     function onScanComplete() {
         isScanning = false;
+        
+        // Resume WordPress Heartbeat after scan completes
+        if (typeof wp !== 'undefined' && wp.heartbeat) {
+            console.log('[SCAN COMPLETE] ▶️ Resuming WordPress Heartbeat');
+            wp.heartbeat.resume();
+        }
+        
         $('#scan-progress-text').text(seoautofixBrokenUrls.strings.scanComplete);
 
         // Load final results first to prevent disappearing
@@ -5790,19 +5820,33 @@
      * Limits concurrency to avoid overwhelming the server
      */
     async function testURLsBatch(urls, concurrency = 10) {
-        console.log('[TEST URLS BATCH] Testing ' + urls.length + ' URLs with concurrency: ' + concurrency);
+        console.log('[TEST URLS BATCH] 🔄 Testing ' + urls.length + ' URLs SEQUENTIALLY');
 
         const results = [];
 
-        // Process URLs in chunks to limit concurrency
-        for (let i = 0; i < urls.length; i += concurrency) {
-            const chunk = urls.slice(i, i + concurrency);
-            console.log('[TEST URLS BATCH] Testing chunk ' + (i / concurrency + 1) + ': ' + chunk.length + ' URLs');
+        // Process URLs one at a time (SEQUENTIAL)
+        for (let i = 0; i < urls.length; i++) {
+            const url = urls[i];
+            console.log(`[TEST URLS BATCH] Testing URL ${i + 1}/${urls.length}:`, url);
 
-            const chunkPromises = chunk.map(url => testURLviaProxy(url));
-            const chunkResults = await Promise.all(chunkPromises);
-
-            results.push(...chunkResults);
+            try {
+                const result = await testURLviaProxy(url);
+                results.push(result);
+                
+                // Add delay between URL tests to prevent AJAX spam
+                if (i < urls.length - 1) {
+                    console.log('[TEST URLS BATCH] ⏱️ Throttling: 500ms delay...');
+                    await sleep(500); // 500ms delay between each test
+                }
+            } catch (error) {
+                console.error('[TEST URLS BATCH] Error testing URL:', url, error);
+                results.push({
+                    is_broken: true,
+                    status_code: 0,
+                    error_type: 'timeout',
+                    suggested_url: null
+                });
+            }
         }
 
         console.log('[TEST URLS BATCH] ✅ Tested ' + results.length + ' URLs');
