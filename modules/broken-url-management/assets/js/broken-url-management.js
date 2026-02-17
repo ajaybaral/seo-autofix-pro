@@ -2571,45 +2571,18 @@
             return;
         }
 
-        // If custom URL, validate it first
+        // If custom URL, check if validation feedback shows invalid
         if (action === 'custom') {
-            console.log('[APPLY FIX] Validating custom URL before saving:', newUrl);
-
-            // Check if validation feedback shows invalid
             const $statusIcon = $('#url-validation-status');
             if ($statusIcon.hasClass('invalid')) {
                 alert('Please enter a valid URL. The current URL is broken or invalid.');
                 return;
             }
-
-            // Validate the URL before proceeding
-            $.ajax({
-                url: seoautofixBrokenUrls.ajax_url,
-                method: 'POST',
-                data: {
-                    action: 'seoautofix_broken_links_test_url',
-                    nonce: seoautofixBrokenUrls.nonce,
-                    url: newUrl
-                },
-                success: function (validationResponse) {
-                    if (validationResponse.success && validationResponse.data.is_valid) {
-                        // URL is valid, proceed with saving
-                        saveFixedUrl(result.id, newUrl);
-                    } else {
-                        // URL is invalid
-                        const errorMsg = validationResponse.data ? validationResponse.data.message : 'URL is invalid';
-                        alert('Cannot save broken URL: ' + errorMsg);
-                        showUrlValidationFeedback('invalid', errorMsg);
-                    }
-                },
-                error: function () {
-                    alert('Failed to validate URL. Please try again.');
-                }
-            });
-        } else {
-            // For suggested or home URLs, save directly
-            saveFixedUrl(result.id, newUrl);
         }
+
+        // Save the URL - backend will handle final validation
+        console.log('[APPLY FIX] Saving URL for entry', result.id, ':', newUrl);
+        saveFixedUrl(result.id, newUrl);
     }
 
     /**

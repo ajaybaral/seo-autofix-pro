@@ -30,6 +30,13 @@ class SEOAutoFix_Broken_Url_Management
     private $table_results;
 
     /**
+     * Internal links cache for suggestion generation
+     * Cached to avoid repeated queries during URL testing
+     */
+    private $internal_links_cache = null;
+    private $url_similarity = null;
+
+    /**
      * Constructor
      */
     public function __construct()
@@ -1930,18 +1937,65 @@ class SEOAutoFix_Broken_Url_Management
         }
 
         $url = isset($_POST['url']) ? esc_url_raw($_POST['url']) : '';
+        $anchor_text = isset($_POST['anchor_text']) ? sanitize_text_field($_POST['anchor_text']) : '';
 
         if (empty($url)) {
             wp_send_json_error(array('message' => __('URL is required', 'seo-autofix-pro')));
         }
 
         \SEOAutoFix_Debug_Logger::log('[TEST URL PROXY] Testing URL: ' . $url);
+        if ($anchor_text) {
+            \SEOAutoFix_Debug_Logger::log('[TEST URL PROXY] Anchor text: ' . $anchor_text);
+        }
 
         // Test the URL using Link_Tester
         $link_tester = new Link_Tester();
         $result = $link_tester->test_url($url);
 
         \SEOAutoFix_Debug_Logger::log('[TEST URL PROXY] Result for ' . $url . ': Status ' . $result['status_code'] . ', Broken: ' . ($result['is_broken'] ? 'yes' : 'no'));
+
+        // Generate suggestion if broken and internal
+        $suggested_url = null;
+
+        if ($result['is_broken']) {
+            // Initialize URL_Similarity if not already done
+            if ($this->url_similarity === null) {
+                $this->url_similarity = new URL_Similarity();
+            }
+
+            // Check if URL is internal
+            if ($this->url_similarity->is_internal_url($url)) {
+                \SEOAutoFix_Debug_Logger::log('[SUGGESTION] Processing broken internal URL: ' . $url);
+
+                // Get cached internal links
+                $internal_links_cache = $this->get_internal_links_cache();
+                $valid_urls = array_keys($internal_links_cache);
+
+                \SEOAutoFix_Debug_Logger::log('[SUGGESTION] Using ' . count($valid_urls) . ' valid internal URLs for suggestion matching');
+
+                // Generate suggestion
+                $match = $this->url_similarity->find_closest_match(
+                    $url,
+                    $valid_urls,
+                    $anchor_text,
+                    $internal_links_cache
+                );
+
+                $suggested_url = $match['url'];
+                $suggestion_score = isset($match['score']) ? $match['score'] : 0;
+
+                if ($suggested_url) {
+                    \SEOAutoFix_Debug_Logger::log('[SUGGESTION] ✅ Generated suggestion: ' . $suggested_url . ' (Score: ' . $suggestion_score . ')');
+                } else {
+                    \SEOAutoFix_Debug_Logger::log('[SUGGESTION] ❌ No suggestion generated (best score: ' . $suggestion_score . ' < 60% threshold)');
+                }
+            } else {
+                \SEOAutoFix_Debug_Logger::log('[SUGGESTION] Skipping suggestion - external URL');
+            }
+        }
+
+        // Add suggested_url to response
+        $result['suggested_url'] = $suggested_url;
 
         wp_send_json_success($result);
     }
@@ -2080,6 +2134,54 @@ class SEOAutoFix_Broken_Url_Management
             'broken_links' => $saved_broken_links, // ✅ NEW: Include saved links with IDs
             'message' => sprintf(__('Saved %d broken links', 'seo-autofix-pro'), $saved_count)
         ));
+    }
+
+    /**
+     * Get internal links cache for suggestion generation
+     * Caches valid internal URLs with titles to avoid repeated queries
+     * 
+     * @return array Associative array mapping URLs to page titles
+     */
+    private function get_internal_links_cache()
+    {
+        // Return cached data if already loaded
+        if ($this->internal_links_cache !== null) {
+            \SEOAutoFix_Debug_Logger::log('[SUGGESTION CACHE] Using cached internal links (' . count($this->internal_links_cache) . ' URLs)');
+            return $this->internal_links_cache;
+        }
+
+        \SEOAutoFix_Debug_Logger::log('[SUGGESTION CACHE] Loading internal valid links from database...');
+
+        // Query all published posts and pages
+        $args = array(
+            'post_type' => array('post', 'page'),
+            'post_status' => 'publish',
+            'posts_per_page' => -1,
+            'fields' => 'ids'
+        );
+
+        $posts = get_posts($args);
+        
+        $valid_urls_with_titles = array();
+
+        foreach ($posts as $post_id) {
+            $url = get_permalink($post_id);
+            $title = get_the_title($post_id);
+            
+            if ($url && $title) {
+                $valid_urls_with_titles[$url] = $title;
+            }
+        }
+
+        // Add home page
+        $home_url = home_url('/');
+        $site_name = get_bloginfo('name');
+        $valid_urls_with_titles[$home_url] = $site_name;
+
+        \SEOAutoFix_Debug_Logger::log('[SUGGESTION CACHE] Cached ' . count($valid_urls_with_titles) . ' internal links with titles');
+
+        $this->internal_links_cache = $valid_urls_with_titles;
+        return $this->internal_links_cache;
     }
 }
 

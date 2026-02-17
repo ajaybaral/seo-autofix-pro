@@ -303,4 +303,119 @@ class Header_Footer_Replacer
     {
         return $this->stats;
     }
+
+    /**
+     * Check if a URL exists in site-wide elements
+     * 
+     * Used for verification after URL replacement to ensure broken URL was removed.
+     * 
+     * @param string $url URL to check for
+     * @return bool True if URL exists in menus, widgets, or templates
+     */
+    public function check_url_exists($url)
+    {
+        \SEOAutoFix_Debug_Logger::log('[HEADER_FOOTER] Checking if URL exists in site-wide elements: ' . $url);
+
+        $normalized_url = untrailingslashit($url);
+
+        // Check 1: Navigation menus
+        $menu_items = get_posts([
+            'post_type' => 'nav_menu_item',
+            'posts_per_page' => -1,
+            'post_status' => 'publish'
+        ]);
+
+        foreach ($menu_items as $menu_item) {
+            $menu_url = get_post_meta($menu_item->ID, '_menu_item_url', true);
+            if (!empty($menu_url)) {
+                $normalized_menu_url = untrailingslashit($menu_url);
+                if (strcasecmp($normalized_menu_url, $normalized_url) === 0 || stripos($menu_url, $url) !== false) {
+                    \SEOAutoFix_Debug_Logger::log('[HEADER_FOOTER] URL found in menu item ID: ' . $menu_item->ID);
+                    return true;
+                }
+            }
+        }
+
+        // Check 2: Widgets
+        global $wp_registered_widgets;
+        $widget_types = [];
+        
+        foreach ($wp_registered_widgets as $widget_id => $widget) {
+            if (isset($widget['callback'][0]) && is_object($widget['callback'][0])) {
+                $widget_obj = $widget['callback'][0];
+                $widget_type = $widget_obj->id_base;
+                $widget_types[$widget_type] = true;
+            }
+        }
+
+        foreach (array_keys($widget_types) as $widget_type) {
+            $option_name = 'widget_' . $widget_type;
+            $widget_data = get_option($option_name);
+
+            if (!is_array($widget_data)) {
+                continue;
+            }
+
+            foreach ($widget_data as $instance_id => $instance_data) {
+                if ($instance_id === '_multiwidget' || !is_array($instance_data)) {
+                    continue;
+                }
+
+                // Recursively check if URL exists in widget data
+                if ($this->url_exists_in_structure($instance_data, $url)) {
+                    \SEOAutoFix_Debug_Logger::log('[HEADER_FOOTER] URL found in widget: ' . $widget_type . ' #' . $instance_id);
+                    return true;
+                }
+            }
+        }
+
+        // Check 3: Theme builder templates
+        $templates = get_posts([
+            'post_type' => 'elementor_library',
+            'posts_per_page' => -1,
+            'post_status' => 'publish'
+        ]);
+
+        foreach ($templates as $template) {
+            $content = get_post_field('post_content', $template->ID);
+            if (stripos($content, $url) !== false) {
+                \SEOAutoFix_Debug_Logger::log('[HEADER_FOOTER] URL found in template: ' . $template->post_title);
+                return true;
+            }
+
+            // Also check Elementor data if it's an Elementor template
+            $elementor_data = get_post_meta($template->ID, '_elementor_data', true);
+            if ($elementor_data && stripos($elementor_data, $url) !== false) {
+                \SEOAutoFix_Debug_Logger::log('[HEADER_FOOTER] URL found in Elementor data of template: ' . $template->post_title);
+                return true;
+            }
+        }
+
+        \SEOAutoFix_Debug_Logger::log('[HEADER_FOOTER] URL not found in any site-wide elements');
+        return false;
+    }
+
+    /**
+     * Recursively check if URL exists in a data structure
+     * 
+     * @param mixed $data Data to check
+     * @param string $url URL to look for
+     * @return bool True if URL found
+     */
+    private function url_exists_in_structure($data, $url)
+    {
+        if (is_string($data)) {
+            return stripos($data, $url) !== false;
+        }
+
+        if (is_array($data)) {
+            foreach ($data as $value) {
+                if ($this->url_exists_in_structure($value, $url)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
 }

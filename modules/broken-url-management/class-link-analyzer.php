@@ -188,7 +188,22 @@ class Link_Analyzer
             }
         }
 
-        \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Final replacement result: ' . ($success ? 'SUCCESS' : 'FAILED'));
+        \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Initial replacement result: ' . ($success ? 'SUCCESS' : 'FAILED'));
+
+        // CRITICAL: Verify the fix was actually applied by checking if broken URL still exists
+        if ($success) {
+            \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Verifying fix was actually applied...');
+            $verified = $this->verify_fix_applied($entry['found_on_url'], $entry['broken_url'], $location);
+            
+            if (!$verified) {
+                \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] ❌ VERIFICATION FAILED: Broken URL still exists in content after replacement!');
+                $success = false;
+            } else {
+                \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] ✅ VERIFICATION PASSED: Broken URL no longer exists in content');
+            }
+        }
+
+        \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Final replacement result after verification: ' . ($success ? 'SUCCESS' : 'FAILED'));
 
         if ($success) {
             $fixed_count++;
@@ -557,6 +572,82 @@ class Link_Analyzer
         }
 
         return false;
+    }
+
+    /**
+     * Verify that a fix was actually applied by checking if broken URL still exists
+     * 
+     * @param string $page_url Page where link was found
+     * @param string $broken_url Broken URL that should no longer exist
+     * @param string $location Location type (content, header, footer, sidebar)
+     * @return bool True if broken URL no longer exists (fix was successful)
+     */
+    private function verify_fix_applied($page_url, $broken_url, $location = 'content')
+    {
+        \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] Verifying fix for broken URL: ' . $broken_url);
+        \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] Page URL: ' . $page_url);
+        \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] Location: ' . $location);
+
+        // For header/footer/sidebar, check site-wide elements
+        if (in_array($location, ['header', 'footer', 'sidebar'])) {
+            \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] Checking site-wide elements for broken URL...');
+            
+            // Check theme options, menus, and widgets
+            $still_exists = $this->check_url_in_site_wide_elements($broken_url);
+            
+            if ($still_exists) {
+                \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] ❌ Broken URL still found in site-wide elements');
+                return false;
+            }
+            
+            \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] ✅ Broken URL not found in site-wide elements');
+            return true;
+        }
+
+        // For content, check post content
+        $post_id = $this->get_post_id_from_url($page_url);
+        
+        if (!$post_id) {
+            \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] ⚠️ Could not get post ID - assuming fix was applied');
+            // If we can't verify, assume success (optimistic)
+            return true;
+        }
+
+        // Get fresh post content from database
+        $post = get_post($post_id);
+        
+        if (!$post) {
+            \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] ⚠️ Could not get post object - assuming fix was applied');
+            return true;
+        }
+
+        $content = $post->post_content;
+        \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] Retrieved fresh content, length: ' . strlen($content));
+
+        // Check if broken URL still exists in content (case-insensitive)
+        $normalized_broken = untrailingslashit($broken_url);
+        
+        // Check both original and normalized versions
+        $found_original = stripos($content, $broken_url) !== false;
+        $found_normalized = stripos($content, $normalized_broken) !== false;
+        
+        if ($found_original || $found_normalized) {
+            \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] ❌ Broken URL still exists in content!');
+            \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] Found original: ' . ($found_original ? 'YES' : 'NO'));
+            \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] Found normalized: ' . ($found_normalized ? 'YES' : 'NO'));
+            
+            // Show snippet of where it was found
+            if ($found_original) {
+                $pos = stripos($content, $broken_url);
+                $snippet = substr($content, max(0, $pos - 50), 150);
+                \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] Content snippet: ' . $snippet);
+            }
+            
+            return false;
+        }
+
+        \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] ✅ Broken URL not found in content - fix was applied successfully');
+        return true;
     }
 
     /**
@@ -1128,15 +1219,26 @@ class Link_Analyzer
      */
     private function replace_in_site_wide_elements($old_url, $new_url)
     {
-        if (!$this->is_header_footer_replacement_enabled()) {
-            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Header/footer replacement is disabled in settings');
-            return false;
-        }
-
         \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Replacing in site-wide elements (menus, widgets, templates)');
         
         $result = $this->header_footer_replacer->replace_in_site_wide_elements($old_url, $new_url);
         
         return $result['success'];
+    }
+
+    /**
+     * Check if URL exists in site-wide elements (for verification)
+     * 
+     * @param string $url URL to check for
+     * @return bool True if URL exists in site-wide elements
+     */
+    private function check_url_in_site_wide_elements($url)
+    {
+        \SEOAutoFix_Debug_Logger::log('[CHECK_URL] Checking if URL exists in site-wide elements: ' . $url);
+        
+        // Delegate to header_footer_replacer to check
+        $result = $this->header_footer_replacer->check_url_exists($url);
+        
+        return $result;
     }
 }
