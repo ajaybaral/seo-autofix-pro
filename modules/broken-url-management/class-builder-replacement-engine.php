@@ -37,8 +37,29 @@ class Builder_Replacement_Engine
      */
     public function replace_url($post_id, $old_url, $new_url)
     {
+        \SEOAutoFix_Debug_Logger::log('[BUILDER_ENGINE] ========== replace_url() START ==========');
+        \SEOAutoFix_Debug_Logger::log('[BUILDER_ENGINE] Post ID  : ' . $post_id);
+        \SEOAutoFix_Debug_Logger::log('[BUILDER_ENGINE] Old URL  : ' . $old_url);
+        \SEOAutoFix_Debug_Logger::log('[BUILDER_ENGINE] New URL  : ' . $new_url);
+
+        // Verify post exists
+        $post = get_post($post_id);
+        if (!$post) {
+            \SEOAutoFix_Debug_Logger::log('[BUILDER_ENGINE] ❌ Post not found for ID ' . $post_id);
+            return ['success' => false, 'builder' => 'unknown', 'replacements' => 0, 'method' => 'none'];
+        }
+        \SEOAutoFix_Debug_Logger::log('[BUILDER_ENGINE] Post found: "' . $post->post_title . '" (type: ' . $post->post_type . ')');
+
+        // Check if URL exists in post_content at all
+        $url_in_content = (stripos($post->post_content, $old_url) !== false);
+        \SEOAutoFix_Debug_Logger::log('[BUILDER_ENGINE] URL found in post_content: ' . ($url_in_content ? 'YES' : 'NO'));
+        if ($url_in_content) {
+            $pos = stripos($post->post_content, $old_url);
+            \SEOAutoFix_Debug_Logger::log('[BUILDER_ENGINE] Content snippet around URL: ' . substr($post->post_content, max(0, $pos - 30), 120));
+        }
+
         $builder = Builder_Detector::detect($post_id);
-        \SEOAutoFix_Debug_Logger::log('[BUILDER] Detected: ' . $builder);
+        \SEOAutoFix_Debug_Logger::log('[BUILDER_ENGINE] Detected builder: ' . $builder);
 
         $count = 0;
 
@@ -64,16 +85,22 @@ class Builder_Replacement_Engine
                 break;
 
             default:
-                \SEOAutoFix_Debug_Logger::log('[BUILDER] Unknown builder — skipping builder-specific replacement');
+                \SEOAutoFix_Debug_Logger::log('[BUILDER_ENGINE] Unknown builder — skipping builder-specific replacement');
                 break;
         }
 
-        \SEOAutoFix_Debug_Logger::log('[BUILDER] Replacements made: ' . $count);
+        \SEOAutoFix_Debug_Logger::log('[BUILDER_ENGINE] Total replacements made by builder handler: ' . $count);
 
         if ($count > 0) {
             // Clear WP object cache for this post
             clean_post_cache($post_id);
 
+            // VERIFY: Re-read post content to confirm the write stuck
+            $post_after = get_post($post_id);
+            $still_there = ($post_after && stripos($post_after->post_content, $old_url) !== false);
+            \SEOAutoFix_Debug_Logger::log('[BUILDER_ENGINE] POST-WRITE VERIFY: URL still in post_content after save: ' . ($still_there ? '⚠️ YES (PROBLEM!)' : '✅ NO (GOOD)'));
+
+            \SEOAutoFix_Debug_Logger::log('[BUILDER_ENGINE] ========== replace_url() END — SUCCESS ==========');
             return [
                 'success'      => true,
                 'builder'      => $builder,
@@ -82,7 +109,8 @@ class Builder_Replacement_Engine
             ];
         }
 
-        \SEOAutoFix_Debug_Logger::log('[BUILDER] Builder-specific replacement returned 0 — caller should fallback');
+        \SEOAutoFix_Debug_Logger::log('[BUILDER_ENGINE] Builder-specific replacement returned 0 — caller should fallback');
+        \SEOAutoFix_Debug_Logger::log('[BUILDER_ENGINE] ========== replace_url() END — NO REPLACEMENTS ==========');
 
         return [
             'success'      => false,
@@ -162,28 +190,43 @@ class Builder_Replacement_Engine
      */
     private function replace_elementor($post_id, $old_url, $new_url)
     {
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] --- Elementor handler START ---');
         $total = 0;
 
         // 1) _elementor_data (JSON storage — the primary source of truth)
         $raw = get_post_meta($post_id, '_elementor_data', true);
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] _elementor_data exists: ' . (!empty($raw) ? 'YES (length: ' . strlen($raw) . ')' : 'NO'));
+
         if (!empty($raw)) {
             $decoded = json_decode($raw, true);
+            \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] JSON parse result: ' . (json_last_error() === JSON_ERROR_NONE ? 'OK' : 'FAILED: ' . json_last_error_msg()));
+
             if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                // Check if URL exists in raw JSON string
+                $url_in_json = (stripos($raw, $old_url) !== false);
+                \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] URL found in raw _elementor_data: ' . ($url_in_json ? 'YES' : 'NO'));
+
                 $count = 0;
                 $decoded = $this->recursive_replace($decoded, $old_url, $new_url, $count);
 
                 if ($count > 0) {
                     $encoded = wp_json_encode($decoded);
-                    update_post_meta($post_id, '_elementor_data', wp_slash($encoded));
+                    $update_result = update_post_meta($post_id, '_elementor_data', wp_slash($encoded));
+                    \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] update_post_meta result: ' . ($update_result ? 'TRUE' : 'FALSE'));
                     $total += $count;
                     \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] Replaced ' . $count . ' in _elementor_data');
+                } else {
+                    \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] recursive_replace found 0 matches in JSON structure');
                 }
             }
         }
 
         // 2) post_content (Elementor stores rendered HTML here)
-        $total += $this->replace_in_post_content($post_id, $old_url, $new_url);
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] Now replacing in post_content...');
+        $content_count = $this->replace_in_post_content($post_id, $old_url, $new_url);
+        $total += $content_count;
 
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] --- Elementor handler END (total: ' . $total . ') ---');
         return $total;
     }
 
@@ -232,31 +275,46 @@ class Builder_Replacement_Engine
      */
     private function replace_gutenberg($post_id, $old_url, $new_url)
     {
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:GUTENBERG] --- Gutenberg handler START ---');
         $total = 0;
 
         $post = get_post($post_id);
         if (!$post || empty($post->post_content)) {
+            \SEOAutoFix_Debug_Logger::log('[BUILDER:GUTENBERG] Post not found or empty content');
             return 0;
         }
 
         // Parse blocks
         $blocks = parse_blocks($post->post_content);
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:GUTENBERG] Parsed ' . count($blocks) . ' top-level blocks');
+
         $count = 0;
         $blocks = $this->replace_in_blocks($blocks, $old_url, $new_url, $count);
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:GUTENBERG] Replacements in blocks: ' . $count);
 
         if ($count > 0) {
             $new_content = serialize_blocks($blocks);
-            wp_update_post([
+            \SEOAutoFix_Debug_Logger::log('[BUILDER:GUTENBERG] Serialized content length: ' . strlen($new_content));
+
+            $result = wp_update_post([
                 'ID'           => $post_id,
                 'post_content' => $new_content,
             ], true);
+
+            if (is_wp_error($result)) {
+                \SEOAutoFix_Debug_Logger::log('[BUILDER:GUTENBERG] ❌ wp_update_post FAILED: ' . $result->get_error_message());
+            } else {
+                \SEOAutoFix_Debug_Logger::log('[BUILDER:GUTENBERG] ✅ wp_update_post succeeded (post ID: ' . $result . ')');
+            }
             $total += $count;
-            \SEOAutoFix_Debug_Logger::log('[BUILDER:GUTENBERG] Replaced ' . $count . ' in blocks');
         }
 
-        // Also scan meta (Gutenberg reusable blocks or custom field plugins)
-        $total += $this->replace_in_all_meta($post_id, $old_url, $new_url);
+        // Also scan meta
+        $meta_count = $this->replace_in_all_meta($post_id, $old_url, $new_url);
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:GUTENBERG] Meta replacements: ' . $meta_count);
+        $total += $meta_count;
 
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:GUTENBERG] --- Gutenberg handler END (total: ' . $total . ') ---');
         return $total;
     }
 
@@ -388,17 +446,29 @@ class Builder_Replacement_Engine
      */
     private function replace_in_post_content($post_id, $old_url, $new_url)
     {
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:POST_CONTENT] Checking post_content for post ID: ' . $post_id);
+
         $post = get_post($post_id);
         if (!$post || empty($post->post_content)) {
+            \SEOAutoFix_Debug_Logger::log('[BUILDER:POST_CONTENT] Post not found or empty content');
             return 0;
         }
 
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:POST_CONTENT] Content length: ' . strlen($post->post_content));
+
         if (stripos($post->post_content, $old_url) === false) {
+            \SEOAutoFix_Debug_Logger::log('[BUILDER:POST_CONTENT] ⚠️ Old URL NOT FOUND in post_content — nothing to replace');
             return 0;
         }
 
         $count       = substr_count(strtolower($post->post_content), strtolower($old_url));
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:POST_CONTENT] Found ' . $count . ' occurrence(s) of URL in post_content');
+
         $new_content = str_ireplace($old_url, $new_url, $post->post_content);
+
+        // Confirm the replacement was made in memory
+        $still_has_old = (stripos($new_content, $old_url) !== false);
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:POST_CONTENT] After str_ireplace — old URL still in new content: ' . ($still_has_old ? '⚠️ YES' : '✅ NO'));
 
         $result = wp_update_post([
             'ID'           => $post_id,
@@ -406,11 +476,24 @@ class Builder_Replacement_Engine
         ], true);
 
         if (is_wp_error($result)) {
-            \SEOAutoFix_Debug_Logger::log('[BUILDER] ❌ wp_update_post failed for post_content: ' . $result->get_error_message());
+            \SEOAutoFix_Debug_Logger::log('[BUILDER:POST_CONTENT] ❌ wp_update_post FAILED: ' . $result->get_error_message());
             return 0;
         }
 
-        \SEOAutoFix_Debug_Logger::log('[BUILDER] Replaced ' . $count . ' in post_content');
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:POST_CONTENT] ✅ wp_update_post succeeded (returned: ' . $result . ')');
+
+        // FINAL VERIFY: Re-read from database to confirm the write persisted
+        wp_cache_delete($post_id, 'posts');
+        $recheck = get_post($post_id);
+        if ($recheck) {
+            $verify_gone = (stripos($recheck->post_content, $old_url) === false);
+            \SEOAutoFix_Debug_Logger::log('[BUILDER:POST_CONTENT] DB RE-READ VERIFY: old URL gone from post_content: ' . ($verify_gone ? '✅ YES' : '❌ NO (WRITE DID NOT PERSIST!)'));
+            if (!$verify_gone) {
+                \SEOAutoFix_Debug_Logger::log('[BUILDER:POST_CONTENT] ⚠️ Possible causes: kses filter, hook interference, or wp_update_post hooked filter stripping changes');
+            }
+        }
+
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:POST_CONTENT] Replaced ' . $count . ' in post_content');
         return $count;
     }
 
@@ -426,20 +509,29 @@ class Builder_Replacement_Engine
     {
         $all_meta = get_post_meta($post_id);
         if (empty($all_meta)) {
+            \SEOAutoFix_Debug_Logger::log('[BUILDER:META] No meta found for post ID: ' . $post_id);
             return 0;
         }
 
         $skip = $this->excluded_meta_keys();
         $total = 0;
+        $keys_checked = 0;
+        $keys_with_url = 0;
+
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:META] Scanning ' . count($all_meta) . ' meta keys for post ID: ' . $post_id);
 
         foreach ($all_meta as $meta_key => $meta_values) {
             if (in_array($meta_key, $skip, true)) {
                 continue;
             }
+            $keys_checked++;
             foreach ($meta_values as $meta_value) {
                 if (!is_string($meta_value) || stripos($meta_value, $old_url) === false) {
                     continue;
                 }
+
+                $keys_with_url++;
+                \SEOAutoFix_Debug_Logger::log('[BUILDER:META] URL found in meta key: ' . $meta_key . ' (value length: ' . strlen($meta_value) . ')');
 
                 // Try JSON decode
                 $decoded = @json_decode($meta_value, true);
@@ -447,9 +539,9 @@ class Builder_Replacement_Engine
                     $count   = 0;
                     $decoded = $this->recursive_replace($decoded, $old_url, $new_url, $count);
                     if ($count > 0) {
-                        update_post_meta($post_id, $meta_key, wp_slash(wp_json_encode($decoded)));
+                        $update_result = update_post_meta($post_id, $meta_key, wp_slash(wp_json_encode($decoded)));
+                        \SEOAutoFix_Debug_Logger::log('[BUILDER:META] Replaced ' . $count . ' in meta (JSON) key: ' . $meta_key . ' | update_post_meta: ' . ($update_result ? 'TRUE' : 'FALSE'));
                         $total += $count;
-                        \SEOAutoFix_Debug_Logger::log('[BUILDER] Replaced ' . $count . ' in meta (JSON) key: ' . $meta_key);
                     }
                     continue;
                 }
@@ -458,13 +550,14 @@ class Builder_Replacement_Engine
                 $count     = substr_count(strtolower($meta_value), strtolower($old_url));
                 $new_value = str_ireplace($old_url, $new_url, $meta_value);
                 if ($new_value !== $meta_value) {
-                    update_post_meta($post_id, $meta_key, $new_value);
+                    $update_result = update_post_meta($post_id, $meta_key, $new_value);
+                    \SEOAutoFix_Debug_Logger::log('[BUILDER:META] Replaced ' . $count . ' in meta (string) key: ' . $meta_key . ' | update_post_meta: ' . ($update_result ? 'TRUE' : 'FALSE'));
                     $total += $count;
-                    \SEOAutoFix_Debug_Logger::log('[BUILDER] Replaced ' . $count . ' in meta (string) key: ' . $meta_key);
                 }
             }
         }
 
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:META] Scan complete. Keys checked: ' . $keys_checked . ', Keys with URL: ' . $keys_with_url . ', Total replacements: ' . $total);
         return $total;
     }
 

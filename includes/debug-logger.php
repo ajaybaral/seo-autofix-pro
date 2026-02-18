@@ -24,7 +24,7 @@ class SEOAutoFix_Debug_Logger {
             self::init();
         }
         
-        $timestamp = date('Y-m-d H:i:s');
+        $timestamp = wp_date('Y-m-d H:i:s', null, new \DateTimeZone('Asia/Kolkata'));
         $log_entry = "[{$timestamp}] [{$module}] {$message}\n";
         
         @file_put_contents(self::$log_file, $log_entry, FILE_APPEND);
