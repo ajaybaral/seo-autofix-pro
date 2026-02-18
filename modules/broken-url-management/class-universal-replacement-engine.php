@@ -259,9 +259,9 @@ class Universal_Replacement_Engine
             case self::TYPE_JSON:
                 // Handle JSON data (Elementor, Oxygen, etc.)
                 $this->stats['json_fields_processed']++;
-                
+
                 $replaced_data = $this->replace_in_structure_recursive($decoded_data, $old_url, $new_url, $replacement_count);
-                
+
                 if ($replacement_count > 0) {
                     $new_json = wp_json_encode($replaced_data);
                     update_post_meta($post_id, $meta_key, wp_slash($new_json));
@@ -273,9 +273,9 @@ class Universal_Replacement_Engine
             case self::TYPE_SERIALIZED:
                 // Handle PHP serialized data (WPBakery, some themes)
                 $this->stats['serialized_fields_processed']++;
-                
+
                 $replaced_data = $this->replace_in_structure_recursive($decoded_data, $old_url, $new_url, $replacement_count);
-                
+
                 if ($replacement_count > 0) {
                     update_post_meta($post_id, $meta_key, $replaced_data);
                     $modified = true;
@@ -286,10 +286,10 @@ class Universal_Replacement_Engine
             case self::TYPE_STRING:
                 // Handle plain string data
                 $this->stats['string_fields_processed']++;
-                
+
                 $new_value = str_ireplace($old_url, $new_url, $meta_value);
                 $replacement_count = substr_count(strtolower($meta_value), strtolower($old_url));
-                
+
                 if ($new_value !== $meta_value) {
                     update_post_meta($post_id, $meta_key, $new_value);
                     $modified = true;
@@ -399,24 +399,24 @@ class Universal_Replacement_Engine
         }
 
         $data = trim($data);
-        
+
         if ('N;' === $data) {
             return true;
         }
-        
+
         if (strlen($data) < 4) {
             return false;
         }
-        
+
         if (':' !== $data[1]) {
             return false;
         }
-        
+
         $lastc = substr($data, -1);
         if (';' !== $lastc && '}' !== $lastc) {
             return false;
         }
-        
+
         $token = $data[0];
         switch ($token) {
             case 's':
@@ -428,7 +428,7 @@ class Universal_Replacement_Engine
             case 'd':
                 return (bool) preg_match("/^{$token}:[0-9.E-]+;$/", $data);
         }
-        
+
         return false;
     }
 
@@ -448,7 +448,7 @@ class Universal_Replacement_Engine
 
         // Split by newlines and trim whitespace
         $keys = array_map('trim', explode("\n", $excluded));
-        
+
         // Remove empty entries
         $keys = array_filter($keys);
 
@@ -463,5 +463,139 @@ class Universal_Replacement_Engine
     public function get_stats()
     {
         return $this->stats;
+    }
+
+    /**
+     * Remove a hyperlink globally for a given post, preserving the link text.
+     *
+     * Before: <a href="https://example.com/broken">Click here</a>
+     * After:  Click here
+     *
+     * Covers:
+     *   1. post_content  — strips <a href="target_url">…</a> → inner text
+     *   2. All post meta — same anchor-strip regex on every string meta value
+     *      (covers Elementor _elementor_data, Divi, WPBakery, custom fields, etc.)
+     *   3. Navigation menus — deletes the nav_menu_item post if URL matches exactly
+     *
+     * All data is treated as raw strings — no JSON parsing, no builder-specific logic.
+     *
+     * @param int    $post_id    Post ID.
+     * @param string $target_url URL whose anchor tags should be removed.
+     * @return array {
+     *     'success'      => bool,
+     *     'removed_from' => string[]  List of areas that were modified.
+     * }
+     */
+    public function remove_link_globally($post_id, $target_url)
+    {
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_GLOBALLY] ===== remove_link_globally() START =====');
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_GLOBALLY] Post ID    : ' . $post_id);
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_GLOBALLY] Target URL : ' . $target_url);
+
+        $removed_from = [];
+        $overall_success = false;
+
+        // Build anchor-strip regex patterns.
+        // Matches <a href="target_url" ...>any content</a> and replaces with inner content.
+        // Two variants: exact URL and URL without trailing slash (optional trailing slash).
+        $escaped = preg_quote($target_url, '/');
+        $escaped_nots = preg_quote(untrailingslashit($target_url), '/');
+        $anchor_patterns = [
+            '/<a\s[^>]*href=["\']' . $escaped . '["\'][^>]*>(.*?)<\/a>/is',
+            '/<a\s[^>]*href=["\']' . $escaped_nots . '\\/?' . '["\'][^>]*>(.*?)<\/a>/is',
+        ];
+
+        // ── 1: post_content ───────────────────────────────────────────────────
+        $post = get_post($post_id);
+        if ($post && !empty($post->post_content) && stripos($post->post_content, $target_url) !== false) {
+            $new_content = $post->post_content;
+            foreach ($anchor_patterns as $pattern) {
+                $new_content = preg_replace($pattern, '$1', $new_content);
+            }
+            if ($new_content !== $post->post_content) {
+                $result = wp_update_post(['ID' => $post_id, 'post_content' => $new_content], true);
+                if (!is_wp_error($result)) {
+                    $removed_from[] = 'post_content';
+                    $overall_success = true;
+                    \SEOAutoFix_Debug_Logger::log('[REMOVE_GLOBALLY] ✅ Removed link from post_content');
+                }
+            }
+        }
+
+        // ── 2: All post meta (universal — any builder) ────────────────────────
+        // Treats every meta value as a raw string — no JSON/serialized parsing needed.
+        // The anchor-strip regex works directly on the stored string regardless of format.
+        $all_meta = get_post_meta($post_id);
+        if (!empty($all_meta)) {
+            $user_excluded = $this->get_user_excluded_meta_keys();
+            $excluded_keys = array_merge($this->excluded_meta_keys, $user_excluded);
+
+            $meta_keys_modified = 0;
+            foreach ($all_meta as $meta_key => $meta_values) {
+                if (in_array($meta_key, $excluded_keys)) {
+                    continue;
+                }
+                foreach ($meta_values as $meta_value) {
+                    if (!is_string($meta_value)) {
+                        continue;
+                    }
+                    if (stripos($meta_value, $target_url) === false) {
+                        continue;
+                    }
+
+                    \SEOAutoFix_Debug_Logger::log('[REMOVE_GLOBALLY] URL found in meta key: ' . $meta_key);
+
+                    $updated_value = $meta_value;
+                    foreach ($anchor_patterns as $pattern) {
+                        $updated_value = preg_replace($pattern, '$1', $updated_value);
+                    }
+
+                    if ($updated_value !== $meta_value) {
+                        update_post_meta($post_id, $meta_key, $updated_value);
+                        $meta_keys_modified++;
+                        $overall_success = true;
+                        \SEOAutoFix_Debug_Logger::log('[REMOVE_GLOBALLY] ✅ Removed link from meta key: ' . $meta_key);
+                    }
+                }
+            }
+            if ($meta_keys_modified > 0) {
+                $removed_from[] = 'post_meta (' . $meta_keys_modified . ' keys)';
+            }
+        }
+
+        // ── 3: Navigation menus ───────────────────────────────────────────────
+        // If a nav menu item points exactly to the broken URL, delete the menu item.
+        $menu_items = get_posts([
+            'post_type' => 'nav_menu_item',
+            'posts_per_page' => -1,
+            'post_status' => 'publish',
+        ]);
+
+        $menus_deleted = 0;
+        foreach ($menu_items as $menu_item) {
+            $menu_url = get_post_meta($menu_item->ID, '_menu_item_url', true);
+            if ($menu_url && strcasecmp(untrailingslashit($menu_url), untrailingslashit($target_url)) === 0) {
+                wp_delete_post($menu_item->ID, true);
+                $menus_deleted++;
+                \SEOAutoFix_Debug_Logger::log('[REMOVE_GLOBALLY] ✅ Deleted nav menu item ID ' . $menu_item->ID);
+            }
+        }
+        if ($menus_deleted > 0) {
+            $removed_from[] = 'nav_menus (' . $menus_deleted . ' items deleted)';
+            $overall_success = true;
+            wp_cache_delete('nav_menu_items', 'post_meta');
+        }
+
+        // ── Clear WP object cache ─────────────────────────────────────────────
+        clean_post_cache($post_id);
+
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_GLOBALLY] Removed from: ' . implode(', ', $removed_from));
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_GLOBALLY] Overall success: ' . ($overall_success ? 'YES' : 'NO'));
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_GLOBALLY] ===== remove_link_globally() END =====');
+
+        return [
+            'success' => $overall_success,
+            'removed_from' => $removed_from,
+        ];
     }
 }

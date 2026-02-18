@@ -61,7 +61,7 @@ class SEOAutoFix_Broken_Url_Management
         if (get_option('seoautofix_activated')) {
             // Clear debug logs on activation for a fresh start
             \SEOAutoFix_Debug_Logger::clear('general');
-            
+
             \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Plugin activation detected, creating tables...');
             $this->create_database_tables();
             // Clear the flag so we don't recreate on every page load
@@ -105,7 +105,7 @@ class SEOAutoFix_Broken_Url_Management
         require_once $module_dir . '/class-link-crawler.php';
         require_once $module_dir . '/class-link-tester.php';
         require_once $module_dir . '/class-url-similarity.php';
-        
+
         // Load required classes for Link_Analyzer BEFORE loading Link_Analyzer itself
         if (file_exists($module_dir . '/class-universal-replacement-engine.php')) {
             require_once $module_dir . '/class-universal-replacement-engine.php';
@@ -113,7 +113,7 @@ class SEOAutoFix_Broken_Url_Management
         if (file_exists($module_dir . '/class-header-footer-replacer.php')) {
             require_once $module_dir . '/class-header-footer-replacer.php';
         }
-        
+
         require_once $module_dir . '/class-link-analyzer.php';
         require_once $module_dir . '/class-url-testing-proxy.php';
 
@@ -731,163 +731,45 @@ class SEOAutoFix_Broken_Url_Management
     }
 
     /**
-     * Remove link from WordPress post content
-     * 
-     * @param string $page_url Page where link was found
+     * Remove link from WordPress post content — universal, builder-agnostic.
+     *
+     * Strips <a href="broken_url">text</a> → text across:
+     *   - post_content
+     *   - All post meta (Elementor, Divi, WPBakery, custom fields, etc.)
+     *   - Navigation menus (deletes matching nav_menu_item)
+     *
+     * @param string $page_url  Page where link was found
      * @param string $broken_url Broken URL to remove
      * @return bool Success
      */
     private function remove_link_from_content($page_url, $broken_url)
     {
-        \SEOAutoFix_Debug_Logger::log('==================== REMOVE LINK DEBUG ====================');
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Starting removal process');
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Page URL: ' . $page_url);
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Broken URL: ' . $broken_url);
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ===== remove_link_from_content() START =====');
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Page URL   : ' . $page_url);
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Broken URL : ' . $broken_url);
 
-        // Get post ID from URL
-        $post_id = url_to_postid($page_url);
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] url_to_postid() returned: ' . $post_id);
+        // Resolve post ID using the robust multi-fallback method from Link_Analyzer
+        $link_analyzer = new Link_Analyzer();
+        $post_id = $link_analyzer->get_post_id_from_url_public($page_url);
+
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Resolved post ID: ' . ($post_id ?: 'NOT FOUND'));
 
         if (!$post_id) {
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ❌ FAILED: Could not convert URL to post ID');
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] This could mean:');
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK]   - URL is homepage or archive');
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK]   - URL is custom post type not supported by url_to_postid()');
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK]   - URL format doesn\'t match WordPress permalink structure');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ❌ Could not resolve post ID — cannot remove link');
             return false;
         }
 
-        // Check if this is an Elementor page
-        $link_analyzer = new Link_Analyzer();
-        $is_elementor = $link_analyzer->is_elementor_page($post_id);
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Is Elementor page: ' . ($is_elementor ? 'YES' : 'NO'));
+        // Delegate to the universal engine (builder-agnostic)
+        $universal_engine = new Universal_Replacement_Engine();
+        $result = $universal_engine->remove_link_globally($post_id, $broken_url);
 
-        if ($is_elementor) {
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Routing to Elementor-specific handler');
-            return $link_analyzer->remove_link_from_elementor($post_id, $broken_url);
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Universal engine result: ' . ($result['success'] ? 'SUCCESS' : 'FAILED'));
+        if (!empty($result['removed_from'])) {
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Removed from: ' . implode(', ', $result['removed_from']));
         }
 
-        // Regular WordPress page - continue with post_content removal
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Processing as regular WordPress page');
-
-        // Get post content
-        $post = get_post($post_id);
-        if (!$post) {
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ❌ FAILED: get_post() returned null for post ID: ' . $post_id);
-            return false;
-        }
-
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Post retrieved successfully');
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Post ID: ' . $post->ID);
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Post Title: ' . $post->post_title);
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Post Type: ' . $post->post_type);
-
-        $content = $post->post_content;
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Original content length: ' . strlen($content) . ' characters');
-
-        // Log first 500 chars of content to see what we're working with
-        $content_preview = substr($content, 0, 500);
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Content preview (first 500 chars): ' . $content_preview);
-
-        // Check if broken URL exists in content AT ALL
-        if (strpos($content, $broken_url) === false) {
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ⚠️ WARNING: Broken URL NOT FOUND in post_content');
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Searched for: ' . $broken_url);
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] This could mean:');
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK]   - Link is in a widget, menu, or custom field');
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK]   - Link is in Elementor/page builder data');
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK]   - URL encoding differs (e.g., & vs &amp;)');
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK]   - Link was already removed');
-
-            // Try URL-encoded version
-            $encoded_url = htmlspecialchars($broken_url);
-            if (strpos($content, $encoded_url) !== false) {
-                \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ✅ FOUND URL-ENCODED version: ' . $encoded_url);
-                $broken_url = $encoded_url; // Use encoded version for regex
-            } else {
-                \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ❌ URL-encoded version also not found');
-                return false;
-            }
-        } else {
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ✅ Broken URL found in content');
-        }
-
-        // Build regex patterns
-        $escaped_url = preg_quote($broken_url, '/');
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Escaped URL for regex: ' . $escaped_url);
-
-        $patterns = array(
-            '/<a\s+[^>]*href=["\']' . $escaped_url . '["\'][^>]*>(.*?)<\/a>/is',
-            '/<a\s+[^>]*src=["\']' . $escaped_url . '["\'][^>]*>(.*?)<\/a>/is',
-        );
-
-        $img_pattern = '/<img\s+[^>]*src=["\']' . $escaped_url . '["\'][^>]*\/?>/i';
-
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Testing regex patterns...');
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Pattern 1 (href): ' . $patterns[0]);
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Pattern 2 (src): ' . $patterns[1]);
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Image pattern: ' . $img_pattern);
-
-        // Try each pattern and log results
-        $new_content = $content;
-        $total_replacements = 0;
-
-        foreach ($patterns as $index => $pattern) {
-            $count = 0;
-            $new_content = preg_replace($pattern, '$1', $new_content, -1, $count);
-
-            if ($count > 0) {
-                \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ✅ Pattern ' . ($index + 1) . ' matched! Replacements: ' . $count);
-                $total_replacements += $count;
-            } else {
-                \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ❌ Pattern ' . ($index + 1) . ' did not match');
-            }
-        }
-
-        // Try img pattern
-        $img_count = 0;
-        $new_content = preg_replace($img_pattern, '', $new_content, -1, $img_count);
-        if ($img_count > 0) {
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ✅ Image pattern matched! Replacements: ' . $img_count);
-            $total_replacements += $img_count;
-        } else {
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ❌ Image pattern did not match');
-        }
-
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Total replacements made: ' . $total_replacements);
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] New content length: ' . strlen($new_content) . ' characters');
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Content size difference: ' . (strlen($content) - strlen($new_content)) . ' characters removed');
-
-        // Check if any changes were made
-        if ($new_content === $content) {
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ❌ FAILED: No changes made to content');
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Regex patterns did not match any links');
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Possible reasons:');
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK]   - Link syntax is different than expected');
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK]   - Link has HTML entities or special characters');
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK]   - Link is wrapped in different HTML tags');
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ==================== END DEBUG ====================');
-            return false;
-        }
-
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ✅ Content successfully modified!');
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Updating post...');
-
-        // Update post
-        $result = wp_update_post(array(
-            'ID' => $post_id,
-            'post_content' => $new_content
-        ), true);
-
-        if (is_wp_error($result)) {
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ❌ wp_update_post() returned error: ' . $result->get_error_message());
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ==================== END DEBUG ====================');
-            return false;
-        }
-
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ✅ wp_update_post() successful! Post updated.');
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ==================== END DEBUG ====================');
-        return true;
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ===== remove_link_from_content() END =====');
+        return $result['success'];
     }
 
     /**
@@ -930,7 +812,7 @@ class SEOAutoFix_Broken_Url_Management
             \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Creating Database_Manager instance...');
             $db_manager = new Database_Manager();
             \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] ✅ Database_Manager created');
-            
+
             \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Creating Link_Analyzer instance...');
             $link_analyzer = new Link_Analyzer();
             \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] ✅ Link_Analyzer created successfully');
@@ -938,7 +820,7 @@ class SEOAutoFix_Broken_Url_Management
             \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] Calling link_analyzer->apply_fixes() with:');
             \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] - IDs: ' . implode(', ', $ids));
             \SEOAutoFix_Debug_Logger::log('[AJAX_APPLY_FIXES] - Custom URL: ' . $custom_url);
-            
+
             $result = $link_analyzer->apply_fixes($ids, $custom_url);
 
             \SEOAutoFix_Debug_Logger::log('========================================');
@@ -2161,13 +2043,13 @@ class SEOAutoFix_Broken_Url_Management
         );
 
         $posts = get_posts($args);
-        
+
         $valid_urls_with_titles = array();
 
         foreach ($posts as $post_id) {
             $url = get_permalink($post_id);
             $title = get_the_title($post_id);
-            
+
             if ($url && $title) {
                 $valid_urls_with_titles[$url] = $title;
             }
