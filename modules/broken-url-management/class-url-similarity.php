@@ -23,7 +23,7 @@ class URL_Similarity
      * Only suggest URLs with similarity score above this threshold
      * Otherwise, fallback to homepage
      */
-    const MIN_SCORE_THRESHOLD = 60; // Updated to 60% for higher quality suggestions
+    const MIN_SCORE_THRESHOLD = 25; // Updated to 25% for higher quality suggestions
 
     /**
      * Scoring weights for anchor text matching
