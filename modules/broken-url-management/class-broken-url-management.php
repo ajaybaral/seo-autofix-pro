@@ -224,6 +224,7 @@ class SEOAutoFix_Broken_Url_Management
             fix_type ENUM('replace', 'remove', 'redirect') DEFAULT NULL,
             reason TEXT NOT NULL,
             occurrences_count INT DEFAULT 1,
+            builder_type VARCHAR(20) DEFAULT NULL,
             is_fixed TINYINT(1) DEFAULT 0,
             is_deleted TINYINT(1) DEFAULT 0,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -265,7 +266,7 @@ class SEOAutoFix_Broken_Url_Management
             entry_id BIGINT(20) NOT NULL,
             broken_url TEXT NOT NULL,
             replacement_url TEXT NULL,
-            action_type ENUM('fixed', 'replaced', 'deleted') NOT NULL,
+            action_type ENUM('fixed', 'replaced', 'deleted', 'undo') NOT NULL,
             page_url TEXT NOT NULL,
             page_title VARCHAR(255) DEFAULT '',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -296,6 +297,10 @@ class SEOAutoFix_Broken_Url_Management
         dbDelta($sql_snapshot);
 
         \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] ✅ All 5 database tables created successfully');
+
+        // Store DB version for future migration support
+        update_option('seoautofix_broken_links_db_version', '2.0');
+        \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] Stored DB version 2.0 in wp_options');
     }
 
     /**
@@ -666,7 +671,7 @@ class SEOAutoFix_Broken_Url_Management
     }
 
     /**
-     * AJAX: Delete entry - Remove link from WordPress content
+     * AJAX: Delete entry - Remove link from WordPress content (TRANSACTIONAL)
      */
     public function ajax_delete_entry()
     {
@@ -678,77 +683,144 @@ class SEOAutoFix_Broken_Url_Management
 
         $id = isset($_POST['id']) ? intval($_POST['id']) : 0;
 
-        \SEOAutoFix_Debug_Logger::log('[SEO_AUTOFIX] ajax_delete_entry called for ID: ' . $id);
+        \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ===== ajax_delete_entry called for ID: ' . $id . ' =====');
 
         if (empty($id)) {
             wp_send_json_error(array('message' => __('Invalid ID', 'seo-autofix-pro')));
         }
+
+        $lock_key = null;
+        $post_id = null;
 
         try {
             $db_manager = new Database_Manager();
             $entry = $db_manager->get_entry($id);
 
             if (!$entry) {
-                \SEOAutoFix_Debug_Logger::log('[SEO_AUTOFIX] Entry not found: ' . $id);
+                \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] Entry not found: ' . $id);
                 wp_send_json_error(array('message' => __('Entry not found', 'seo-autofix-pro')));
             }
 
-            \SEOAutoFix_Debug_Logger::log('[SEO_AUTOFIX] Entry data: ' . print_r($entry, true));
+            \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] Entry data: ' . print_r($entry, true));
 
-            // Remove the link from WordPress content
-            $success = $this->remove_link_from_content(
-                $entry['found_on_url'],
-                $entry['broken_url']
-            );
+            // Resolve post ID for locking
+            $link_analyzer = new Link_Analyzer();
+            $post_id = $link_analyzer->get_post_id_from_url_public($entry['found_on_url']);
+            $builder_type = isset($entry['builder_type']) ? $entry['builder_type'] : null;
+            $location = isset($entry['link_location']) ? $entry['link_location'] : 'content';
 
-            if ($success) {
+            // --- Per-post lock ---
+            if ($post_id) {
+                $lock_key = 'seoautofix_lock_' . $post_id;
+                if (get_transient($lock_key)) {
+                    \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ⚠️ Lock active for post ' . $post_id);
+                    wp_send_json_error(array(
+                        'message' => __('Another operation is in progress for this page. Please try again.', 'seo-autofix-pro'),
+                        'operation' => 'delete',
+                        'verified' => false,
+                        'attempts' => 0,
+                        'builder_used' => $builder_type,
+                        'table_updated' => false
+                    ));
+                }
+                set_transient($lock_key, time(), 10);
+            }
+
+            // --- Retry loop with verification ---
+            $verified = false;
+            $attempts = 0;
+            $max_attempts = 2;
+
+            for ($attempt = 1; $attempt <= $max_attempts; $attempt++) {
+                $attempts = $attempt;
+
+                if ($attempt > 1) {
+                    \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ⏳ Retry #' . ($attempt - 1) . ' after 150ms delay...');
+                    usleep(150000);
+                }
+
+                // Remove the link from WordPress content
+                $success = $this->remove_link_from_content(
+                    $entry['found_on_url'],
+                    $entry['broken_url']
+                );
+
+                \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] Attempt ' . $attempt . ' removal result: ' . ($success ? 'SUCCESS' : 'FAILED'));
+
+                if (!$success) {
+                    continue;
+                }
+
+                // STRICT VERIFICATION: check both anchor tag removal AND URL absence
+                $verified = $this->verify_delete_for_entry($entry['found_on_url'], $entry['broken_url'], $location, $builder_type);
+
+                if ($verified) {
+                    \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ✅ VERIFICATION PASSED on attempt ' . $attempt);
+                    break;
+                }
+
+                \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ❌ VERIFICATION FAILED on attempt ' . $attempt);
+            }
+
+            // --- TRANSACTIONAL: Only update table AFTER verified success ---
+            if ($verified) {
+                // Clear caches first
+                if ($post_id) {
+                    Builder_Replacement_Engine::clear_all_caches($post_id, 'delete');
+                }
+
                 global $wpdb;
-                $table_results = $wpdb->prefix . 'seoautofix_broken_links_scan_results';
                 $table_activity = $wpdb->prefix . 'seoautofix_broken_links_activity';
 
-                \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG] Attempting to log deletion activity for ID: ' . $id);
-                \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG] Scan ID: ' . $entry['scan_id']);
-                \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG] Broken URL: ' . $entry['broken_url']);
-                \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG] Page URL: ' . $entry['found_on_url']);
-                \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG] Page Title: ' . $entry['found_on_page_title']);
-
-                // Log activity before deleting entry
-                $insert_result = $wpdb->insert($table_activity, array(
+                // Log activity
+                $wpdb->insert($table_activity, array(
                     'scan_id' => $entry['scan_id'],
                     'entry_id' => $id,
                     'broken_url' => $entry['broken_url'],
-                    'replacement_url' => NULL, // NULL for delete action
+                    'replacement_url' => NULL,
                     'action_type' => 'deleted',
                     'page_url' => $entry['found_on_url'],
                     'page_title' => $entry['found_on_page_title']
                 ), array('%s', '%d', '%s', '%s', '%s', '%s', '%s'));
 
-                if ($insert_result === false) {
-                    \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG ERROR] Failed to insert activity log! wpdb error: ' . $wpdb->last_error);
-                    \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG ERROR] wpdb last_query: ' . $wpdb->last_query);
-                } else {
-                    \SEOAutoFix_Debug_Logger::log('[ACTIVITY LOG SUCCESS] Activity log entry created with ID: ' . $wpdb->insert_id);
-                }
-
-                // SOFT DELETE: Mark as deleted (is_deleted = 1) instead of removing from database
-                // This allows undo to restore by setting is_deleted = 0
-                // Same behavior as FIX (which sets is_fixed = 1)
+                // SOFT DELETE: Mark as deleted only after verified removal
                 $db_manager->delete_entry($id);
 
-                \SEOAutoFix_Debug_Logger::log('[SEO_AUTOFIX] Successfully removed link from content and marked as deleted (soft delete)');
+                \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ✅ Transactional delete complete — verified and table updated');
 
                 wp_send_json_success(array(
-                    'message' => __('Link removed from content successfully', 'seo-autofix-pro')
+                    'message' => __('Link removed from content successfully', 'seo-autofix-pro'),
+                    'operation' => 'delete',
+                    'verified' => true,
+                    'attempts' => $attempts,
+                    'builder_used' => $builder_type,
+                    'table_updated' => true
                 ));
             } else {
-                \SEOAutoFix_Debug_Logger::log('[SEO_AUTOFIX] Failed to remove link from content');
+                // TRANSACTIONAL: Do NOT update table
+                \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ❌ TRANSACTIONAL: NOT updating table — verification failed after ' . $attempts . ' attempts');
+
                 wp_send_json_error(array(
-                    'message' => __('Failed to remove link from content. Link may not exist in post.', 'seo-autofix-pro')
+                    'message' => sprintf(
+                        __('Failed to remove link — verification failed after %d attempt(s). Content may not have been modified.', 'seo-autofix-pro'),
+                        $attempts
+                    ),
+                    'operation' => 'delete',
+                    'verified' => false,
+                    'attempts' => $attempts,
+                    'builder_used' => $builder_type,
+                    'table_updated' => false
                 ));
             }
         } catch (\Exception $e) {
-            \SEOAutoFix_Debug_Logger::log('[SEO_AUTOFIX] Exception in ajax_delete_entry: ' . $e->getMessage());
+            \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] Exception: ' . $e->getMessage());
             wp_send_json_error(array('message' => $e->getMessage()));
+        } finally {
+            // ALWAYS release lock
+            if ($lock_key) {
+                delete_transient($lock_key);
+                \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] 🔓 Lock released for post ' . $post_id);
+            }
         }
     }
 
@@ -806,6 +878,62 @@ class SEOAutoFix_Broken_Url_Management
 
         \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ===== remove_link_from_content() END =====');
         return $result['success'];
+    }
+
+    /**
+     * Verify that a link deletion was actually applied.
+     * Delegates to Link_Analyzer's strict delete verification (anchor regex + URL absence).
+     *
+     * @param string $page_url     Page URL where link was found.
+     * @param string $broken_url   Broken URL that was deleted.
+     * @param string $location     Location (content, header, footer).
+     * @param string $builder_type Stored builder type (avoids re-detection).
+     * @return bool True if anchor tag with URL has been removed.
+     */
+    private function verify_delete_for_entry($page_url, $broken_url, $location = 'content', $builder_type = null)
+    {
+        \SEOAutoFix_Debug_Logger::log('[VERIFY_DELETE_ENTRY] Verifying deletion for URL: ' . $broken_url);
+
+        $link_analyzer = new Link_Analyzer();
+        $post_id = $link_analyzer->get_post_id_from_url_public($page_url);
+
+        if (!$post_id) {
+            \SEOAutoFix_Debug_Logger::log('[VERIFY_DELETE_ENTRY] ⚠️ Could not resolve post ID — assuming success');
+            return true;
+        }
+
+        // Flush cache to get fresh content
+        clean_post_cache($post_id);
+
+        $builder = $builder_type ?? Builder_Detector::detect($post_id);
+        $post = get_post($post_id);
+
+        if (!$post) {
+            \SEOAutoFix_Debug_Logger::log('[VERIFY_DELETE_ENTRY] ⚠️ Could not get post — assuming success');
+            return true;
+        }
+
+        $content = $post->post_content;
+        $escaped_url = preg_quote($broken_url, '/');
+
+        // Check 1: Anchor tag with this URL should not exist
+        $anchor_pattern = '/<a[^>]*href=["\']' . $escaped_url . '["\'][^>]*>/i';
+        if (preg_match($anchor_pattern, $content)) {
+            \SEOAutoFix_Debug_Logger::log('[VERIFY_DELETE_ENTRY] ❌ Anchor tag with URL still exists in post_content');
+            return false;
+        }
+
+        // Check 2: For Elementor, also check _elementor_data
+        if ($builder === 'elementor' || (defined('SEOAutoFix\\BrokenUrlManagement\\Builder_Detector::ELEMENTOR') && $builder === Builder_Detector::ELEMENTOR)) {
+            $raw = get_post_meta($post_id, '_elementor_data', true);
+            if (!empty($raw) && stripos($raw, $broken_url) !== false) {
+                \SEOAutoFix_Debug_Logger::log('[VERIFY_DELETE_ENTRY] ❌ URL still exists in _elementor_data');
+                return false;
+            }
+        }
+
+        \SEOAutoFix_Debug_Logger::log('[VERIFY_DELETE_ENTRY] ✅ Deletion verified — anchor and URL absent');
+        return true;
     }
 
     /**
@@ -1489,11 +1617,11 @@ class SEOAutoFix_Broken_Url_Management
     }
 
     /**
-     * AJAX: Undo all changes - restore from snapshot
+     * AJAX: Undo all changes - restore from snapshot (TRANSACTIONAL)
      */
     public function ajax_undo_changes()
     {
-        \SEOAutoFix_Debug_Logger::log('[UNDO] ========== UNDO CHANGES CALLED ==========');
+        \SEOAutoFix_Debug_Logger::log('[UNDO] ========== UNDO CHANGES CALLED (TRANSACTIONAL) ==========');
 
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
 
@@ -1527,109 +1655,181 @@ class SEOAutoFix_Broken_Url_Management
 
         \SEOAutoFix_Debug_Logger::log('[UNDO] Found ' . count($snapshots) . ' snapshots to restore');
 
-        // Restore original content for each page
+        // --- Restore each page with verification and retry ---
         $restored_count = 0;
+        $failed_count = 0;
+        $verified_page_ids = array();
+        $failed_pages = array();
+        $max_attempts = 3; // Up to 2 retries for undo
+
         foreach ($snapshots as $snapshot) {
             $page_id = intval($snapshot['page_id']);
             $original_content = $snapshot['original_content'];
+            $lock_key = 'seoautofix_lock_' . $page_id;
 
-            // Check if this is an Elementor snapshot (stored as JSON)
-            $snapshot_data = json_decode($original_content, true);
+            // --- Per-page lock ---
+            if (get_transient($lock_key)) {
+                \SEOAutoFix_Debug_Logger::log('[UNDO] ⚠️ Lock active for page ' . $page_id . ' — skipping');
+                $failed_count++;
+                $failed_pages[] = $page_id;
+                continue;
+            }
 
-            if ($snapshot_data && isset($snapshot_data['is_elementor']) && $snapshot_data['is_elementor']) {
-                // Elementor page - restore both post_content and _elementor_data
-                \SEOAutoFix_Debug_Logger::log('[UNDO] Restoring Elementor page ' . $page_id);
+            set_transient($lock_key, time(), 10);
 
-                $updated = wp_update_post(array(
-                    'ID' => $page_id,
-                    'post_content' => $snapshot_data['post_content']
-                ), true);
+            try {
+                // Decode snapshot to check if Elementor
+                $snapshot_data = json_decode($original_content, true);
+                $is_elementor = $snapshot_data && isset($snapshot_data['is_elementor']) && $snapshot_data['is_elementor'];
 
-                if (!is_wp_error($updated)) {
-                    // Restore Elementor data
-                    update_post_meta($page_id, '_elementor_data', wp_slash($snapshot_data['elementor_data']));
+                $page_verified = false;
+                $page_attempts = 0;
 
-                    // Clear Elementor cache
-                    if (class_exists('\Elementor\Plugin')) {
-                        \Elementor\Plugin::$instance->files_manager->clear_cache();
-                        \SEOAutoFix_Debug_Logger::log('[UNDO] Cleared Elementor cache for page ' . $page_id);
+                for ($attempt = 1; $attempt <= $max_attempts; $attempt++) {
+                    $page_attempts = $attempt;
+
+                    if ($attempt > 1) {
+                        \SEOAutoFix_Debug_Logger::log('[UNDO] ⏳ Retry #' . ($attempt - 1) . ' for page ' . $page_id . ' after 150ms delay...');
+                        usleep(150000);
                     }
 
-                    $restored_count++;
-                    \SEOAutoFix_Debug_Logger::log('[UNDO] Restored Elementor content for page ' . $page_id);
-                } else {
-                    \SEOAutoFix_Debug_Logger::log('[UNDO] Failed to restore Elementor page ' . $page_id . ': ' . $updated->get_error_message());
-                }
-            } else {
-                // Regular WordPress page - restore post_content only
-                $updated = wp_update_post(array(
-                    'ID' => $page_id,
-                    'post_content' => $original_content
-                ), true);
+                    // --- Restore content ---
+                    if ($is_elementor) {
+                        \SEOAutoFix_Debug_Logger::log('[UNDO] Restoring Elementor page ' . $page_id . ' (attempt ' . $attempt . ')');
 
-                if (is_wp_error($updated)) {
-                    \SEOAutoFix_Debug_Logger::log('[UNDO] Failed to restore page ' . $page_id . ': ' . $updated->get_error_message());
-                } else {
-                    $restored_count++;
-                    \SEOAutoFix_Debug_Logger::log('[UNDO] Restored content for page ' . $page_id);
+                        $updated = wp_update_post(array(
+                            'ID' => $page_id,
+                            'post_content' => $snapshot_data['post_content']
+                        ), true);
+
+                        if (!is_wp_error($updated)) {
+                            update_post_meta($page_id, '_elementor_data', wp_slash($snapshot_data['elementor_data']));
+                        } else {
+                            \SEOAutoFix_Debug_Logger::log('[UNDO] ❌ wp_update_post failed: ' . $updated->get_error_message());
+                            continue;
+                        }
+                    } else {
+                        \SEOAutoFix_Debug_Logger::log('[UNDO] Restoring regular page ' . $page_id . ' (attempt ' . $attempt . ')');
+
+                        $updated = wp_update_post(array(
+                            'ID' => $page_id,
+                            'post_content' => $original_content
+                        ), true);
+
+                        if (is_wp_error($updated)) {
+                            \SEOAutoFix_Debug_Logger::log('[UNDO] ❌ wp_update_post failed: ' . $updated->get_error_message());
+                            continue;
+                        }
+                    }
+
+                    // --- VERIFICATION: re-read and compare ---
+                    clean_post_cache($page_id);
+                    $restored_post = get_post($page_id);
+
+                    if (!$restored_post) {
+                        \SEOAutoFix_Debug_Logger::log('[UNDO] ⚠️ Could not re-read post ' . $page_id . ' for verification');
+                        continue;
+                    }
+
+                    if ($is_elementor) {
+                        // Verify both post_content and _elementor_data
+                        $content_match = ($restored_post->post_content === $snapshot_data['post_content']);
+                        $elementor_raw = get_post_meta($page_id, '_elementor_data', true);
+                        $elementor_match = ($elementor_raw === $snapshot_data['elementor_data']);
+
+                        if ($content_match && $elementor_match) {
+                            \SEOAutoFix_Debug_Logger::log('[UNDO] ✅ Elementor page ' . $page_id . ' verified (attempt ' . $attempt . ')');
+                            $page_verified = true;
+                            break;
+                        }
+                        \SEOAutoFix_Debug_Logger::log('[UNDO] ❌ Elementor verification failed for page ' . $page_id .
+                            ' (content_match: ' . ($content_match ? 'true' : 'false') .
+                            ', elementor_match: ' . ($elementor_match ? 'true' : 'false') . ')');
+                    } else {
+                        // Verify post_content
+                        if ($restored_post->post_content === $original_content) {
+                            \SEOAutoFix_Debug_Logger::log('[UNDO] ✅ Regular page ' . $page_id . ' verified (attempt ' . $attempt . ')');
+                            $page_verified = true;
+                            break;
+                        }
+                        \SEOAutoFix_Debug_Logger::log('[UNDO] ❌ Content verification failed for page ' . $page_id);
+                    }
                 }
+
+                if ($page_verified) {
+                    $restored_count++;
+                    $verified_page_ids[] = $page_id;
+
+                    // Clear caches after verified restore
+                    Builder_Replacement_Engine::clear_all_caches($page_id, 'undo');
+
+                    \SEOAutoFix_Debug_Logger::log('[UNDO] ✅ Page ' . $page_id . ' restored and verified after ' . $page_attempts . ' attempt(s)');
+                } else {
+                    $failed_count++;
+                    $failed_pages[] = $page_id;
+                    \SEOAutoFix_Debug_Logger::log('[UNDO] ❌ Page ' . $page_id . ' FAILED verification after ' . $page_attempts . ' attempts — NOT resetting table state');
+                }
+            } finally {
+                // ALWAYS release lock
+                delete_transient($lock_key);
+                \SEOAutoFix_Debug_Logger::log('[UNDO] 🔓 Lock released for page ' . $page_id);
             }
         }
-        //NOTE: DO NOT delete snapshots! They should persist for the entire session
-        // so users can undo multiple times if they make more fixes
-        // Snapshots are only deleted when:
-        // 1. A new scan is started (handled separately)
-        // 2. Page is refreshed (session ends)
-        // 3. User manually clears old data
-
-        // OLD CODE (WRONG - deleted snapshot after first undo):
-        // $deleted = $wpdb->delete($table_snapshot, array('scan_id' => $scan_id), array('%s'));
-        // \SEOAutoFix_Debug_Logger::log('[UNDO] Deleted ' . $deleted . ' snapshot entries');
 
         \SEOAutoFix_Debug_Logger::log('[UNDO] Snapshot preserved for potential future undos');
 
-        // ===== CRITICAL: Clean up database entries so links appear as broken again =====
+        // ===== TRANSACTIONAL: Only reset table state for VERIFIED pages =====
         $table_activity = $wpdb->prefix . 'seoautofix_broken_links_activity';
         $table_scan_results = $wpdb->prefix . 'seoautofix_broken_links_scan_results';
 
-        // Get the page IDs that were restored
-        $restored_page_ids = array_column($snapshots, 'page_id');
-        \SEOAutoFix_Debug_Logger::log('[UNDO] Cleaning up database entries for pages: ' . implode(',', $restored_page_ids));
+        if (!empty($verified_page_ids)) {
+            $placeholders = implode(',', array_fill(0, count($verified_page_ids), '%d'));
 
-        // Delete activity log entries for this scan (all fixes/deletes done in this scan)
-        $activity_deleted = $wpdb->delete(
-            $table_activity,
-            array('scan_id' => $scan_id),
-            array('%s')
-        );
-        \SEOAutoFix_Debug_Logger::log('[UNDO] Deleted ' . $activity_deleted . ' activity log entries');
+            \SEOAutoFix_Debug_Logger::log('[UNDO] Resetting table state for verified pages: ' . implode(',', $verified_page_ids));
 
-
-
-        // Mark broken links as unfixed AND undeleted instead of deleting them
-        // This way they'll appear again in the results with the Fix button
-        if (!empty($restored_page_ids)) {
-            $placeholders = implode(',', array_fill(0, count($restored_page_ids), '%d'));
-
-            \SEOAutoFix_Debug_Logger::log('[UNDO] About to update entries for page IDs: ' . implode(',', $restored_page_ids));
-            \SEOAutoFix_Debug_Logger::log('[UNDO] Scan ID: ' . $scan_id);
-            \SEOAutoFix_Debug_Logger::log('[UNDO] Query will be: UPDATE ' . $table_scan_results . ' SET is_fixed = 0, is_deleted = 0 WHERE scan_id = ' . $scan_id . ' AND found_on_page_id IN (' . implode(',', $restored_page_ids) . ')');
-
+            // Mark broken links as unfixed AND undeleted ONLY for verified pages
             $results_updated = $wpdb->query($wpdb->prepare(
                 "UPDATE {$table_scan_results} SET is_fixed = 0, is_deleted = 0 WHERE scan_id = %s AND found_on_page_id IN ($placeholders)",
-                array_merge(array($scan_id), $restored_page_ids)
+                array_merge(array($scan_id), $verified_page_ids)
             ));
 
-            \SEOAutoFix_Debug_Logger::log('[UNDO] Update query executed. Rows affected: ' . $results_updated);
-            \SEOAutoFix_Debug_Logger::log('[UNDO] WPDB last error: ' . $wpdb->last_error);
-            \SEOAutoFix_Debug_Logger::log('[UNDO] Marked ' . $results_updated . ' entries as unfixed and undeleted for restored pages');
+            \SEOAutoFix_Debug_Logger::log('[UNDO] Marked ' . $results_updated . ' entries as unfixed and undeleted');
+
+            // --- Fresh undo activity log entries ---
+            foreach ($verified_page_ids as $v_page_id) {
+                $wpdb->insert($table_activity, array(
+                    'scan_id' => $scan_id,
+                    'entry_id' => 0,
+                    'broken_url' => '',
+                    'replacement_url' => NULL,
+                    'action_type' => 'undo',
+                    'page_url' => get_permalink($v_page_id) ?: '',
+                    'page_title' => get_the_title($v_page_id) ?: ''
+                ), array('%s', '%d', '%s', '%s', '%s', '%s', '%s'));
+            }
+
+            \SEOAutoFix_Debug_Logger::log('[UNDO] Inserted ' . count($verified_page_ids) . ' undo activity log entries');
         }
 
-        wp_send_json_success(array(
-            'message' => sprintf(__('Successfully restored %d page(s) to original state', 'seo-autofix-pro'), $restored_count),
+        // Build response
+        $response = array(
+            'message' => sprintf(
+                __('Restored %d page(s) to original state. %d failed.', 'seo-autofix-pro'),
+                $restored_count,
+                $failed_count
+            ),
+            'operation' => 'undo',
             'restored_count' => $restored_count,
-            'activity_deleted' => $activity_deleted
-        ));
+            'failed_count' => $failed_count,
+            'verified_pages' => $verified_page_ids,
+            'failed_pages' => $failed_pages
+        );
+
+        if ($failed_count > 0) {
+            \SEOAutoFix_Debug_Logger::log('[UNDO] ⚠️ Partial undo — ' . $failed_count . ' page(s) failed verification');
+        }
+
+        wp_send_json_success($response);
     }
 
     /**
@@ -1999,6 +2199,13 @@ class SEOAutoFix_Broken_Url_Management
                 'location' => isset($link['location']) ? sanitize_text_field($link['location']) : 'content',
                 'suggested_url' => isset($link['suggested_url']) ? esc_url_raw($link['suggested_url']) : null
             );
+
+            // Auto-detect builder type during scan for deterministic operations later
+            $page_id_for_builder = isset($link['found_on_page_id']) ? intval($link['found_on_page_id']) : 0;
+            if ($page_id_for_builder > 0) {
+                $link_data['builder_type'] = Builder_Detector::detect($page_id_for_builder);
+                \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Detected builder_type: ' . ($link_data['builder_type'] ?: 'none'));
+            }
 
             \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Prepared link_data: ' . print_r($link_data, true));
             \SEOAutoFix_Debug_Logger::log('[SAVE BROKEN LINKS BATCH] Calling db_manager->add_broken_link() for: ' . $link_data['broken_url']);

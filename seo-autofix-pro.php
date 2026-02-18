@@ -264,6 +264,7 @@ class SEO_AutoFix_Pro
         // Set plugin activation flag
         update_option('seoautofix_activated', true);
         update_option('seoautofix_version', SEOAUTOFIX_VERSION);
+        update_option('seoautofix_db_version', SEOAUTOFIX_VERSION);
 
         // Trigger module activation hooks
         do_action('seoautofix_activated');

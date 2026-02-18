@@ -862,4 +862,43 @@ class Builder_Replacement_Engine
             '_elementor_pro_version',
         ];
     }
+
+    /* ── cache clearing + extensibility ──────────────────────────────── */
+
+    /**
+     * Clear all relevant caches for a post after a verified content change.
+     *
+     * Clears: WP object cache, Elementor CSS cache, LiteSpeed single-page cache.
+     * Fires the `seoautofix_after_content_modified` action for external integrations.
+     *
+     * @param int    $post_id   Post ID.
+     * @param string $operation One of 'replace', 'delete', 'undo'.
+     */
+    public static function clear_all_caches($post_id, $operation = 'replace')
+    {
+        \SEOAutoFix_Debug_Logger::log('[CACHE] Clearing all caches for post ID: ' . $post_id . ' (operation: ' . $operation . ')');
+
+        // 1) WordPress object cache
+        clean_post_cache($post_id);
+
+        // 2) WordPress object cache flush
+        wp_cache_flush();
+
+        // 3) Elementor CSS file cache
+        if (class_exists('\\Elementor\\Plugin')) {
+            \Elementor\Plugin::$instance->files_manager->clear_cache();
+            \SEOAutoFix_Debug_Logger::log('[CACHE] Cleared Elementor CSS cache');
+        }
+
+        // 4) LiteSpeed Cache — single post purge
+        if (function_exists('litespeed_purge_single')) {
+            litespeed_purge_single($post_id);
+            \SEOAutoFix_Debug_Logger::log('[CACHE] Purged LiteSpeed cache for post ' . $post_id);
+        }
+
+        // 5) Extensibility hook — allows CDN purge, webhooks, etc.
+        do_action('seoautofix_after_content_modified', $post_id, $operation);
+
+        \SEOAutoFix_Debug_Logger::log('[CACHE] All caches cleared for post ' . $post_id);
+    }
 }

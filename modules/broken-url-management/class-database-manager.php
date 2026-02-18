@@ -259,12 +259,13 @@ class Database_Manager
             'reason' => isset($data['reason']) ? $data['reason'] : '',
             'anchor_text' => isset($data['anchor_text']) ? $data['anchor_text'] : '',
             'link_location' => isset($data['location']) ? $data['location'] : 'content',
+            'builder_type' => isset($data['builder_type']) ? $data['builder_type'] : null,
             'created_at' => current_time('mysql')
         );
         
         \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] Insert data prepared: ' . print_r($insert_data, true));
         
-        $format = array('%s', '%s', '%d', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s');
+        $format = array('%s', '%s', '%d', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s');
         \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] Format array: ' . print_r($format, true));
         
         \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] Calling wpdb->insert()...');
