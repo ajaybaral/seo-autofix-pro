@@ -783,8 +783,20 @@ class SEOAutoFix_Broken_Url_Management
             \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Removed from: ' . implode(', ', $result['removed_from']));
         }
 
+        if ($result['success']) {
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ===== remove_link_from_content() END =====');
+            return true;
+        }
+
+        // LAST RESORT: Try file-level removal (theme/child-theme PHP files)
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] 🔍 DB removal failed — trying file-level removal as last resort');
+        $file_replacer = new File_Level_Replacer();
+        $file_result = $file_replacer->remove_link($broken_url);
+
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] File-level result: ' . ($file_result['success'] ? 'SUCCESS' : 'FAILED'));
+
         \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ===== remove_link_from_content() END =====');
-        return $result['success'];
+        return $file_result['success'];
     }
 
     /**
