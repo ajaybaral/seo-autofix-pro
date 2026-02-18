@@ -34,11 +34,6 @@ class Link_Analyzer
     private $header_footer_replacer;
 
     /**
-     * File-level replacer (last-resort fallback for theme files)
-     */
-    private $file_level_replacer;
-
-    /**
      * Constructor
      */
     public function __construct()
@@ -59,11 +54,6 @@ class Link_Analyzer
             \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] Creating Header_Footer_Replacer...');
             $this->header_footer_replacer = new Header_Footer_Replacer();
             \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] ✅ Header_Footer_Replacer created');
-
-            \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] Checking if File_Level_Replacer class exists: ' . (class_exists('SEOAutoFix\\BrokenUrlManagement\\File_Level_Replacer') ? 'YES' : 'NO'));
-            \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] Creating File_Level_Replacer...');
-            $this->file_level_replacer = new File_Level_Replacer();
-            \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] ✅ File_Level_Replacer created');
 
             \SEOAutoFix_Debug_Logger::log('[LINK_ANALYZER] ✅ Constructor completed successfully');
         } catch (\Exception $e) {
@@ -253,33 +243,11 @@ class Link_Analyzer
                     esc_url($replacement_url)
                 );
             } else {
-                // LAST RESORT: Try file-level replacement (theme/child-theme PHP files)
-                \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] 🔍 All DB methods failed — trying file-level replacement as last resort');
-
-                $file_result = $this->file_level_replacer->replace_url($entry['broken_url'], $replacement_url);
-
-                if ($file_result['success']) {
-                    \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] ✅ File-level replacement succeeded!');
-                    \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Files modified: ' . implode(', ', $file_result['files_modified']));
-
-                    $fixed_count++;
-                    $mark_result = $this->db_manager->mark_as_fixed($entry_id);
-                    \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Mark as fixed result for ID ' . $entry_id . ': ' . ($mark_result ? 'SUCCESS' : 'FAILED'));
-
-                    $messages[] = sprintf(
-                        __('⚠️ Fixed (theme file): %s → %s — Backup created', 'seo-autofix-pro'),
-                        esc_url($entry['broken_url']),
-                        esc_url($replacement_url)
-                    );
-                } else {
-                    \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] ❌ File-level replacement also failed: ' . $file_result['message']);
-
-                    $failed_count++;
-                    $messages[] = sprintf(
-                        __('❌ Failed to fix: %s - Not found in database or theme files. It may be dynamically generated.', 'seo-autofix-pro'),
-                        esc_url($entry['broken_url'])
-                    );
-                }
+                $failed_count++;
+                $messages[] = sprintf(
+                    __('❌ Failed to fix: %s - Link not found in post content or site-wide elements', 'seo-autofix-pro'),
+                    esc_url($entry['broken_url'])
+                );
             }
         }
 
