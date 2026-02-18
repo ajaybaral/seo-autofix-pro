@@ -274,6 +274,12 @@ class Image_Usage_Tracker
             AND post_type IN ('post', 'page')
         ", ARRAY_A);
 
+        // Add permalink URL to each post for frontend grouping display
+        foreach ($posts as &$post) {
+            $post['url'] = get_permalink($post['ID']);
+        }
+        unset($post); // Break reference
+
         // Cache with metadata (NO TIME LIMIT - only invalidates on change)
         set_transient($cache_key, $posts, 0); // 0 = never expires
         set_transient($cache_meta_key, array(
@@ -528,6 +534,7 @@ class Image_Usage_Tracker
                         'post_id' => $post->ID,
                         'title' => $post->post_title,
                         'type' => $post->post_type,
+                        'url' => get_permalink($post->ID),
                         'match_type' => $match_type
                     );
                     $results[$attachment_id]['total_uses']++;

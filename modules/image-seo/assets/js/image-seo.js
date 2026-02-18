@@ -1037,6 +1037,7 @@ jQuery(document).ready(function ($) {
                         post_id: post.ID,
                         title: post.post_title,
                         type: post.post_type,
+                        url: post.url || '',
                         match_type: matchType
                     });
                     results[img.id].total_uses++;

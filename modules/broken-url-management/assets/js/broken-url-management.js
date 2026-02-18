@@ -3684,42 +3684,100 @@
      * Perform bulk remove operation
      */
     function performBulkRemove(links) {
-        console.log('[PERFORM BULK REMOVE] Removing', links.length, 'links');
+        console.log('[PERFORM BULK REMOVE] Removing', links.length, 'links using individual delete_entry');
 
-        // Show progress modal
         showBulkProgressModal('Removing Broken Links', links.length);
 
-        // Group links by page to create fix plan
-        const entryIds = links.map(link => link.id);
+        let successCount = 0;
+        let failCount = 0;
+        let currentIndex = 0;
 
-        // Generate fix plan
-        $.ajax({
-            url: seoautofixBrokenUrls.ajaxUrl,
-            method: 'POST',
-            data: {
-                action: 'seoautofix_broken_links_generate_fix_plan',
-                nonce: seoautofixBrokenUrls.nonce,
-                entry_ids: entryIds
-            },
-            success: function (response) {
-                console.log('[BULK REMOVE] Fix plan response:', response);
-
-                if (response.success) {
-                    const planId = response.data.plan_id;
-
-                    // Now apply the fix plan with delete action
-                    applyBulkFixPlan(planId, entryIds, 'delete', 'Removed');
-                } else {
-                    closeBulkProgressModal();
-                    alert(response.data.message || 'Failed to generate fix plan');
-                }
-            },
-            error: function (jqXHR, textStatus, errorThrown) {
-                console.error('[BULK REMOVE] Error:', textStatus, errorThrown);
+        const deleteNext = () => {
+            if (currentIndex >= links.length) {
+                // All done
                 closeBulkProgressModal();
-                alert('Error creating fix plan: ' + textStatus);
+                console.log('[BULK REMOVE] Completed. Success:', successCount, 'Failed:', failCount);
+
+                if (successCount > 0) {
+                    updateHeaderBrokenCount();
+                    updateStatsFromVisibleRows();
+                    updateButtonStates();
+                    updateFixedReportButtonText();
+                    $('#undo-last-fix-btn, #undo-changes-btn').prop('disabled', false);
+                }
+
+                let msg = `✅ Successfully removed ${successCount} link(s) from content.`;
+                if (failCount > 0) msg += `\n⚠️ Failed: ${failCount}`;
+                alert(msg);
+                return;
             }
-        });
+
+            const link = links[currentIndex];
+            const entryId = link.id;
+            console.log(`[BULK REMOVE] Deleting ${currentIndex + 1}/${links.length}, ID:`, entryId);
+
+            $.ajax({
+                url: seoautofixBrokenUrls.ajaxUrl,
+                method: 'POST',
+                data: {
+                    action: 'seoautofix_broken_links_delete_entry',
+                    nonce: seoautofixBrokenUrls.nonce,
+                    id: entryId
+                },
+                success: function (response) {
+                    if (response.success) {
+                        successCount++;
+                        console.log('[BULK REMOVE] ✅ Deleted ID:', entryId);
+
+                        // Track in undoStack (same as individual delete)
+                        const $row = $(`tr[data-id="${entryId}"]`);
+                        const rowData = $row.data('result');
+
+                        if (rowData) {
+                            undoStack.push({
+                                id: entryId,
+                                action: 'delete',
+                                original_data: rowData,
+                                row_html: $row[0] ? $row[0].outerHTML : ''
+                            });
+
+                            fixedLinksSession.push({
+                                id: entryId,
+                                location: rowData.found_on_page_title || 'Unknown',
+                                anchor_text: rowData.anchor_text || '',
+                                broken_url: rowData.broken_url,
+                                link_type: rowData.link_type,
+                                status_code: rowData.status_code,
+                                error_type: rowData.error_type,
+                                suggested_url: '',
+                                reason: 'Link deleted (bulk)',
+                                is_fixed: 1,
+                                fixed_at: new Date().toISOString()
+                            });
+                        }
+
+                        // Animate row (same as individual delete)
+                        if ($row.length) {
+                            animateDeletedRow($row);
+                        }
+                    } else {
+                        failCount++;
+                        console.error('[BULK REMOVE] ❌ Failed ID:', entryId, response.data);
+                    }
+
+                    currentIndex++;
+                    deleteNext();
+                },
+                error: function (jqXHR, textStatus, errorThrown) {
+                    failCount++;
+                    console.error('[BULK REMOVE] ❌ AJAX error ID:', entryId, textStatus);
+                    currentIndex++;
+                    deleteNext();
+                }
+            });
+        };
+
+        deleteNext();
     }
 
     /**
@@ -4140,265 +4198,143 @@
     }
 
     /**
-     * Perform bulk replace operation (V2 with multi-action support)
+     * Perform bulk replace operation (V2 — reuses individual apply_fixes endpoint)
      */
     function performBulkReplaceV2(links) {
-        console.log('[PERFORM BULK REPLACE V2] ===== START =====');
-        console.log('[PERFORM BULK REPLACE V2] Replacing', links.length, 'links');
-        console.log('[PERFORM BULK REPLACE V2] Links with actions:', links);
+        console.log('[BULK REPLACE V2] ===== START =====');
+        console.log('[BULK REPLACE V2] Processing', links.length, 'links using individual apply_fixes');
 
         showBulkProgressModal('Replacing Broken Links', links.length);
 
-        // Build a customized fix plan based on replacement actions
-        const fixPlanData = links.map(link => {
-            const baseEntry = {
-                entry_id: link.id,
-                page_id: link.page_id,
-                broken_url: link.broken_url
-            };
+        let successCount = 0;
+        let failCount = 0;
+        let deletedCount = 0;
+        let currentIndex = 0;
 
-            switch (link.replace_action) {
-                case 'suggested':
-                    return {
-                        ...baseEntry,
-                        action: 'replace',
-                        new_url: link.new_url || link.suggested_url
-                    };
-                case 'home':
-                    return {
-                        ...baseEntry,
-                        action: 'replace',
-                        new_url: link.new_url // Home URL passed from modal
-                    };
-                case 'delete':
-                    return {
-                        ...baseEntry,
-                        action: 'delete',
-                        new_url: ''
-                    };
-                default:
-                    console.warn('[BULK REPLACE V2] Unknown action:', link.replace_action, 'for link', link.id);
-                    return null;
-            }
-        }).filter(entry => entry !== null);
-
-        console.log('[BULK REPLACE V2] Generated fix plan data:', fixPlanData);
-        console.log('[BULK REPLACE V2] Sending to backend:', {
-            action: 'seoautofix_broken_links_generate_fix_plan',
-            entry_ids: links.map(l => l.id),
-            custom_plan_length: fixPlanData.length
-        });
-
-        // Generate fix plan with custom actions
-        $.ajax({
-            url: seoautofixBrokenUrls.ajaxUrl,
-            method: 'POST',
-            data: {
-                action: 'seoautofix_broken_links_generate_fix_plan',
-                nonce: seoautofixBrokenUrls.nonce,
-                entry_ids: links.map(l => l.id),
-                custom_plan: JSON.stringify(fixPlanData) // Pass our custom plan
-            },
-            success: function (response) {
-                console.log('[BULK REPLACE V2] Generate plan response:', response);
-
-                if (response.success) {
-                    const planId = response.data.plan_id;
-                    console.log('[BULK REPLACE V2] Plan generated successfully, ID:', planId);
-                    console.log('[BULK REPLACE V2] Applying fix plan...');
-
-                    // Apply the fix plan
-                    $.ajax({
-                        url: seoautofixBrokenUrls.ajaxUrl,
-                        method: 'POST',
-                        data: {
-                            action: 'seoautofix_broken_links_apply_fix_plan',
-                            nonce: seoautofixBrokenUrls.nonce,
-                            plan_id: planId
-                        },
-                        success: function (applyResponse) {
-                            console.log('[BULK REPLACE V2] Apply plan response:', applyResponse);
-                            closeBulkProgressModal();
-
-                            if (applyResponse.success) {
-                                // The response structure is: applyResponse.data = { fixed_count, failed_count, removed_count, messages, etc. }
-                                const successCount = applyResponse.data.fixed_count || 0;
-                                const failedCount = applyResponse.data.failed_count || 0;
-                                const removedCount = applyResponse.data.removed_count || 0;
-                                const messages = applyResponse.data.messages || [];
-
-                                console.log('[BULK REPLACE V2] Apply results:', {
-                                    fixed: successCount,
-                                    failed: failedCount,
-                                    removed: removedCount,
-                                    messages: messages,
-                                    fullResponse: applyResponse.data
-                                });
-
-                                // Build success message - show total links processed
-                                const totalProcessed = successCount + removedCount;
-                                let message = '';
-
-                                if (totalProcessed > 0) {
-                                    message = `✅ Successfully processed ${totalProcessed} broken link(s) across ${applyResponse.data.total_pages || 0} page(s).`;
-
-                                    // Show breakdown if:
-                                    // 1. There were both fixes AND removals (mixed actions)
-                                    // 2. There were ONLY removals (user deleted links)
-                                    // Skip breakdown only if there were ONLY replacements (cleaner message)
-                                    if (removedCount > 0) {
-                                        // Always show breakdown when links were removed
-                                        message += `\n\n`;
-                                        if (successCount > 0) {
-                                            message += `• ${successCount} link(s) replaced with new URLs\n`;
-                                        }
-                                        message += `• ${removedCount} link(s) removed (deleted)`;
-                                    }
-                                }
-
-                                if (failedCount > 0) {
-                                    message += `\n\n⚠️ ${failedCount} link(s) failed to process.`;
-                                }
-
-                                // Show detailed messages if available
-                                if (messages.length > 0) {
-                                    message += '\n\nDetails:\n' + messages.join('\n');
-                                }
-
-                                if (message) {
-                                    alert(message);
-                                }
-
-                                // Dynamically update the table instead of reloading
-                                if (successCount > 0 || removedCount > 0) {
-                                    console.log('[BULK REPLACE V2] Updating table dynamically');
-
-                                    // Get the entry IDs that were ACTUALLY fixed from the backend response
-                                    const fixedIds = applyResponse.data.fixed_entry_ids || [];
-                                    console.log('[BULK REPLACE V2] Backend confirmed fixed IDs:', fixedIds);
-                                    console.log('[BULK REPLACE V2] Total IDs sent:', links.map(l => l.id));
-
-                                    if (fixedIds.length === 0) {
-                                        console.warn('[BULK REPLACE V2] No fixed_entry_ids in response, cannot update table');
-                                        return;
-                                    }
-
-                                    // ✅ POPULATE fixedLinksSession AND undoStack
-                                    console.log('[BULK REPLACE V2] Adding', fixedIds.length, 'links to fixedLinksSession and undoStack');
-                                    fixedIds.forEach(id => {
-                                        const $row = $(`tr[data-id="${id}"]`);
-                                        // Find the original link data from the links array
-                                        const linkData = links.find(l => l.id == id);
-                                        if (linkData) {
-                                            // Add to fixedLinksSession for reports
-                                            fixedLinksSession.push({
-                                                id: linkData.id,
-                                                location: linkData.found_on_page_title || linkData.page_title,
-                                                anchor_text: linkData.anchor_text,
-                                                broken_url: linkData.broken_url,
-                                                link_type: linkData.link_type,
-                                                status_code: linkData.status_code,
-                                                error_type: linkData.error_type,
-                                                suggested_url: linkData.suggested_url || linkData.new_url,
-                                                reason: linkData.reason || 'Bulk action',
-                                                is_fixed: 1
-                                            });
-
-                                            // ✅ Add to undoStack for visual row restoration
-                                            if ($row.length) {
-                                                undoStack.push({
-                                                    id: id,
-                                                    action: 'fix',
-                                                    original_data: linkData,
-                                                    row_html: $row[0] ? $row[0].outerHTML : ''
-                                                });
-                                            }
-                                        }
-                                    });
-                                    console.log('[BULK REPLACE V2] fixedLinksSession now has', fixedLinksSession.length, 'entries');
-                                    console.log('[BULK REPLACE V2] undoStack now has', undoStack.length, 'entries');
-
-                                    // Remove only the rows that were actually fixed
-                                    let removedRowsCount = 0;
-                                    fixedIds.forEach(id => {
-                                        const $row = $(`tr[data-id="${id}"]`);
-                                        if ($row.length) {
-                                            console.log('[BULK REPLACE V2] Animating and removing row for fixed ID:', id);
-                                            // ✅ USE PROPER GREEN ANIMATION instead of simple fadeOut
-                                            animateFixedRow($row, function () {
-                                                removedRowsCount++;
-
-                                                // Check if table is now empty (after last row is removed)
-                                                if (removedRowsCount === fixedIds.length) {
-                                                    const remainingRows = $('#broken-links-table tbody tr:visible').length;
-                                                    console.log('[BULK REPLACE V2] All fixed rows removed. Remaining rows:', remainingRows);
-
-                                                    if (remainingRows === 0) {
-                                                        console.log('[BULK REPLACE V2] No more broken links - showing empty state');
-                                                        $('#broken-links-table tbody').html(
-                                                            '<tr><td colspan="7" style="text-align: center; padding: 40px;">' +
-                                                            '<p style="font-size: 16px; color: #10b981; margin: 0;">✅ All broken links have been fixed!</p>' +
-                                                            '<p style="font-size: 14px; color: #6b7280; margin-top: 10px;">Run a new scan to check for more issues.</p>' +
-                                                            '</td></tr>'
-                                                        );
-
-                                                        // Update stats to show 0
-                                                        $('.stat-value').text('0');
-
-                                                        // Update all button states (handled by centralized function)
-                                                        updateButtonStates();
-                                                        updateStatsFromVisibleRows();
-                                                    } else {
-                                                        // ✅ Update stats dynamically from visible rows
-                                                        console.log('[BULK REPLACE V2] Updating stats from visible rows');
-                                                        updateStatsFromVisibleRows();
-
-                                                        // Update all button states (handled by centralized function)
-                                                        updateButtonStates();
-                                                    }
-                                                }
-                                            });
-                                        } else {
-                                            console.warn('[BULK REPLACE V2] Row not found for ID:', id);
-                                        }
-                                    });
-
-                                } else {
-                                    console.warn('[BULK REPLACE V2] No links were successfully processed');
-                                }
-                            } else {
-                                console.error('[BULK REPLACE V2] Apply failed:', applyResponse.data);
-                                alert(applyResponse.data.message || 'Failed to apply fixes');
-                            }
-                        },
-                        error: function (jqXHR, textStatus, errorThrown) {
-                            console.error('[BULK REPLACE V2] Apply AJAX error:', {
-                                status: jqXHR.status,
-                                statusText: textStatus,
-                                error: errorThrown,
-                                responseText: jqXHR.responseText
-                            });
-                            closeBulkProgressModal();
-                            alert('Error applying fixes: ' + textStatus);
-                        }
-                    });
-                } else {
-                    console.error('[BULK REPLACE V2] Generate plan failed:', response.data);
-                    closeBulkProgressModal();
-                    alert(response.data.message || 'Failed to generate fix plan');
-                }
-            },
-            error: function (jqXHR, textStatus, errorThrown) {
-                console.error('[BULK REPLACE V2] Generate AJAX error:', {
-                    status: jqXHR.status,
-                    statusText: textStatus,
-                    error: errorThrown,
-                    responseText: jqXHR.responseText
-                });
+        const processNext = () => {
+            if (currentIndex >= links.length) {
+                // All done
                 closeBulkProgressModal();
-                alert('Error creating fix plan: ' + textStatus);
+                console.log('[BULK REPLACE V2] Completed. Replaced:', successCount, 'Deleted:', deletedCount, 'Failed:', failCount);
+
+                if (successCount > 0 || deletedCount > 0) {
+                    updateHeaderBrokenCount();
+                    updateStatsFromVisibleRows();
+                    updateButtonStates();
+                    updateFixedReportButtonText();
+                    $('#undo-last-fix-btn, #undo-changes-btn').prop('disabled', false);
+                }
+
+                const totalProcessed = successCount + deletedCount;
+                let msg = `✅ Successfully processed ${totalProcessed} broken link(s).`;
+                if (successCount > 0 && deletedCount > 0) {
+                    msg += `\n\n• ${successCount} link(s) replaced\n• ${deletedCount} link(s) deleted`;
+                }
+                if (failCount > 0) msg += `\n\n⚠️ Failed: ${failCount}`;
+                alert(msg);
+                return;
             }
-        });
+
+            const link = links[currentIndex];
+            const entryId = link.id;
+            const isDelete = link.replace_action === 'delete';
+            console.log(`[BULK REPLACE V2] Processing ${currentIndex + 1}/${links.length}, ID:`, entryId, 'Action:', isDelete ? 'delete' : 'replace');
+
+            if (isDelete) {
+                // Use individual delete_entry endpoint
+                $.ajax({
+                    url: seoautofixBrokenUrls.ajaxUrl,
+                    method: 'POST',
+                    data: {
+                        action: 'seoautofix_broken_links_delete_entry',
+                        nonce: seoautofixBrokenUrls.nonce,
+                        id: entryId
+                    },
+                    success: function (response) {
+                        if (response.success) {
+                            deletedCount++;
+                            trackBulkActionInUndoAndSession(entryId, link, 'delete');
+                            const $row = $(`tr[data-id="${entryId}"]`);
+                            if ($row.length) animateDeletedRow($row);
+                        } else {
+                            failCount++;
+                            console.error('[BULK REPLACE V2] ❌ Delete failed ID:', entryId, response.data);
+                        }
+                        currentIndex++;
+                        processNext();
+                    },
+                    error: function () {
+                        failCount++;
+                        currentIndex++;
+                        processNext();
+                    }
+                });
+            } else {
+                // Use individual apply_fixes endpoint (same as individual fix button)
+                $.ajax({
+                    url: seoautofixBrokenUrls.ajaxUrl,
+                    method: 'POST',
+                    data: {
+                        action: 'seoautofix_broken_links_apply_fixes',
+                        nonce: seoautofixBrokenUrls.nonce,
+                        ids: [entryId],
+                        custom_url: link.new_url || link.suggested_url || ''
+                    },
+                    success: function (response) {
+                        if (response.success && (response.data.fixed_count || 0) > 0) {
+                            successCount++;
+                            trackBulkActionInUndoAndSession(entryId, link, 'fix');
+                            const $row = $(`tr[data-id="${entryId}"]`);
+                            if ($row.length) animateFixedRow($row);
+                        } else {
+                            failCount++;
+                            console.error('[BULK REPLACE V2] ❌ Apply failed ID:', entryId, response.data);
+                        }
+                        currentIndex++;
+                        processNext();
+                    },
+                    error: function () {
+                        failCount++;
+                        currentIndex++;
+                        processNext();
+                    }
+                });
+            }
+        };
+
+        processNext();
+    }
+
+    /**
+     * Helper: track a bulk action in undoStack and fixedLinksSession
+     * Reuses same data format as individual delete/fix handlers
+     */
+    function trackBulkActionInUndoAndSession(entryId, linkData, action) {
+        const $row = $(`tr[data-id="${entryId}"]`);
+        const rowData = $row.length ? $row.data('result') : linkData;
+
+        if (rowData) {
+            undoStack.push({
+                id: entryId,
+                action: action,
+                original_data: rowData,
+                row_html: $row.length && $row[0] ? $row[0].outerHTML : ''
+            });
+
+            fixedLinksSession.push({
+                id: entryId,
+                location: rowData.found_on_page_title || rowData.page_title || 'Unknown',
+                anchor_text: rowData.anchor_text || '',
+                broken_url: rowData.broken_url || '',
+                link_type: rowData.link_type || 'unknown',
+                status_code: rowData.status_code || '',
+                error_type: rowData.error_type || '',
+                suggested_url: linkData.new_url || rowData.suggested_url || '',
+                reason: action === 'delete' ? 'Deleted (bulk)' : 'Replaced (bulk)',
+                is_fixed: 1,
+                fixed_at: new Date().toISOString()
+            });
+        }
     }
 
     /**
@@ -4667,7 +4603,7 @@
                 return;
             }
 
-            // Delete each link one by one
+            // Delete each link one by one — exactly mirroring individual delete button flow
             let successCount = 0;
             let failCount = 0;
 
@@ -4676,28 +4612,17 @@
                     // All done
                     console.log('[FIX ALL - CATEGORY DELETE] Completed. Success:', successCount, 'Failed:', failCount);
 
-                    // Update header count
-                    updateHeaderBrokenCount();
-
-                    // Close modal and reload results
-                    $('#fix-all-modal').removeClass('show');
-                    setTimeout(() => {
-                        $('#fix-all-modal').remove();
-                        if (currentScanId) {
-                            loadScanResults(currentScanId);
-                        }
-                    }, 200);
-
                     if (successCount > 0) {
-                        alert(`Successfully deleted ${successCount} link(s) from content${failCount > 0 ? '. Failed: ' + failCount : ''}`);
+                        alert(`✅ Successfully deleted ${successCount} link(s) from content${failCount > 0 ? '\n⚠️ Failed: ' + failCount : ''}`);
                     }
                     return;
                 }
 
                 const link = linksToDelete[index];
+                const $modalItem = $(`#fix-all-modal .preview-item-compact[data-link-id="${link.id}"]`);
                 console.log(`[FIX ALL - CATEGORY DELETE] Deleting link ${index + 1}/${linksToDelete.length}, ID:`, link.id);
 
-                // Call backend to remove from content
+                // Call backend — same endpoint as individual delete button
                 $.ajax({
                     url: seoautofixBrokenUrls.ajaxUrl,
                     method: 'POST',
@@ -4709,20 +4634,65 @@
                     success: function (response) {
                         if (response.success) {
                             successCount++;
-                            console.log('[FIX ALL - CATEGORY DELETE] Successfully deleted ID:', link.id);
+                            console.log('[FIX ALL - CATEGORY DELETE] ✅ Deleted ID:', link.id);
 
-                            // Show DELETED animation on main table
+                            // ✅ TRACK DELETION BEFORE removing row (same as individual delete)
                             const $row = $(`tr[data-id="${link.id}"]`);
                             if ($row.length) {
-                                const colspan = $row.find('td').length;
-                                $row.html(`<td colspan="${colspan}" class="row-status-deleted">✗ DELETED</td>`);
+                                const rowData = $row.data('result');
 
-                                setTimeout(() => {
-                                    $row.fadeOut(300, function () {
-                                        $(this).remove();
-                                        updateHeaderBrokenCount(); // Update count after row removed
+                                // ✅ Add to undoStack (identical to individual delete)
+                                if (rowData) {
+                                    undoStack.push({
+                                        id: link.id,
+                                        action: 'delete',
+                                        original_data: rowData,
+                                        row_html: $row[0] ? $row[0].outerHTML : ''
                                     });
-                                }, 2000);
+                                    console.log('[FIX ALL - CATEGORY DELETE] Added to undoStack. Size:', undoStack.length);
+
+                                    // ✅ Add to fixedLinksSession (identical to individual delete)
+                                    fixedLinksSession.push({
+                                        id: link.id,
+                                        location: rowData.found_on_page_title || 'Unknown',
+                                        anchor_text: rowData.anchor_text || '',
+                                        broken_url: rowData.broken_url,
+                                        link_type: rowData.link_type,
+                                        status_code: rowData.status_code,
+                                        error_type: rowData.error_type,
+                                        suggested_url: '',
+                                        reason: 'Deleted',
+                                        is_fixed: 1,
+                                        fixed_at: new Date().toISOString()
+                                    });
+                                    console.log('[FIX ALL - CATEGORY DELETE] Added to fixedLinksSession. Size:', fixedLinksSession.length);
+                                }
+
+                                // ✅ Use proper DELETE animation with callback (identical to individual delete)
+                                animateDeletedRow($row, function () {
+                                    updateHeaderBrokenCount();
+                                    updateButtonStates();
+                                    console.log('[FIX ALL - CATEGORY DELETE] Button states updated for ID:', link.id);
+                                });
+                            }
+
+                            // ✅ Fade out modal item (identical to individual delete)
+                            if ($modalItem.length) {
+                                $modalItem.fadeOut(200, function () {
+                                    $(this).remove();
+
+                                    // Check if modal is now empty (identical to individual delete)
+                                    const remainingItems = $('#fix-all-modal .preview-item-compact:visible').length;
+                                    console.log('[FIX ALL - CATEGORY DELETE] Remaining items in modal:', remainingItems);
+
+                                    if (remainingItems === 0) {
+                                        console.log('[FIX ALL - CATEGORY DELETE] No items left, closing modal');
+                                        $('#fix-all-modal').removeClass('show');
+                                        setTimeout(() => {
+                                            $('#fix-all-modal').remove();
+                                        }, 200);
+                                    }
+                                });
                             }
                         } else {
                             failCount++;
@@ -5259,7 +5229,7 @@
         console.log('[URL VALIDATION] Testing URL:', url);
 
         $.ajax({
-            url: seoautofixBrokenUrls.ajax_url,
+            url: seoautofixBrokenUrls.ajaxUrl,
             method: 'POST',
             data: {
                 action: 'seoautofix_broken_links_test_url',
