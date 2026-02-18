@@ -406,7 +406,17 @@ class Link_Analyzer
             return true;
         }
 
-        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ⚠️ Universal engine found no occurrences in post content or meta');
+        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ⚠️ Universal engine found no occurrences in post content or meta for post ID: ' . $post_id);
+        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] 🔍 Falling back to global site-wide search across ALL posts...');
+
+        $global_success = $this->replace_url_in_all_posts_globally($broken_url, $replacement_url);
+
+        if ($global_success) {
+            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ✅ Global fallback replacement succeeded');
+            return true;
+        }
+
+        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ❌ Global fallback also found no occurrences — URL not found anywhere in the database');
         return false;
 
         // LEGACY: Original Elementor-specific approach (kept for backward compatibility)
@@ -1233,7 +1243,7 @@ class Link_Analyzer
 
     /**
      * Check if URL exists in site-wide elements (for verification)
-     * 
+     *
      * @param string $url URL to check for
      * @return bool True if URL exists in site-wide elements
      */
@@ -1245,5 +1255,84 @@ class Link_Analyzer
         $result = $this->header_footer_replacer->check_url_exists($url);
 
         return $result;
+    }
+
+    /**
+     * Global fallback: search ALL posts (post_content + postmeta) for the broken URL
+     * and replace it wherever found.
+     *
+     * This handles cases where the URL is embedded in:
+     *  - Elementor global sections / popups stored in regular posts
+     *  - Any post whose content renders on the page where the link was found
+     *  - Custom fields on any post type
+     *
+     * @param string $old_url Broken URL to find and replace
+     * @param string $new_url Replacement URL
+     * @return bool True if at least one replacement was made
+     */
+    private function replace_url_in_all_posts_globally($old_url, $new_url)
+    {
+        global $wpdb;
+
+        \SEOAutoFix_Debug_Logger::log('[GLOBAL_REPLACE] ===== replace_url_in_all_posts_globally() START =====');
+        \SEOAutoFix_Debug_Logger::log('[GLOBAL_REPLACE] Searching for: ' . $old_url);
+
+        $any_success = false;
+        $posts_fixed = [];
+
+        // ── 1. Find all posts whose post_content contains the URL ─────────────
+        $content_post_ids = $wpdb->get_col(
+            $wpdb->prepare(
+                "SELECT ID FROM {$wpdb->posts}
+                 WHERE post_status NOT IN ('trash','auto-draft')
+                   AND post_content LIKE %s",
+                '%' . $wpdb->esc_like($old_url) . '%'
+            )
+        );
+
+        \SEOAutoFix_Debug_Logger::log('[GLOBAL_REPLACE] Posts with URL in post_content: ' . count($content_post_ids));
+
+        // ── 2. Find all posts whose postmeta contains the URL ─────────────────
+        $meta_post_ids = $wpdb->get_col(
+            $wpdb->prepare(
+                "SELECT DISTINCT post_id FROM {$wpdb->postmeta}
+                 WHERE meta_value LIKE %s",
+                '%' . $wpdb->esc_like($old_url) . '%'
+            )
+        );
+
+        \SEOAutoFix_Debug_Logger::log('[GLOBAL_REPLACE] Posts with URL in postmeta: ' . count($meta_post_ids));
+
+        // Merge and deduplicate
+        $all_post_ids = array_unique(array_merge($content_post_ids, $meta_post_ids));
+        $all_post_ids = array_filter($all_post_ids); // remove zeros/nulls
+
+        \SEOAutoFix_Debug_Logger::log('[GLOBAL_REPLACE] Total unique posts to process: ' . count($all_post_ids));
+
+        if (empty($all_post_ids)) {
+            \SEOAutoFix_Debug_Logger::log('[GLOBAL_REPLACE] ❌ URL not found anywhere in the database');
+            return false;
+        }
+
+        // ── 3. Run universal engine on each matching post ─────────────────────
+        foreach ($all_post_ids as $post_id) {
+            \SEOAutoFix_Debug_Logger::log('[GLOBAL_REPLACE] Processing post ID: ' . $post_id);
+
+            $result = $this->universal_engine->replace_url_in_post((int) $post_id, $old_url, $new_url);
+
+            if ($result['success']) {
+                $any_success = true;
+                $posts_fixed[] = $post_id;
+                \SEOAutoFix_Debug_Logger::log('[GLOBAL_REPLACE] ✅ Replaced in post ID: ' . $post_id . ' (replacements: ' . $result['stats']['replacements_made'] . ')');
+            } else {
+                \SEOAutoFix_Debug_Logger::log('[GLOBAL_REPLACE] ⚠️ Universal engine returned no replacements for post ID: ' . $post_id);
+            }
+        }
+
+        \SEOAutoFix_Debug_Logger::log('[GLOBAL_REPLACE] Posts fixed: ' . implode(', ', $posts_fixed));
+        \SEOAutoFix_Debug_Logger::log('[GLOBAL_REPLACE] Overall success: ' . ($any_success ? 'YES' : 'NO'));
+        \SEOAutoFix_Debug_Logger::log('[GLOBAL_REPLACE] ===== replace_url_in_all_posts_globally() END =====');
+
+        return $any_success;
     }
 }

@@ -620,25 +620,40 @@ class SEOAutoFix_Broken_Url_Management
      */
     public function ajax_update_suggestion()
     {
+        \SEOAutoFix_Debug_Logger::log('========================================');
+        \SEOAutoFix_Debug_Logger::log('[AJAX_UPDATE_SUGGESTION] 🔄 REPLACE ENDPOINT CALLED');
+        \SEOAutoFix_Debug_Logger::log('[AJAX_UPDATE_SUGGESTION] Timestamp: ' . current_time('mysql'));
+        \SEOAutoFix_Debug_Logger::log('[AJAX_UPDATE_SUGGESTION] POST data: ' . print_r($_POST, true));
+        \SEOAutoFix_Debug_Logger::log('========================================');
+
         check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
+        \SEOAutoFix_Debug_Logger::log('[AJAX_UPDATE_SUGGESTION] ✅ Nonce verified');
 
         if (!current_user_can('manage_options')) {
+            \SEOAutoFix_Debug_Logger::log('[AJAX_UPDATE_SUGGESTION] ❌ Unauthorized');
             wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
         }
 
         $id = isset($_POST['id']) ? intval($_POST['id']) : 0;
         $new_url = isset($_POST['new_url']) ? esc_url_raw($_POST['new_url']) : '';
 
+        \SEOAutoFix_Debug_Logger::log('[AJAX_UPDATE_SUGGESTION] Entry ID  : ' . $id);
+        \SEOAutoFix_Debug_Logger::log('[AJAX_UPDATE_SUGGESTION] New URL   : ' . $new_url);
+
         if (empty($id) || empty($new_url)) {
+            \SEOAutoFix_Debug_Logger::log('[AJAX_UPDATE_SUGGESTION] ❌ Invalid parameters — id=' . $id . ' new_url=' . $new_url);
             wp_send_json_error(array('message' => __('Invalid parameters', 'seo-autofix-pro')));
         }
 
         $db_manager = new Database_Manager();
+        \SEOAutoFix_Debug_Logger::log('[AJAX_UPDATE_SUGGESTION] Calling db_manager->update_suggestion()');
         $success = $db_manager->update_suggestion($id, $new_url);
 
         if ($success) {
+            \SEOAutoFix_Debug_Logger::log('[AJAX_UPDATE_SUGGESTION] ✅ Suggestion updated successfully for entry ID: ' . $id);
             wp_send_json_success(array('message' => __('Suggestion updated', 'seo-autofix-pro')));
         } else {
+            \SEOAutoFix_Debug_Logger::log('[AJAX_UPDATE_SUGGESTION] ❌ Failed to update suggestion for entry ID: ' . $id);
             wp_send_json_error(array('message' => __('Failed to update suggestion', 'seo-autofix-pro')));
         }
     }

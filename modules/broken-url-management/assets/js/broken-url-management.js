@@ -347,7 +347,7 @@
 
         console.log('[SCAN DEBUG] Setting up scan UI');
         isScanning = true;
-        
+
         // Suspend WordPress Heartbeat during scan to reduce server load
         if (typeof wp !== 'undefined' && wp.heartbeat && typeof wp.heartbeat.suspend === 'function') {
             console.log('[SCAN DEBUG] ⏸️ Suspending WordPress Heartbeat to reduce server load');
@@ -355,7 +355,7 @@
         } else {
             console.log('[SCAN DEBUG] ℹ️ WordPress Heartbeat not available or suspend not supported');
         }
-        
+
         $('#start-auto-fix-btn').prop('disabled', true).text(seoautofixBrokenUrls.strings.startingScan);
 
         // Reset progress bar values to 0
@@ -550,7 +550,7 @@
 
             // Step 2: Fetch and parse HTML for each page (SEQUENTIAL to prevent overload)
             const pagesWithLinks = [];
-            
+
             for (let i = 0; i < pageUrls.length; i++) {
                 const pageData = pageUrls[i];
                 const pageUrl = pageData.url;
@@ -567,7 +567,7 @@
                     const links = extractLinksFromHTML(html, pageUrl, pageTitle, pageId);
 
                     pagesWithLinks.push({ pageUrl, pageTitle, pageId, links });
-                    
+
                     // Add delay between pages to prevent server overload
                     if (i < pageUrls.length - 1) {
                         console.log('[SCAN V3] ⏱️ Throttling: waiting 500ms before next page...');
@@ -729,7 +729,7 @@
      */
     function onScanComplete() {
         isScanning = false;
-        
+
         // Resume WordPress Heartbeat after scan completes
         if (typeof wp !== 'undefined' && wp.heartbeat && typeof wp.heartbeat.resume === 'function') {
             console.log('[SCAN COMPLETE] ▶️ Resuming WordPress Heartbeat');
@@ -737,7 +737,7 @@
         } else {
             console.log('[SCAN COMPLETE] ℹ️ WordPress Heartbeat not available or resume not supported');
         }
-        
+
         $('#scan-progress-text').text(seoautofixBrokenUrls.strings.scanComplete);
 
         // Load final results first to prevent disappearing
@@ -2554,8 +2554,17 @@
      * Apply current fix from auto-fix panel
      */
     function applyCurrentFix() {
+        console.log('╔══════════════════════════════════════════════════════╗');
+        console.log('║  [APPLY FIX] applyCurrentFix() CALLED                ║');
+        console.log('╚══════════════════════════════════════════════════════╝');
+
         const result = $('#auto-fix-panel').data('current-result');
         const action = $('input[name="fix-action"]:checked').val();
+
+        console.log('[APPLY FIX] Entry ID        :', result ? result.id : 'N/A');
+        console.log('[APPLY FIX] Broken URL      :', result ? result.broken_url : 'N/A');
+        console.log('[APPLY FIX] Found on page   :', result ? result.found_on_url : 'N/A');
+        console.log('[APPLY FIX] Selected action :', action);
 
         let newUrl = '';
         if (action === 'suggested') {
@@ -2566,7 +2575,10 @@
             newUrl = window.location.origin;
         }
 
+        console.log('[APPLY FIX] Resolved new URL:', newUrl);
+
         if (!newUrl) {
+            console.warn('[APPLY FIX] ⚠️ No URL resolved — aborting');
             alert('Please enter a URL or select an option');
             return;
         }
@@ -2575,13 +2587,13 @@
         if (action === 'custom') {
             const $statusIcon = $('#url-validation-status');
             if ($statusIcon.hasClass('invalid')) {
+                console.warn('[APPLY FIX] ⚠️ Custom URL failed validation — aborting');
                 alert('Please enter a valid URL. The current URL is broken or invalid.');
                 return;
             }
         }
 
-        // Save the URL - backend will handle final validation
-        console.log('[APPLY FIX] Saving URL for entry', result.id, ':', newUrl);
+        console.log('[APPLY FIX] ✅ Proceeding to saveFixedUrl(', result.id, ',', newUrl, ')');
         saveFixedUrl(result.id, newUrl);
     }
 
@@ -2589,7 +2601,13 @@
      * Save the fixed URL (helper function for applyCurrentFix)
      */
     function saveFixedUrl(entryId, newUrl) {
-        console.log('[SAVE FIX] Saving URL for entry', entryId, ':', newUrl);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('[SAVE FIX] 🔄 saveFixedUrl() — sending REPLACE request');
+        console.log('[SAVE FIX] Entry ID  :', entryId);
+        console.log('[SAVE FIX] New URL   :', newUrl);
+        console.log('[SAVE FIX] AJAX URL  :', seoautofixBrokenUrls.ajaxUrl);
+        console.log('[SAVE FIX] Action    : seoautofix_broken_links_update_suggestion');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
         // Apply fix via AJAX
         $.ajax({
@@ -2601,8 +2619,18 @@
                 id: entryId,
                 new_url: newUrl
             },
+            beforeSend: function () {
+                console.log('[SAVE FIX] 📡 AJAX request sent...');
+            },
             success: function (response) {
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                console.log('[SAVE FIX] 📥 AJAX response received');
+                console.log('[SAVE FIX] response.success :', response.success);
+                console.log('[SAVE FIX] response.data    :', response.data);
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
                 if (response.success) {
+                    console.log('[SAVE FIX] ✅ URL replacement saved successfully for entry', entryId);
                     // Update the table row's suggested URL display
                     updateTableRowSuggestedUrl(entryId, newUrl);
 
@@ -2611,10 +2639,18 @@
                     loadScanResults(currentScanId);
                     alert('Fix applied successfully!');
                 } else {
+                    console.error('[SAVE FIX] ❌ Server returned failure:', response.data.message);
                     alert(response.data.message || 'Failed to apply fix');
                 }
             },
-            error: function () {
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                console.error('[SAVE FIX] ❌ AJAX ERROR');
+                console.error('[SAVE FIX] Status      :', jqXHR.status);
+                console.error('[SAVE FIX] Text status :', textStatus);
+                console.error('[SAVE FIX] Error       :', errorThrown);
+                console.error('[SAVE FIX] Response    :', jqXHR.responseText);
+                console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
                 alert('An error occurred while applying the fix');
             }
         });
@@ -2626,9 +2662,23 @@
     function deleteBrokenLink() {
         const result = $('#auto-fix-panel').data('current-result');
 
+        console.log('╔══════════════════════════════════════════════════════╗');
+        console.log('║  [DELETE LINK] deleteBrokenLink() CALLED             ║');
+        console.log('╚══════════════════════════════════════════════════════╝');
+        console.log('[DELETE LINK] Entry ID    :', result ? result.id : 'N/A');
+        console.log('[DELETE LINK] Broken URL  :', result ? result.broken_url : 'N/A');
+        console.log('[DELETE LINK] Found on    :', result ? result.found_on_url : 'N/A');
+        console.log('[DELETE LINK] Page title  :', result ? result.found_on_page_title : 'N/A');
+
         if (!confirm('Are you sure you want to delete this broken link entry? This action cannot be undone.')) {
+            console.log('[DELETE LINK] ❌ User cancelled confirmation');
             return;
         }
+
+        console.log('[DELETE LINK] ✅ User confirmed — sending AJAX delete request');
+        console.log('[DELETE LINK] AJAX URL :', seoautofixBrokenUrls.ajaxUrl);
+        console.log('[DELETE LINK] Action   : seoautofix_broken_links_delete_entry');
+        console.log('[DELETE LINK] Entry ID :', result.id);
 
         $.ajax({
             url: seoautofixBrokenUrls.ajaxUrl,
@@ -2638,16 +2688,34 @@
                 nonce: seoautofixBrokenUrls.nonce,
                 id: result.id
             },
+            beforeSend: function () {
+                console.log('[DELETE LINK] 📡 AJAX request sent...');
+            },
             success: function (response) {
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                console.log('[DELETE LINK] 📥 AJAX response received');
+                console.log('[DELETE LINK] response.success :', response.success);
+                console.log('[DELETE LINK] response.data    :', response.data);
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
                 if (response.success) {
+                    console.log('[DELETE LINK] ✅ Link deleted successfully — entry ID', result.id);
                     $('#auto-fix-panel').slideUp();
                     loadScanResults(currentScanId);
                     alert('Broken link entry deleted successfully!');
                 } else {
+                    console.error('[DELETE LINK] ❌ Server returned failure:', response.data.message);
                     alert(response.data.message || 'Failed to delete entry');
                 }
             },
-            error: function () {
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                console.error('[DELETE LINK] ❌ AJAX ERROR');
+                console.error('[DELETE LINK] Status      :', jqXHR.status);
+                console.error('[DELETE LINK] Text status :', textStatus);
+                console.error('[DELETE LINK] Error       :', errorThrown);
+                console.error('[DELETE LINK] Response    :', jqXHR.responseText);
+                console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
                 alert('An error occurred while deleting the entry');
             }
         });
@@ -5464,11 +5532,11 @@
      */
     async function fetchPageHTML(pageUrl) {
         console.log('[FETCH HTML] Fetching:', pageUrl);
-        
+
         // Create AbortController for timeout
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 90000); // 90 seconds timeout
-        
+
         try {
             const response = await fetch(pageUrl, {
                 method: 'GET',
@@ -5490,12 +5558,12 @@
             return html;
         } catch (error) {
             clearTimeout(timeoutId); // Clear timeout on error
-            
+
             if (error.name === 'AbortError') {
                 console.error('[FETCH HTML] ⏱️ Timeout fetching ' + pageUrl + ' (90s limit exceeded)');
                 throw new Error('Fetch timeout - page took too long to load');
             }
-            
+
             console.error('[FETCH HTML] ❌ Error fetching ' + pageUrl + ':', error);
             throw error;
         }
@@ -5664,20 +5732,20 @@
             'search.google.com/test/rich-results',
             'search.google.com/search-console',
             'gstatic.com',
-            
+
             // Facebook/Meta
             'facebook.com/tr',
             'facebook.com/plugins',
             'connect.facebook.net',
             'developers.facebook.com/tools/debug',
-            
+
             // Analytics & Tracking
             'analytics.google.com',
             'stats.wp.com',
             'pixel.wp.com',
             'tracking.',
             'track.',
-            
+
             // Ad Networks
             'adnxs.com',
             'adsystem.com',
@@ -5685,16 +5753,16 @@
             'criteo.com',
             'outbrain.com',
             'taboola.com',
-            
+
             // Yoast SEO Links (commonly injected in admin bar)
             'yoa.st/',
             'yoast.com',
-            
+
             // Social Media Sharing/Tracking
             'twitter.com/intent',
             'linkedin.com/shareArticle',
             'pinterest.com/pin/create',
-            
+
             // Common tracking parameters
             '?utm_',
             '&utm_',
@@ -5702,7 +5770,7 @@
             '&fbclid=',
             '?gclid=',
             '&gclid=',
-            
+
             // WordPress Admin URLs (should never be scanned)
             '/wp-admin/',
             '/wp-login.php',
@@ -5710,7 +5778,7 @@
             'post.php?post=',
             'edit.php',
             'admin.php',
-            
+
             // Other tracking
             'hotjar.com',
             'mouseflow.com',
@@ -5809,24 +5877,24 @@
         // Process URLs one at a time (SEQUENTIAL with caching)
         for (let i = 0; i < urls.length; i++) {
             const url = urls[i];
-            
+
             // 💾 Check cache first - avoid redundant testing
             if (urlTestCache[url]) {
                 console.log(`[TEST URLS BATCH] 💾 Using cached result for: ${url}`);
                 results.push(urlTestCache[url]);
                 continue; // Skip actual test - no delay needed for cached results!
             }
-            
+
             // Not cached - test it via proxy
             console.log(`[TEST URLS BATCH] 🔍 Testing URL ${i + 1}/${urls.length}:`, url);
 
             try {
                 const result = await testURLviaProxy(url);
-                
+
                 // Cache the result for future use within this scan
                 urlTestCache[url] = result;
                 results.push(result);
-                
+
                 // Add delay between URL tests to prevent AJAX spam (only for actual tests)
                 if (i < urls.length - 1) {
                     console.log('[TEST URLS BATCH] ⏱️ Throttling: 100ms delay...');
@@ -5840,7 +5908,7 @@
                     error_type: 'timeout',
                     suggested_url: null
                 };
-                
+
                 // Cache error results too (avoid retesting timeouts)
                 urlTestCache[url] = errorResult;
                 results.push(errorResult);
