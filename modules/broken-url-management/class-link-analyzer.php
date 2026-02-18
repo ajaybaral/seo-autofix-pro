@@ -372,8 +372,13 @@ class Link_Analyzer
     }
 
     /**
-     * Replace link in post/page content
-     * 
+     * Replace link in post/page content — builder-aware with universal fallback.
+     *
+     * Flow:
+     *   1. Detect builder → try builder-specific replacement
+     *   2. If builder returns 0 → fallback to universal engine (post_content + all meta)
+     *   3. If universal returns 0 → fallback to global site-wide search
+     *
      * @param string $page_url Page where link was found
      * @param string $broken_url Broken URL to replace
      * @param string $replacement_url New URL
@@ -381,7 +386,10 @@ class Link_Analyzer
      */
     private function replace_link_in_content($page_url, $broken_url, $replacement_url)
     {
-        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Starting. Page URL: ' . $page_url . ', Broken: ' . $broken_url . ', Replacement: ' . $replacement_url);
+        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ===== replace_link_in_content() START =====');
+        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Page URL     : ' . $page_url);
+        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Broken URL   : ' . $broken_url);
+        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Replacement  : ' . $replacement_url);
 
         // Get post ID from URL with multiple fallback methods
         $post_id = $this->get_post_id_from_url($page_url);
@@ -389,180 +397,49 @@ class Link_Analyzer
         \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Post ID from URL: ' . $post_id);
 
         if (!$post_id) {
-            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Failed to get post ID from URL after all fallback attempts');
+            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ❌ Failed to get post ID from URL after all fallback attempts');
             return false;
         }
 
-        // Universal replacement engine (builder-agnostic: post_content + all meta)
-        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Using universal replacement engine (always on)');
+        // ── Step 1: Builder-specific replacement ─────────────────────────
+        $builder_engine = new Builder_Replacement_Engine();
+        $builder_result = $builder_engine->replace_url($post_id, $broken_url, $replacement_url);
+
+        if ($builder_result['success']) {
+            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ✅ Builder-specific replacement succeeded');
+            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Builder: ' . $builder_result['builder'] . ' | Replacements: ' . $builder_result['replacements']);
+            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ===== replace_link_in_content() END =====');
+            return true;
+        }
+
+        // ── Step 2: Fallback to universal engine (post_content + all meta) ──
+        \SEOAutoFix_Debug_Logger::log('[FALLBACK] Triggered universal replacement (builder returned 0)');
 
         $result = $this->universal_engine->replace_url_in_post($post_id, $broken_url, $replacement_url);
 
         if ($result['success']) {
             \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ✅ Universal engine succeeded');
             \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Replacements made: ' . $result['stats']['replacements_made']);
-            // Trust the engine's own return value — skip verify_fix_applied() to avoid
-            // false negatives when the URL was replaced in meta (not post_content).
+            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ===== replace_link_in_content() END =====');
             return true;
         }
 
-        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ⚠️ Universal engine found no occurrences in post content or meta for post ID: ' . $post_id);
-        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] 🔍 Falling back to global site-wide search across ALL posts...');
+        // ── Step 3: Global fallback — search across ALL posts ───────────
+        \SEOAutoFix_Debug_Logger::log('[FALLBACK] Universal engine found nothing — trying global site-wide search');
 
         $global_success = $this->replace_url_in_all_posts_globally($broken_url, $replacement_url);
 
         if ($global_success) {
             \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ✅ Global fallback replacement succeeded');
+            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ===== replace_link_in_content() END =====');
             return true;
         }
 
-        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ❌ Global fallback also found no occurrences — URL not found anywhere in the database');
+        \SEOAutoFix_Debug_Logger::log('[FINAL] ❌ URL not found anywhere in the database. It may be hardcoded or dynamically generated.');
+        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ===== replace_link_in_content() END =====');
         return false;
-
-        // LEGACY: Original Elementor-specific approach (kept for backward compatibility)
-        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Using LEGACY replacement mode');
-
-        // Check if this is an Elementor page
-        $is_elementor = $this->is_elementor_page($post_id);
-        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Is Elementor page: ' . ($is_elementor ? 'YES' : 'NO'));
-
-        if ($is_elementor) {
-            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Detected Elementor page - trying Elementor handler first');
-            $elementor_result = $this->replace_link_in_elementor($post_id, $broken_url, $replacement_url);
-
-            if ($elementor_result) {
-                \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ✅ Elementor replacement succeeded');
-                return true;
-            }
-
-            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ⚠️ Elementor replacement failed - trying fallback to post_content');
-            // Fall through to try post_content as fallback
-        }
-
-        // Regular WordPress page - continue with post_content replacement
-        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Regular WordPress page - using post_content replacement');
-
-        // Get post content
-        $post = get_post($post_id);
-
-        if (!$post) {
-            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Failed to get post object for ID: ' . $post_id);
-            return false;
-        }
-
-        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Got post. Title: ' . $post->post_title . ', Content length: ' . strlen($post->post_content));
-
-        $content = $post->post_content;
-
-        // CRITICAL: Check if broken URL exists in content at all
-        if (stripos($content, $broken_url) === false) {
-            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ❌ Broken URL NOT FOUND in post_content at all!');
-            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] This means the link is likely in: theme template, header/footer, or widget');
-            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Content preview (first 500 chars): ' . substr($content, 0, 500));
-            return false;
-        }
-
-        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ✅ Broken URL FOUND in post_content - proceeding with replacement');
-
-        // Normalize URLs - remove trailing slashes for comparison
-        $normalized_broken = untrailingslashit($broken_url);
-        $normalized_replacement = untrailingslashit($replacement_url);
-
-        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Original broken URL: ' . $broken_url);
-        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Normalized broken URL: ' . $normalized_broken);
-
-        // Multiple patterns to catch different URL formats in HTML
-        // This handles: trailing slashes, HTML entities, different quote styles, plain text
-        $patterns = array();
-        $replacements = array();
-
-        // Pattern 1: Standard href with double quotes - exact match
-        $patterns[] = '/href="' . preg_quote($broken_url, '/') . '"/i';
-        $replacements[] = 'href="' . esc_url($replacement_url) . '"';
-
-        // Pattern 2: Standard href with single quotes - exact match
-        $patterns[] = "/href='" . preg_quote($broken_url, '/') . "'/i";
-        $replacements[] = 'href="' . esc_url($replacement_url) . '"';
-
-        // Pattern 3: Standard src with double quotes - exact match
-        $patterns[] = '/src="' . preg_quote($broken_url, '/') . '"/i';
-        $replacements[] = 'src="' . esc_url($replacement_url) . '"';
-
-        // Pattern 4: Standard src with single quotes - exact match
-        $patterns[] = "/src='" . preg_quote($broken_url, '/') . "'/i";
-        $replacements[] = 'src="' . esc_url($replacement_url) . '"';
-
-        // Pattern 5: href with optional trailing slash (normalized version)
-        $patterns[] = '/href="' . preg_quote($normalized_broken, '/') . '\/?"/i';
-        $replacements[] = 'href="' . esc_url($replacement_url) . '"';
-
-        // Pattern 6: href with single quotes and optional trailing slash
-        $patterns[] = "/href='" . preg_quote($normalized_broken, '/') . '\/?' . "'/i";
-        $replacements[] = 'href="' . esc_url($replacement_url) . '"';
-
-        // Pattern 7: src with optional trailing slash (normalized version)
-        $patterns[] = '/src="' . preg_quote($normalized_broken, '/') . '\/?"/i';
-        $replacements[] = 'src="' . esc_url($replacement_url) . '"';
-
-        // Pattern 8: src with single quotes and optional trailing slash
-        $patterns[] = "/src='" . preg_quote($normalized_broken, '/') . '\/?' . "'/i";
-        $replacements[] = 'src="' . esc_url($replacement_url) . '"';
-
-        // Pattern 9: HTML entity quotes (&quot;) - exact match
-        $patterns[] = '/href=&quot;' . preg_quote($broken_url, '/') . '&quot;/i';
-        $replacements[] = 'href=&quot;' . esc_url($replacement_url) . '&quot;';
-
-        // Pattern 10: HTML entity quotes for src
-        $patterns[] = '/src=&quot;' . preg_quote($broken_url, '/') . '&quot;/i';
-        $replacements[] = 'src=&quot;' . esc_url($replacement_url) . '&quot;';
-
-        // Pattern 11: HTML entity quotes with optional trailing slash
-        $patterns[] = '/href=&quot;' . preg_quote($normalized_broken, '/') . '\/?&quot;/i';
-        $replacements[] = 'href=&quot;' . esc_url($replacement_url) . '&quot;';
-
-        // Pattern 12: Plain text URL (not in attributes) - be careful with this one
-        // Only match if not preceded by quote or equals
-        $patterns[] = '/(?<!["\'=>])' . preg_quote($broken_url, '/') . '(?!["\'])/i';
-        $replacements[] = esc_url($replacement_url);
-
-        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Using ' . count($patterns) . ' patterns for flexible matching');
-
-        $new_content = preg_replace($patterns, $replacements, $content);
-
-        // Check if replacement was made
-        if ($new_content === $content) {
-            // No changes made with regex, try simple string replacement as fallback
-            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Regex patterns did not match, trying simple string replace');
-
-            // Try exact string replacement
-            $new_content = str_replace($broken_url, $replacement_url, $content);
-
-            // If still no match, try without trailing slash
-            if ($new_content === $content && $broken_url !== $normalized_broken) {
-                \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Trying normalized URL without trailing slash');
-                $new_content = str_replace($normalized_broken, $normalized_replacement, $content);
-            }
-
-            // Final check
-            if ($new_content === $content) {
-                \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] No changes made - link not found in content in any format');
-                \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Content preview: ' . substr($content, 0, 500));
-                return false;
-            }
-        }
-
-        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Content changed. Old length: ' . strlen($content) . ', New length: ' . strlen($new_content));
-
-        // Update post
-        $result = wp_update_post(array(
-            'ID' => $post_id,
-            'post_content' => $new_content
-        ), true);
-
-        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] wp_update_post result: ' . print_r($result, true) . ', is_wp_error: ' . (is_wp_error($result) ? 'YES' : 'NO'));
-
-        return !is_wp_error($result);
     }
+
 
     /**
      * Check if a link is template-generated and cannot be fixed programmatically

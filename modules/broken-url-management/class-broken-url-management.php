@@ -113,6 +113,13 @@ class SEOAutoFix_Broken_Url_Management
         if (file_exists($module_dir . '/class-header-footer-replacer.php')) {
             require_once $module_dir . '/class-header-footer-replacer.php';
         }
+        // Builder-aware replacement engine (v2.0)
+        if (file_exists($module_dir . '/class-builder-detector.php')) {
+            require_once $module_dir . '/class-builder-detector.php';
+        }
+        if (file_exists($module_dir . '/class-builder-replacement-engine.php')) {
+            require_once $module_dir . '/class-builder-replacement-engine.php';
+        }
 
         require_once $module_dir . '/class-link-analyzer.php';
         require_once $module_dir . '/class-url-testing-proxy.php';
@@ -746,14 +753,13 @@ class SEOAutoFix_Broken_Url_Management
     }
 
     /**
-     * Remove link from WordPress post content — universal, builder-agnostic.
+     * Remove link from WordPress post content — builder-aware with universal fallback.
      *
-     * Strips <a href="broken_url">text</a> → text across:
-     *   - post_content
-     *   - All post meta (Elementor, Divi, WPBakery, custom fields, etc.)
-     *   - Navigation menus (deletes matching nav_menu_item)
+     * Flow:
+     *   1. Detect builder → try builder-specific link removal
+     *   2. If builder returns 0 removals → fallback to universal engine
      *
-     * @param string $page_url  Page where link was found
+     * @param string $page_url   Page where link was found
      * @param string $broken_url Broken URL to remove
      * @return bool Success
      */
@@ -774,11 +780,26 @@ class SEOAutoFix_Broken_Url_Management
             return false;
         }
 
-        // Delegate to the universal engine (builder-agnostic)
+        // Step 1: Try builder-specific removal first
+        $builder_engine = new Builder_Replacement_Engine();
+        $builder_result = $builder_engine->remove_link($post_id, $broken_url);
+
+        if ($builder_result['success']) {
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ✅ Builder-specific removal succeeded (' . $builder_result['builder'] . ')');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ===== remove_link_from_content() END =====');
+            return true;
+        }
+
+        // Step 2: Fallback to universal engine
+        \SEOAutoFix_Debug_Logger::log('[FALLBACK] Triggered universal removal (builder returned 0)');
         $universal_engine = new Universal_Replacement_Engine();
         $result = $universal_engine->remove_link_globally($post_id, $broken_url);
 
-        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Universal engine result: ' . ($result['success'] ? 'SUCCESS' : 'FAILED'));
+        if ($result['success']) {
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ✅ Universal engine removal succeeded');
+        } else {
+            \SEOAutoFix_Debug_Logger::log('[FINAL] ❌ Link not stored in WordPress content. It may be hardcoded or dynamically injected.');
+        }
         if (!empty($result['removed_from'])) {
             \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Removed from: ' . implode(', ', $result['removed_from']));
         }

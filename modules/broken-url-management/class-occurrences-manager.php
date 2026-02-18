@@ -231,18 +231,21 @@ class Occurrences_Manager
     }
 
     /**
-     * Fix all occurrences of broken URL on a specific page
-     * 
-     * @param int $page_id WordPress post/page ID
-     * @param string $broken_url Broken URL
+     * Fix all occurrences of broken URL on a specific page — builder-aware.
+     *
+     * Uses the Builder Replacement Engine (detects builder, uses native storage)
+     * with fallback to the Universal Replacement Engine.
+     *
+     * @param int    $page_id         WordPress post/page ID
+     * @param string $broken_url      Broken URL
      * @param string $replacement_url New URL
-     * @param array $occurrences Occurrence details
-     * @return bool Success
+     * @param array  $occurrences     Occurrence details
+     * @return bool  Success
      */
     private function fix_page_occurrences($page_id, $broken_url, $replacement_url, $occurrences)
     {
         if ($page_id == 0) {
-            // Homepage - can't easily edit
+            // Homepage — can't easily edit
             return false;
         }
 
@@ -251,35 +254,33 @@ class Occurrences_Manager
             return false;
         }
 
-        $content = $post->post_content;
-        $original_content = $content;
+        // Step 1: Try builder-specific replacement
+        $builder_engine = new Builder_Replacement_Engine();
+        $builder_result = $builder_engine->replace_url($page_id, $broken_url, $replacement_url);
 
-        // Replace all occurrences of broken URL
-        $patterns = array(
-            '/href=["\']' . preg_quote($broken_url, '/') . '["\']/i',
-            '/src=["\']' . preg_quote($broken_url, '/') . '["\']/i',
-        );
-
-        $replacements = array(
-            'href="' . esc_url($replacement_url) . '"',
-            'src="' . esc_url($replacement_url) . '"',
-        );
-
-        $content = preg_replace($patterns, $replacements, $content);
-
-        // Check if any changes were made
-        if ($content === $original_content) {
-            return false;
+        if ($builder_result['success']) {
+            \SEOAutoFix_Debug_Logger::log(
+                '[OCCURRENCES] ✅ Builder-specific fix succeeded on page ' . $page_id .
+                ' (builder: ' . $builder_result['builder'] . ', replacements: ' . $builder_result['replacements'] . ')'
+            );
+            return true;
         }
 
-        // Update post
-        $result = wp_update_post(array(
-            'ID' => $page_id,
-            'post_content' => $content
-        ), true);
+        // Step 2: Fallback to universal engine
+        \SEOAutoFix_Debug_Logger::log('[OCCURRENCES] Builder returned 0 — falling back to universal engine for page ' . $page_id);
 
-        return !is_wp_error($result);
+        $universal_engine = new Universal_Replacement_Engine();
+        $result = $universal_engine->replace_url_in_post($page_id, $broken_url, $replacement_url);
+
+        if ($result['success']) {
+            \SEOAutoFix_Debug_Logger::log('[OCCURRENCES] ✅ Universal engine fix succeeded on page ' . $page_id);
+            return true;
+        }
+
+        \SEOAutoFix_Debug_Logger::log('[OCCURRENCES] ❌ Fix failed on page ' . $page_id . ' — URL not found in content or meta');
+        return false;
     }
+
 
     /**
      * Get occurrence statistics for a scan
