@@ -3758,7 +3758,33 @@
 
                         // Animate row (same as individual delete)
                         if ($row.length) {
-                            animateDeletedRow($row);
+                            animateDeletedRow($row, function () {
+                                // ✅ Update header count
+                                updateHeaderBrokenCount();
+                                updateStatsAfterFix(1);
+
+                                // ✅ Update stat cards (identical to individual delete)
+                                if (rowData) {
+                                    if (rowData.status_code >= 400 && rowData.status_code < 500) {
+                                        const c = parseInt($('#header-4xx-count').text()) || 0;
+                                        $('#header-4xx-count').text(Math.max(0, c - 1));
+                                    } else if (rowData.status_code >= 500) {
+                                        const c = parseInt($('#header-5xx-count').text()) || 0;
+                                        $('#header-5xx-count').text(Math.max(0, c - 1));
+                                    }
+                                    if (rowData.link_type === 'internal') {
+                                        const c = parseInt($('#stat-internal-count').text()) || 0;
+                                        $('#stat-internal-count, #internal-broken-count, [data-stat="internal"]').text(Math.max(0, c - 1));
+                                    } else if (rowData.link_type === 'external') {
+                                        const c = parseInt($('#stat-external-count').text()) || 0;
+                                        $('#stat-external-count, #external-broken-count, [data-stat="external"]').text(Math.max(0, c - 1));
+                                    }
+                                }
+
+                                // ✅ Update button states (enables undo)
+                                updateButtonStates();
+                                console.log('[BULK REMOVE] ✅ Row animation complete, stats and buttons updated for ID:', entryId);
+                            });
                         }
                     } else {
                         failCount++;
@@ -4255,7 +4281,13 @@
                             deletedCount++;
                             trackBulkActionInUndoAndSession(entryId, link, 'delete');
                             const $row = $(`tr[data-id="${entryId}"]`);
-                            if ($row.length) animateDeletedRow($row);
+                            if ($row.length) {
+                                animateDeletedRow($row, function () {
+                                    updateHeaderBrokenCount();
+                                    updateStatsAfterFix(1);
+                                    updateButtonStates();
+                                });
+                            }
                         } else {
                             failCount++;
                             console.error('[BULK REPLACE V2] ❌ Delete failed ID:', entryId, response.data);
@@ -4285,7 +4317,13 @@
                             successCount++;
                             trackBulkActionInUndoAndSession(entryId, link, 'fix');
                             const $row = $(`tr[data-id="${entryId}"]`);
-                            if ($row.length) animateFixedRow($row);
+                            if ($row.length) {
+                                animateFixedRow($row, function () {
+                                    updateHeaderBrokenCount();
+                                    updateStatsAfterFix(1);
+                                    updateButtonStates();
+                                });
+                            }
                         } else {
                             failCount++;
                             console.error('[BULK REPLACE V2] ❌ Apply failed ID:', entryId, response.data);
@@ -4671,6 +4709,26 @@
                                 // ✅ Use proper DELETE animation with callback (identical to individual delete)
                                 animateDeletedRow($row, function () {
                                     updateHeaderBrokenCount();
+                                    updateStatsAfterFix(1);
+
+                                    // ✅ Update stat cards (identical to individual delete)
+                                    if (rowData) {
+                                        if (rowData.status_code >= 400 && rowData.status_code < 500) {
+                                            const c = parseInt($('#header-4xx-count').text()) || 0;
+                                            $('#header-4xx-count').text(Math.max(0, c - 1));
+                                        } else if (rowData.status_code >= 500) {
+                                            const c = parseInt($('#header-5xx-count').text()) || 0;
+                                            $('#header-5xx-count').text(Math.max(0, c - 1));
+                                        }
+                                        if (rowData.link_type === 'internal') {
+                                            const c = parseInt($('#stat-internal-count').text()) || 0;
+                                            $('#stat-internal-count, #internal-broken-count, [data-stat="internal"]').text(Math.max(0, c - 1));
+                                        } else if (rowData.link_type === 'external') {
+                                            const c = parseInt($('#stat-external-count').text()) || 0;
+                                            $('#stat-external-count, #external-broken-count, [data-stat="external"]').text(Math.max(0, c - 1));
+                                        }
+                                    }
+
                                     updateButtonStates();
                                     console.log('[FIX ALL - CATEGORY DELETE] Button states updated for ID:', link.id);
                                 });
