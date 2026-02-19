@@ -647,7 +647,7 @@
                 scanState.urlsTestedInBatch++;
                 scanState.totalUrlsTested++;
 
-                // ── Micro-progress ───────────────────────────────────────────
+                // ── Micro-progress bar ────────────────────────────────────────
                 scanState.currentProgress = Math.min(
                     startProgress + microStep * scanState.urlsTestedInBatch,
                     targetProgress
@@ -655,25 +655,8 @@
                 $('#scan-progress-fill').css('width', scanState.currentProgress + '%');
                 $('#scan-progress-percentage').text(Math.round(scanState.currentProgress) + '%');
                 $('#scan-urls-tested').text(scanState.totalUrlsTested);
-
-                // ── Immediate broken-link stat update (deduplicated) ─────────
-                // Only count a broken URL the FIRST time we see it across all batches.
-                // Same URL can appear in multiple batches via cache — without this guard
-                // the count inflates (e.g. 21 shown when only 7 are truly broken).
-                if (result && result.is_broken && url && !scanState.seenBrokenUrls.has(url)) {
-                    scanState.seenBrokenUrls.add(url);
-                    scanState.totalBrokenFound++;
-                    if (result.error_type === '4xx') scanState.cum4xx++;
-                    if (result.error_type === '5xx') scanState.cum5xx++;
-
-                    $('#scan-broken-count').text(scanState.totalBrokenFound);
-                    $('#header-broken-count').text(scanState.totalBrokenFound);
-                    $('#header-4xx-count').text(scanState.cum4xx);
-                    $('#header-5xx-count').text(scanState.cum5xx);
-
-                    console.log('[SCAN V3] 🔴 New broken URL (first seen):', url,
-                        '| total:', scanState.totalBrokenFound, '| 4xx:', scanState.cum4xx, '| 5xx:', scanState.cum5xx);
-                }
+                // NOTE: Broken link stats are NOT updated here.
+                // They are updated after the DB save (Step 6) using the authoritative DB response.
             });
 
             // Snap exactly to targetProgress when all URLs in this batch are done
@@ -731,7 +714,7 @@
 
             console.log('[SCAN V3] Found ' + brokenLinks.length + ' broken link occurrences');
 
-            // Step 6: Save broken links to database
+            // Step 6: Save broken links to database and update stats from DB response
             if (brokenLinks.length > 0) {
                 const savedData = await saveBrokenLinksBatch(currentScanId, brokenLinks);
                 console.log('[SCAN V3] ✅ Saved broken links to database');
@@ -739,8 +722,23 @@
                 // Use saved data which contains database IDs (needed for table rows)
                 const savedBrokenLinks = savedData.broken_links || brokenLinks;
 
-                // NOTE: Header stats (totalBrokenFound, cum4xx, cum5xx) were already updated
-                // in real-time by the progressCallback above — do NOT re-add here (would double-count).
+                // ── Stats from DB (single source of truth) ──────────────────────
+                // total_broken is the cumulative count across ALL batches from the DB.
+                // This is always accurate — no risk of frontend duplication.
+                scanState.totalBrokenFound = savedData.total_broken || savedBrokenLinks.length;
+
+                // 4xx/5xx: accumulate per-batch from the saved records
+                scanState.cum4xx += savedBrokenLinks.filter(l => l.error_type === '4xx').length;
+                scanState.cum5xx += savedBrokenLinks.filter(l => l.error_type === '5xx').length;
+
+                // Update header displays
+                $('#scan-broken-count').text(scanState.totalBrokenFound);
+                $('#header-broken-count').text(scanState.totalBrokenFound);
+                $('#header-4xx-count').text(scanState.cum4xx);
+                $('#header-5xx-count').text(scanState.cum5xx);
+
+                console.log('[SCAN V3] Stats from DB — total broken:', scanState.totalBrokenFound,
+                    '| 4xx:', scanState.cum4xx, '| 5xx:', scanState.cum5xx);
 
                 // Display broken links in the results table (uses DB IDs for row actions)
                 updateDynamicResults(savedBrokenLinks);
