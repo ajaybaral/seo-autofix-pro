@@ -643,10 +643,11 @@
             // Step 4: Test all unique URLs via proxy, with micro-progress callback
             console.log('[SCAN V3] Testing ' + uniqueUrls.length + ' unique URLs...');
 
-            const testResults = await testURLsBatch(uniqueUrls, 10, function () {
+            const testResults = await testURLsBatch(uniqueUrls, 10, function (result) {
                 scanState.urlsTestedInBatch++;
                 scanState.totalUrlsTested++;
-                // Advance bar by one microStep per URL tested
+
+                // ── Micro-progress ───────────────────────────────────────────
                 scanState.currentProgress = Math.min(
                     startProgress + microStep * scanState.urlsTestedInBatch,
                     targetProgress
@@ -654,6 +655,23 @@
                 $('#scan-progress-fill').css('width', scanState.currentProgress + '%');
                 $('#scan-progress-percentage').text(Math.round(scanState.currentProgress) + '%');
                 $('#scan-urls-tested').text(scanState.totalUrlsTested);
+
+                // ── Immediate broken-link stat update ────────────────────────
+                // Update header counts the moment a broken URL is detected,
+                // without waiting for the batch DB save to complete.
+                if (result && result.is_broken) {
+                    scanState.totalBrokenFound++;
+                    if (result.error_type === '4xx') scanState.cum4xx++;
+                    if (result.error_type === '5xx') scanState.cum5xx++;
+
+                    $('#scan-broken-count').text(scanState.totalBrokenFound);
+                    $('#header-broken-count').text(scanState.totalBrokenFound);
+                    $('#header-4xx-count').text(scanState.cum4xx);
+                    $('#header-5xx-count').text(scanState.cum5xx);
+
+                    console.log('[SCAN V3] 🔴 Broken URL detected in real-time — total:', scanState.totalBrokenFound,
+                        '| 4xx:', scanState.cum4xx, '| 5xx:', scanState.cum5xx);
+                }
             });
 
             // Snap exactly to targetProgress when all URLs in this batch are done
@@ -716,24 +734,13 @@
                 const savedData = await saveBrokenLinksBatch(currentScanId, brokenLinks);
                 console.log('[SCAN V3] ✅ Saved broken links to database');
 
-                // Use saved data which contains database IDs
+                // Use saved data which contains database IDs (needed for table rows)
                 const savedBrokenLinks = savedData.broken_links || brokenLinks;
 
-                // Update CUMULATIVE broken stats in scanState (never overwrite with per-batch value)
-                scanState.totalBrokenFound += savedBrokenLinks.length;
-                scanState.cum4xx += savedBrokenLinks.filter(l => l.error_type === '4xx').length;
-                scanState.cum5xx += savedBrokenLinks.filter(l => l.error_type === '5xx').length;
+                // NOTE: Header stats (totalBrokenFound, cum4xx, cum5xx) were already updated
+                // in real-time by the progressCallback above — do NOT re-add here (would double-count).
 
-                // Update all stat displays from scanState (single source of truth)
-                $('#scan-broken-count').text(scanState.totalBrokenFound);
-                $('#header-broken-count').text(scanState.totalBrokenFound);
-                $('#header-4xx-count').text(scanState.cum4xx);
-                $('#header-5xx-count').text(scanState.cum5xx);
-
-                console.log('[SCAN V3] Cumulative broken:', scanState.totalBrokenFound,
-                    '| 4xx:', scanState.cum4xx, '| 5xx:', scanState.cum5xx);
-
-                // Display broken links in real-time (header stats already updated above)
+                // Display broken links in the results table (uses DB IDs for row actions)
                 updateDynamicResults(savedBrokenLinks);
             }
 
@@ -5890,8 +5897,8 @@
             if (urlTestCache[url]) {
                 console.log(`[TEST URLS BATCH] 💾 Using cached result for: ${url}`);
                 results.push(urlTestCache[url]);
-                // Still fire progress callback for cached hits — counts as "tested"
-                if (progressCallback) progressCallback();
+                // Still fire progress callback for cached hits — pass result so stats update immediately
+                if (progressCallback) progressCallback(urlTestCache[url]);
                 continue; // Skip actual test - no delay needed for cached results!
             }
 
@@ -5905,8 +5912,8 @@
                 urlTestCache[url] = result;
                 results.push(result);
 
-                // Fire progress callback after each URL test
-                if (progressCallback) progressCallback();
+                // Fire progress callback after each URL test — pass result so stats update immediately
+                if (progressCallback) progressCallback(result);
 
                 // Add delay between URL tests to prevent AJAX spam (only for actual tests)
                 if (i < urls.length - 1) {
@@ -5926,8 +5933,8 @@
                 urlTestCache[url] = errorResult;
                 results.push(errorResult);
 
-                // Fire progress callback even on errors
-                if (progressCallback) progressCallback();
+                // Fire progress callback even on errors — pass result so stats update immediately
+                if (progressCallback) progressCallback(errorResult);
             }
         }
 
