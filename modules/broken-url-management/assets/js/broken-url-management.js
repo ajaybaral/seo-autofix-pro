@@ -1807,123 +1807,7 @@
     }
     */
 
-    /**
-     * Fix all issues on current page
-     */
-    function fixAllIssues() {
-        const brokenLinks = [];
-
-        // Collect all broken links from the table
-        $('#results-table-body tr').not('.status-fixed').each(function () {
-            const $fixBtn = $(this).find('.fix-btn');
-            if ($fixBtn.length) {
-                const resultData = $fixBtn.data('result');
-                if (resultData) {
-                    brokenLinks.push(resultData);
-                }
-            }
-        });
-
-        if (brokenLinks.length === 0) {
-            alert('No broken links to fix!');
-            return;
-        }
-
-        if (!confirm('Fix ' + brokenLinks.length + ' broken link(s)? This will use suggested URLs where available.')) {
-            return;
-        }
-
-        // Disable button during processing
-        $('#fix-all-issues-btn').prop('disabled', true).html('<span class="dashicons dashicons-update spin"></span> Fixing...');
-
-        // Extract IDs for the AJAX call
-        const linkIds = brokenLinks.map(link => link.id);
-
-        console.log('[FIX ALL] Fixing', linkIds.length, 'links with IDs:', linkIds);
-
-        // Apply fixes in batch
-        $.ajax({
-            url: seoautofixBrokenUrls.ajaxUrl,
-            method: 'POST',
-            data: {
-                action: 'seoautofix_broken_links_apply_fixes',
-                nonce: seoautofixBrokenUrls.nonce,
-                ids: linkIds // Correct format: array of IDs
-            },
-            success: function (response) {
-                console.log('[FIX ALL] Response:', response);
-
-                if (response.success) {
-                    const fixed = response.data.fixed_count || 0;
-                    const failed = response.data.failed_count || 0;
-                    const skipped = response.data.skipped_count || 0;
-
-                    // Remove successfully fixed rows
-                    if (fixed > 0) {
-                        brokenLinks.forEach(function (link) {
-                            const $row = $('[data-id="' + link.id + '"]');
-
-                            // Push to undo stack before removing
-                            undoStack.push({
-                                id: link.id,
-                                action: 'fix',
-                                original_data: link,
-                                row_html: $row[0].outerHTML
-                            });
-
-                            // Add to fixed links session for export
-                            fixedLinksSession.push({
-                                id: link.id,
-                                location: link.found_on_page_title,
-                                anchor_text: link.anchor_text,
-                                broken_url: link.broken_url,
-                                link_type: link.link_type,
-                                status_code: link.status_code,
-                                error_type: link.error_type,
-                                suggested_url: link.suggested_url,
-                                reason: link.reason,
-                                is_fixed: 1
-                            });
-
-                            // Use new animation function
-                            animateFixedRow($row);
-                        });
-
-                        // Update stats and buttons
-                        updateStatsAfterFix(fixed);
-                        updateFixedReportButtonText();
-                        updateButtonStates();
-
-                        // EXPLICITLY enable undo buttons
-                        console.log('[FIX ALL] Undo stack length:', undoStack.length);
-                        $('#undo-last-fix-btn, #undo-changes-btn').prop('disabled', false);
-                        console.log('[FIX ALL] Undo buttons explicitly enabled');
-                    }
-
-                    // Show summary
-                    let message = '✅ Fixed: ' + fixed + '\n❌ Failed: ' + failed;
-                    if (skipped > 0) {
-                        message += '\n⚠️ Skipped: ' + skipped;
-                    }
-                    if (response.data.messages && response.data.messages.length > 0) {
-                        message += '\n\nDetails:\n' + response.data.messages.join('\n');
-                    }
-                    alert(message);
-
-                    // Reset button
-                    $('#fix-all-issues-btn').prop('disabled', false).html('<span class="dashicons dashicons-yes-alt"></span> Fix All Issues');
-                } else {
-                    alert('Error: ' + (response.data.message || 'Failed to fix links'));
-                    $('#fix-all-issues-btn').prop('disabled', false).html('<span class="dashicons dashicons-yes-alt"></span> Fix All Issues');
-                }
-            },
-            error: function (jqXHR, textStatus, errorThrown) {
-                console.error('[FIX ALL] Error:', textStatus, errorThrown);
-                alert('An error occurred while fixing links. Please try again.');
-                $('#fix-all-issues-btn').prop('disabled', false).html('<span class="dashicons dashicons-yes-alt"></span> Fix All Issues');
-            }
-        });
-    }
+    // Legacy fixAllIssues removed - correct implementation is below at line ~4381
 
     /**
      * Update stats after undo
@@ -2721,38 +2605,8 @@
         });
     }
 
-    /**
-     * Remove broken links
-     */
-    function removeBrokenLinks() {
-        if (!confirm('Are you sure you want to remove all broken links? This action cannot be undone.')) {
-            return;
-        }
-
-        alert('Remove broken links functionality will be implemented');
-    }
-
-    /**
-     * Replace broken links
-     */
-    function replaceBrokenLinks() {
-        if (!confirm('Are you sure you want to replace all broken links with suggested URLs?')) {
-            return;
-        }
-
-        alert('Replace broken links functionality will be implemented');
-    }
-
-    /**
-     * Fix all issues
-     */
-    function fixAllIssues() {
-        if (!confirm('This will automatically fix all broken links. Continue?')) {
-            return;
-        }
-
-        alert('Fix all issues functionality will be implemented');
-    }
+    // Legacy stubs for removeBrokenLinks, replaceBrokenLinks, fixAllIssues removed
+    // Correct implementations exist further below
 
     /**
      * Undo changes
