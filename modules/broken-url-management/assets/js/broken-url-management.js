@@ -532,17 +532,14 @@
             const data = pageUrlsResponse.data;
             console.log('[SCAN V3] Received page URLs batch:', data);
 
-            // Update scanState with page counts from backend response
+            // Capture total pages on first batch
             if (data.total_pages && scanState.totalPages === 0) {
                 scanState.totalPages = data.total_pages;
             }
             if (data.pages_processed) {
                 scanState.pagesProcessed = data.pages_processed;
             }
-            // Snap progress bar to macro (page-based) position from backend
-            scanState.currentProgress = parseFloat(data.progress) || 0;
-            $('#scan-progress-fill').css('width', scanState.currentProgress + '%');
-            $('#scan-progress-percentage').text(Math.round(scanState.currentProgress) + '%');
+            // NOTE: Do NOT snap the bar here — we micro-step toward targetProgress per-URL below
             $('#scan-progress-text').text('Scanning...');
 
             // Check if scan is complete
@@ -626,45 +623,43 @@
             const uniqueUrls = Object.keys(allLinks);
             console.log('[SCAN V3] Found ' + uniqueUrls.length + ' unique URLs in batch');
 
-            // Compute micro-progress step size for smooth progress bar during URL testing
-            // batchWeight: what fraction of total progress does this batch represent (%)
-            const batchWeight = scanState.totalPages > 0
-                ? (scanState.batchSize / scanState.totalPages) * 100
+            // --- Smooth micro-progress setup ---
+            // startProgress: where the bar currently sits (before this batch)
+            const startProgress = scanState.currentProgress;
+            // targetProgress: where the bar should be once this entire batch finishes
+            // = (pages processed so far / total pages) * 100
+            const targetProgress = scanState.totalPages > 0
+                ? Math.min((scanState.pagesProcessed / scanState.totalPages) * 100, 100)
+                : parseFloat(data.progress) || startProgress;
+            // microStep: how much each tested URL advances the bar
+            // = (targetProgress - startProgress) / number-of-unique-URLs
+            const microStep = uniqueUrls.length > 0
+                ? (targetProgress - startProgress) / uniqueUrls.length
                 : 0;
-            // microStep: how much each individual URL test moves the progress bar
-            const microStep = uniqueUrls.length > 0 ? batchWeight / uniqueUrls.length : 0;
 
-            scanState.batchUniqueUrls = uniqueUrls.length;
             scanState.urlsTestedInBatch = 0;
-
-            console.log('[SCAN V3] Micro-progress: batchWeight=' + batchWeight.toFixed(2) + '%, microStep=' + microStep.toFixed(4) + '% per URL');
+            console.log('[SCAN V3] Micro-progress: start=' + startProgress.toFixed(2) + '% target=' + targetProgress.toFixed(2) + '% step=' + microStep.toFixed(4) + '% × ' + uniqueUrls.length + ' URLs');
 
             // Step 4: Test all unique URLs via proxy, with micro-progress callback
             console.log('[SCAN V3] Testing ' + uniqueUrls.length + ' unique URLs...');
 
-            // Macro ceiling for this batch: do not exceed pages-dispatched proportion
-            const macroCeiling = scanState.totalPages > 0
-                ? (scanState.pagesProcessed / scanState.totalPages) * 100
-                : scanState.currentProgress;
-
             const testResults = await testURLsBatch(uniqueUrls, 10, function () {
                 scanState.urlsTestedInBatch++;
                 scanState.totalUrlsTested++;
-                // Advance micro-progress, but never exceed macro ceiling
+                // Advance bar by one microStep per URL tested
                 scanState.currentProgress = Math.min(
-                    scanState.currentProgress + microStep,
-                    macroCeiling
+                    startProgress + microStep * scanState.urlsTestedInBatch,
+                    targetProgress
                 );
                 $('#scan-progress-fill').css('width', scanState.currentProgress + '%');
                 $('#scan-progress-percentage').text(Math.round(scanState.currentProgress) + '%');
-                // Update URLs Tested counter in real-time
                 $('#scan-urls-tested').text(scanState.totalUrlsTested);
             });
 
-            // Snap to exact macro position after URL testing completes
-            scanState.currentProgress = macroCeiling;
-            $('#scan-progress-fill').css('width', scanState.currentProgress + '%');
-            $('#scan-progress-percentage').text(Math.round(scanState.currentProgress) + '%');
+            // Snap exactly to targetProgress when all URLs in this batch are done
+            scanState.currentProgress = targetProgress;
+            $('#scan-progress-fill').css('width', targetProgress + '%');
+            $('#scan-progress-percentage').text(Math.round(targetProgress) + '%');
 
             console.log('[SCAN V3] ✅ Tested ' + testResults.length + ' URLs, total tested: ' + scanState.totalUrlsTested);
 
