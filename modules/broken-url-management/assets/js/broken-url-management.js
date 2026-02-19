@@ -5163,9 +5163,10 @@
     function validateInlineUrl($element) {
         const url = $element.text().trim();
         const $item = $element.closest('.preview-item-compact');
+        const linkId = $item.data('link-id');
 
-        // Remove any existing validation message for this item
-        $item.find('.inline-url-validation').remove();
+        // Remove any existing validation message for this item (sibling, not child)
+        $item.siblings('.inline-url-validation[data-for="' + linkId + '"]').remove();
 
         if (!url) {
             return;
@@ -5176,7 +5177,7 @@
             new URL(url);
         } catch (e) {
             $element.addClass('url-invalid').removeClass('url-valid');
-            $item.append('<div class="inline-url-validation invalid" style="color: #dc3232; font-size: 11px; margin-top: 2px;">⚠ Invalid URL format</div>');
+            $item.after('<div class="inline-url-validation invalid" data-for="' + linkId + '" style="color: #dc3232; font-size: 11px; margin: 2px 0 4px; padding-left: 4px;">⚠ Invalid URL format</div>');
             return;
         }
 
@@ -5191,21 +5192,21 @@
             },
             success: function (response) {
                 // Remove previous feedback (in case of race condition)
-                $item.find('.inline-url-validation').remove();
+                $item.siblings('.inline-url-validation[data-for="' + linkId + '"]').remove();
 
                 if (response.success && response.data.is_valid) {
                     $element.addClass('url-valid').removeClass('url-invalid');
-                    $item.append('<div class="inline-url-validation valid" style="color: #46b450; font-size: 11px; margin-top: 2px;">✓ URL is valid</div>');
+                    $item.after('<div class="inline-url-validation valid" data-for="' + linkId + '" style="color: #46b450; font-size: 11px; margin: 2px 0 4px; padding-left: 4px;">✓ URL is valid</div>');
                 } else {
                     const errorMsg = response.data ? response.data.message : 'URL is broken or unreachable';
                     $element.addClass('url-invalid').removeClass('url-valid');
-                    $item.append('<div class="inline-url-validation invalid" style="color: #dc3232; font-size: 11px; margin-top: 2px;">⚠ ' + escapeHtml(errorMsg) + '</div>');
+                    $item.after('<div class="inline-url-validation invalid" data-for="' + linkId + '" style="color: #dc3232; font-size: 11px; margin: 2px 0 4px; padding-left: 4px;">⚠ ' + escapeHtml(errorMsg) + '</div>');
                 }
             },
             error: function () {
-                $item.find('.inline-url-validation').remove();
+                $item.siblings('.inline-url-validation[data-for="' + linkId + '"]').remove();
                 $element.addClass('url-invalid').removeClass('url-valid');
-                $item.append('<div class="inline-url-validation invalid" style="color: #dc3232; font-size: 11px; margin-top: 2px;">⚠ Failed to validate URL</div>');
+                $item.after('<div class="inline-url-validation invalid" data-for="' + linkId + '" style="color: #dc3232; font-size: 11px; margin: 2px 0 4px; padding-left: 4px;">⚠ Failed to validate URL</div>');
             }
         });
     }
@@ -5215,7 +5216,9 @@
      */
     function clearInlineValidation($element) {
         const $item = $element.closest('.preview-item-compact');
-        $item.find('.inline-url-validation').remove();
+        const linkId = $item.data('link-id');
+        // Remove sibling validation messages (injected after the flex row)
+        $item.siblings('.inline-url-validation[data-for="' + linkId + '"]').remove();
         $element.removeClass('url-invalid url-valid');
     }
 
