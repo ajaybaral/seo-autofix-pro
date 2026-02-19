@@ -14,10 +14,19 @@
     let isScanning = false;
     let scanProgressInterval = null;
 
-    // Cumulative scan statistics (tracks totals across all batches)
-    let cumulativeTotalUrls = 0;
-    let cumulativeUrlsTested = 0;
-    let cumulativeBrokenCount = 0;
+    // Single source of truth for all scan progress and statistics
+    let scanState = {
+        totalPages: 0,         // Total pages known from backend (set on first batch response)
+        pagesProcessed: 0,     // Pages dispatched so far by backend
+        batchSize: 5,          // Fixed batch size (matches hardcoded value in processBatch)
+        batchUniqueUrls: 0,    // Unique URLs in the current batch
+        urlsTestedInBatch: 0,  // URLs tested so far within the current batch (for micro-progress)
+        totalUrlsTested: 0,    // Running cumulative count of unique URLs tested across all batches
+        totalBrokenFound: 0,   // Running cumulative count of broken link occurrences saved
+        cum4xx: 0,             // Cumulative 4xx error count
+        cum5xx: 0,             // Cumulative 5xx error count
+        currentProgress: 0     // Current progress bar % (float, 0–100)
+    };
 
     // Header/Footer link deduplication tracking
     // Key format: "url__location" (e.g., "https://broken.com__footer")
@@ -412,13 +421,16 @@
                     console.log('[SCAN DEBUG] Scan started successfully, scan_id:', response.data.scan_id);
                     currentScanId = response.data.scan_id;
 
-                    // Reset cumulative stats for new scan
-                    cumulativeTotalUrls = 0;
-                    cumulativeUrlsTested = 0;
-                    cumulativeBrokenCount = 0;
+                    // Reset scanState for new scan
+                    scanState = {
+                        totalPages: 0, pagesProcessed: 0, batchSize: 5,
+                        batchUniqueUrls: 0, urlsTestedInBatch: 0,
+                        totalUrlsTested: 0, totalBrokenFound: 0,
+                        cum4xx: 0, cum5xx: 0, currentProgress: 0
+                    };
                     seenHeaderFooterLinks = {}; // Reset header/footer tracking
                     urlTestCache = {}; // Clear URL test cache for new scan
-                    console.log('[SCAN DEBUG] Reset cumulative stats, header/footer tracking, and URL test cache');
+                    console.log('[SCAN DEBUG] Reset scanState, header/footer tracking, and URL test cache');
 
                     startProgressMonitoring();
                 } else {
@@ -520,15 +532,24 @@
             const data = pageUrlsResponse.data;
             console.log('[SCAN V3] Received page URLs batch:', data);
 
-            // Update progress bar
-            const progress = Math.round(data.progress || 0);
-            $('#scan-progress-fill').css('width', progress + '%');
-            $('#scan-progress-percentage').text(progress + '%');
+            // Update scanState with page counts from backend response
+            if (data.total_pages && scanState.totalPages === 0) {
+                scanState.totalPages = data.total_pages;
+            }
+            if (data.pages_processed) {
+                scanState.pagesProcessed = data.pages_processed;
+            }
+            // Snap progress bar to macro (page-based) position from backend
+            scanState.currentProgress = parseFloat(data.progress) || 0;
+            $('#scan-progress-fill').css('width', scanState.currentProgress + '%');
+            $('#scan-progress-percentage').text(Math.round(scanState.currentProgress) + '%');
             $('#scan-progress-text').text('Scanning...');
 
             // Check if scan is complete
             if (data.completed) {
                 console.log('[SCAN V3] Scan completed!');
+                $('#scan-progress-fill').css('width', '100%');
+                $('#scan-progress-percentage').text('100%');
                 $('#scan-progress-text').text(seoautofixBrokenUrls.strings.scanComplete || 'Scan complete!');
 
                 isScanInProgress = false;
@@ -582,7 +603,6 @@
 
             // Step 3: Collect all unique links
             const allLinks = {};
-            let totalLinksFound = 0;
 
             pagesWithLinks.forEach(({ links }) => {
                 links.forEach(link => {
@@ -600,29 +620,53 @@
                         anchor_text: link.anchor_text,
                         location: link.location
                     });
-                    totalLinksFound++;
                 });
             });
 
             const uniqueUrls = Object.keys(allLinks);
-            console.log('[SCAN V3] Found ' + totalLinksFound + ' total links (' + uniqueUrls.length + ' unique)');
+            console.log('[SCAN V3] Found ' + uniqueUrls.length + ' unique URLs in batch');
 
-            // Update cumulative stats with batch data
-            cumulativeTotalUrls += totalLinksFound;
-            cumulativeUrlsTested += uniqueUrls.length;
+            // Compute micro-progress step size for smooth progress bar during URL testing
+            // batchWeight: what fraction of total progress does this batch represent (%)
+            const batchWeight = scanState.totalPages > 0
+                ? (scanState.batchSize / scanState.totalPages) * 100
+                : 0;
+            // microStep: how much each individual URL test moves the progress bar
+            const microStep = uniqueUrls.length > 0 ? batchWeight / uniqueUrls.length : 0;
 
-            // Update UI with cumulative totals
-            $('#scan-urls-tested').text(cumulativeUrlsTested);
-            $('#scan-urls-total').text(cumulativeTotalUrls);
+            scanState.batchUniqueUrls = uniqueUrls.length;
+            scanState.urlsTestedInBatch = 0;
 
-            console.log('[SCAN V3] Cumulative stats - Tested:', cumulativeUrlsTested, 'Total:', cumulativeTotalUrls);
+            console.log('[SCAN V3] Micro-progress: batchWeight=' + batchWeight.toFixed(2) + '%, microStep=' + microStep.toFixed(4) + '% per URL');
 
-            // Step 4: Test all unique URLs via proxy
+            // Step 4: Test all unique URLs via proxy, with micro-progress callback
             console.log('[SCAN V3] Testing ' + uniqueUrls.length + ' unique URLs...');
 
-            const testResults = await testURLsBatch(uniqueUrls, 10); // Test 10 URLs concurrency
+            // Macro ceiling for this batch: do not exceed pages-dispatched proportion
+            const macroCeiling = scanState.totalPages > 0
+                ? (scanState.pagesProcessed / scanState.totalPages) * 100
+                : scanState.currentProgress;
 
-            console.log('[SCAN V3] ✅ Tested ' + testResults.length + ' URLs');
+            const testResults = await testURLsBatch(uniqueUrls, 10, function () {
+                scanState.urlsTestedInBatch++;
+                scanState.totalUrlsTested++;
+                // Advance micro-progress, but never exceed macro ceiling
+                scanState.currentProgress = Math.min(
+                    scanState.currentProgress + microStep,
+                    macroCeiling
+                );
+                $('#scan-progress-fill').css('width', scanState.currentProgress + '%');
+                $('#scan-progress-percentage').text(Math.round(scanState.currentProgress) + '%');
+                // Update URLs Tested counter in real-time
+                $('#scan-urls-tested').text(scanState.totalUrlsTested);
+            });
+
+            // Snap to exact macro position after URL testing completes
+            scanState.currentProgress = macroCeiling;
+            $('#scan-progress-fill').css('width', scanState.currentProgress + '%');
+            $('#scan-progress-percentage').text(Math.round(scanState.currentProgress) + '%');
+
+            console.log('[SCAN V3] ✅ Tested ' + testResults.length + ' URLs, total tested: ' + scanState.totalUrlsTested);
 
             // Step 5: Identify broken links
             const brokenLinks = [];
@@ -677,29 +721,25 @@
                 const savedData = await saveBrokenLinksBatch(currentScanId, brokenLinks);
                 console.log('[SCAN V3] ✅ Saved broken links to database');
 
-                // ✅ Use saved data which contains database IDs
+                // Use saved data which contains database IDs
                 const savedBrokenLinks = savedData.broken_links || brokenLinks;
 
-                // Update cumulative broken count
-                cumulativeBrokenCount += savedBrokenLinks.length;
+                // Update CUMULATIVE broken stats in scanState (never overwrite with per-batch value)
+                scanState.totalBrokenFound += savedBrokenLinks.length;
+                scanState.cum4xx += savedBrokenLinks.filter(l => l.error_type === '4xx').length;
+                scanState.cum5xx += savedBrokenLinks.filter(l => l.error_type === '5xx').length;
 
-                // Update UI with cumulative broken links count
-                $('#scan-broken-count').text(cumulativeBrokenCount);
+                // Update all stat displays from scanState (single source of truth)
+                $('#scan-broken-count').text(scanState.totalBrokenFound);
+                $('#header-broken-count').text(scanState.totalBrokenFound);
+                $('#header-4xx-count').text(scanState.cum4xx);
+                $('#header-5xx-count').text(scanState.cum5xx);
 
-                console.log('[SCAN V3] Cumulative broken count:', cumulativeBrokenCount);
+                console.log('[SCAN V3] Cumulative broken:', scanState.totalBrokenFound,
+                    '| 4xx:', scanState.cum4xx, '| 5xx:', scanState.cum5xx);
 
-                // Update 4xx/5xx stats
-                const stats4xx = savedBrokenLinks.filter(l => l.error_type === '4xx').length;
-                const stats5xx = savedBrokenLinks.filter(l => l.error_type === '5xx').length;
-                $('#header-4xx-count').text(stats4xx);
-                $('#header-5xx-count').text(stats5xx);
-
-                // Display broken links in real-time (using saved data with IDs!)
-                updateDynamicResults(savedBrokenLinks, {
-                    total: savedBrokenLinks.length,
-                    '4xx': stats4xx,
-                    '5xx': stats5xx
-                });
+                // Display broken links in real-time (header stats already updated above)
+                updateDynamicResults(savedBrokenLinks);
             }
 
             // Step 7: Process next batch
@@ -1090,13 +1130,12 @@
      * Update results and stats dynamically during scanning
      * Shows results in real-time as links are discovered
      */
-    function updateDynamicResults(brokenLinks, stats) {
+    function updateDynamicResults(brokenLinks) {
         console.log('═══════════════════════════════════════════════════════');
         console.log('🔄 [DYNAMIC UPDATE] FUNCTION CALLED');
         console.log('[DYNAMIC UPDATE] Timestamp:', new Date().toLocaleTimeString());
         console.log('[DYNAMIC UPDATE] Broken links received:', brokenLinks.length);
         console.log('[DYNAMIC UPDATE] Broken links IDs:', brokenLinks.map(l => l.id));
-        console.log('[DYNAMIC UPDATE] Stats:', stats);
 
         // Show table container if hidden (correct selector!)
         const $tableContainer = $('.seoautofix-table-container-new');
@@ -1123,31 +1162,8 @@
             console.log('[DYNAMIC UPDATE] Table already visible');
         }
 
-        // Update stats
-        if (stats) {
-            console.log('[DYNAMIC UPDATE] Updating stats:', stats);
-            $('#header-broken-count').text(stats.total || 0);
-
-            // ✅ UPDATE 4xx AND 5xx STATS IN REAL-TIME
-            if (stats['4xx'] !== undefined) {
-                $('#header-4xx-count').text(stats['4xx']);
-                console.log('[DYNAMIC UPDATE] Updated 4xx count:', stats['4xx']);
-            }
-            if (stats['5xx'] !== undefined) {
-                $('#header-5xx-count').text(stats['5xx']);
-                console.log('[DYNAMIC UPDATE] Updated 5xx count:', stats['5xx']);
-            }
-            if (stats.internal !== undefined) {
-                $('#internal-broken-count, #stat-internal-count, [data-stat="internal"]').text(stats.internal);
-                console.log('[DYNAMIC UPDATE] Updated internal count:', stats.internal);
-            }
-            if (stats.external !== undefined) {
-                $('#external-broken-count, #stat-external-count, [data-stat="external"]').text(stats.external);
-                console.log('[DYNAMIC UPDATE] Updated external count:', stats.external);
-            }
-
-            updateFilterCounts({ stats: stats });
-        }
+        // Header stats (broken count, 4xx, 5xx) are driven by scanState in processBatch
+        // Do NOT update them here — this function only appends table rows.
 
         // Track which links we've already displayed
         if (!window.displayedLinkIds) {
@@ -5862,8 +5878,11 @@
     /**
      * Test multiple URLs in parallel using Promise.all
      * Limits concurrency to avoid overwhelming the server
+     * @param {Array} urls URLs to test
+     * @param {number} concurrency Max parallel tests (currently sequential)
+     * @param {Function|null} progressCallback Called after each URL result for micro-progress
      */
-    async function testURLsBatch(urls, concurrency = 10) {
+    async function testURLsBatch(urls, concurrency = 10, progressCallback = null) {
         console.log('[TEST URLS BATCH] 🔄 Testing ' + urls.length + ' URLs SEQUENTIALLY');
 
         const results = [];
@@ -5876,6 +5895,8 @@
             if (urlTestCache[url]) {
                 console.log(`[TEST URLS BATCH] 💾 Using cached result for: ${url}`);
                 results.push(urlTestCache[url]);
+                // Still fire progress callback for cached hits — counts as "tested"
+                if (progressCallback) progressCallback();
                 continue; // Skip actual test - no delay needed for cached results!
             }
 
@@ -5889,10 +5910,13 @@
                 urlTestCache[url] = result;
                 results.push(result);
 
+                // Fire progress callback after each URL test
+                if (progressCallback) progressCallback();
+
                 // Add delay between URL tests to prevent AJAX spam (only for actual tests)
                 if (i < urls.length - 1) {
                     console.log('[TEST URLS BATCH] ⏱️ Throttling: 100ms delay...');
-                    await sleep(100); // 500ms delay between each test
+                    await sleep(100); // 100ms delay between each test
                 }
             } catch (error) {
                 console.error('[TEST URLS BATCH] Error testing URL:', url, error);
@@ -5906,6 +5930,9 @@
                 // Cache error results too (avoid retesting timeouts)
                 urlTestCache[url] = errorResult;
                 results.push(errorResult);
+
+                // Fire progress callback even on errors
+                if (progressCallback) progressCallback();
             }
         }
 

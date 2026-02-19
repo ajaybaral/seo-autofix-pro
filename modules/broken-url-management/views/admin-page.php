@@ -59,11 +59,11 @@ $recent_scans = $db_manager->get_scans(10);
             <div id="scan-progress-fill" class="seoautofix-progress-fill"></div>
         </div>
         <div class="seoautofix-progress-details">
-            <span id="scan-urls-tested">0</span> / <span id="scan-urls-total">0</span>
-            <?php echo esc_html__('URLs tested', 'seo-autofix-pro'); ?>
-            &nbsp;|&nbsp;
+            <span id="scan-urls-tested">0</span>
+            <?php echo esc_html__('URLs Tested', 'seo-autofix-pro'); ?>
+            &nbsp;&nbsp;|&nbsp;&nbsp;
             <span id="scan-broken-count">0</span>
-            <?php echo esc_html__('broken links found', 'seo-autofix-pro'); ?>
+            <?php echo esc_html__('Broken Links Found', 'seo-autofix-pro'); ?>
         </div>
     </div>
 
