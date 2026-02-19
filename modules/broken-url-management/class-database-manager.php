@@ -48,15 +48,15 @@ class Database_Manager
         // Check if results table exists (main table we need for saving broken links)
         $table = $this->table_results;
         $query = $wpdb->prepare("SHOW TABLES LIKE %s", $table);
-        
+
         if ($wpdb->get_var($query) != $table) {
             \SEOAutoFix_Debug_Logger::log('[DB SAFETY] Table ' . $table . ' does not exist! Creating tables now...');
-            
+
             // Create tables directly - this is a last-resort fallback
             require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
-            
+
             $charset_collate = $wpdb->get_charset_collate();
-            
+
             // Create scans table
             $sql_scans = "CREATE TABLE {$this->table_scans} (
                 id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -76,7 +76,7 @@ class Database_Manager
                 INDEX idx_scan_id (scan_id),
                 INDEX idx_status (status)
             ) $charset_collate;";
-            
+
             // Create results table
             $sql_results = "CREATE TABLE {$this->table_results} (
                 id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -97,6 +97,7 @@ class Database_Manager
                 fix_type ENUM('replace', 'remove', 'redirect') DEFAULT NULL,
                 reason TEXT NOT NULL,
                 occurrences_count INT DEFAULT 1,
+                builder_type VARCHAR(20) DEFAULT NULL,
                 is_fixed TINYINT(1) DEFAULT 0,
                 is_deleted TINYINT(1) DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -106,10 +107,10 @@ class Database_Manager
                 INDEX idx_fixed (is_fixed),
                 INDEX idx_deleted (is_deleted)
             ) $charset_collate;";
-            
+
             dbDelta($sql_scans);
             dbDelta($sql_results);
-            
+
             \SEOAutoFix_Debug_Logger::log('[DB SAFETY] ✅ Tables created successfully');
         }
     }
@@ -237,7 +238,7 @@ class Database_Manager
     public function add_broken_link($scan_id, $data)
     {
         global $wpdb;
-        
+
         // SAFETY: Ensure tables exist before trying to insert
         $this->ensure_tables_exist();
 
@@ -245,7 +246,7 @@ class Database_Manager
         \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] Scan ID: ' . $scan_id);
         \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] Input data: ' . print_r($data, true));
         \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] Table name: ' . $this->table_results);
-        
+
         // Prepare insert data
         $insert_data = array(
             'scan_id' => $scan_id,
@@ -262,29 +263,29 @@ class Database_Manager
             'builder_type' => isset($data['builder_type']) ? $data['builder_type'] : null,
             'created_at' => current_time('mysql')
         );
-        
+
         \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] Insert data prepared: ' . print_r($insert_data, true));
-        
+
         $format = array('%s', '%s', '%d', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s');
         \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] Format array: ' . print_r($format, true));
-        
+
         \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] Calling wpdb->insert()...');
         $result = $wpdb->insert(
             $this->table_results,
             $insert_data,
             $format
         );
-        
+
         \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] wpdb->insert() returned: ' . var_export($result, true));
         \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] wpdb->last_error: ' . $wpdb->last_error);
         \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] wpdb->last_query: ' . $wpdb->last_query);
         \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] wpdb->insert_id: ' . $wpdb->insert_id);
         \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] wpdb->rows_affected: ' . $wpdb->rows_affected);
-        
+
         $success = $result !== false;
         \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] Final return value: ' . ($success ? 'TRUE' : 'FALSE'));
         \SEOAutoFix_Debug_Logger::log('[DB ADD_BROKEN_LINK] ========== FUNCTION END ==========');
-        
+
         return $success;
     }
 
