@@ -3761,15 +3761,17 @@
 
             withSuggestion.slice(0, 5).forEach(link => {
                 modalHtml += `
-                    <div class="preview-item-compact" data-link-id="${link.id}">
-                        <div class="preview-url-old">${escapeHtml(link.broken_url)}</div>
-                        <div class="preview-arrow-compact">→</div>
-                        <div class="preview-url-new editable" 
-                             contenteditable="true" 
-                             data-original-url="${escapeHtml(link.suggested_url)}"
-                             data-category="suggested"
-                             spellcheck="false">${escapeHtml(link.suggested_url)}</div>
-                        <button class="reset-url-btn" title="Reset to original URL" aria-label="Reset URL">↺</button>
+                    <div class="preview-item-wrapper">
+                        <div class="preview-item-compact" data-link-id="${link.id}">
+                            <div class="preview-url-old">${escapeHtml(link.broken_url)}</div>
+                            <div class="preview-arrow-compact">→</div>
+                            <div class="preview-url-new editable" 
+                                 contenteditable="true" 
+                                 data-original-url="${escapeHtml(link.suggested_url)}"
+                                 data-category="suggested"
+                                 spellcheck="false">${escapeHtml(link.suggested_url)}</div>
+                            <button class="reset-url-btn" title="Reset to original URL" aria-label="Reset URL">↺</button>
+                        </div>
                     </div>
                 `;
             });
@@ -3801,15 +3803,17 @@
 
             internalNoSuggestion.slice(0, 5).forEach(link => {
                 modalHtml += `
-                    <div class="preview-item-compact" data-link-id="${link.id}">
-                        <div class="preview-url-old">${escapeHtml(link.broken_url)}</div>
-                        <div class="preview-arrow-compact">→</div>
-                        <div class="preview-url-new editable" 
-                             contenteditable="true" 
-                             data-original-url="${escapeHtml(homeUrl)}"
-                             data-category="internal-no-suggestion"
-                             spellcheck="false">${escapeHtml(homeUrl)}</div>
-                        <button class="reset-url-btn" title="Reset to Home URL" aria-label="Reset URL">↺</button>
+                    <div class="preview-item-wrapper">
+                        <div class="preview-item-compact" data-link-id="${link.id}">
+                            <div class="preview-url-old">${escapeHtml(link.broken_url)}</div>
+                            <div class="preview-arrow-compact">→</div>
+                            <div class="preview-url-new editable" 
+                                 contenteditable="true" 
+                                 data-original-url="${escapeHtml(homeUrl)}"
+                                 data-category="internal-no-suggestion"
+                                 spellcheck="false">${escapeHtml(homeUrl)}</div>
+                            <button class="reset-url-btn" title="Reset to Home URL" aria-label="Reset URL">↺</button>
+                        </div>
                     </div>
                 `;
             });
@@ -3841,15 +3845,17 @@
 
             external.slice(0, 5).forEach(link => {
                 modalHtml += `
-                    <div class="preview-item-compact" data-link-id="${link.id}">
-                        <div class="preview-url-old">${escapeHtml(link.broken_url)}</div>
-                        <div class="preview-arrow-compact">→</div>
-                        <div class="preview-url-new editable" 
-                             contenteditable="true" 
-                             data-original-url="${escapeHtml(homeUrl)}"
-                             data-category="external"
-                             spellcheck="false">${escapeHtml(homeUrl)}</div>
-                        <button class="reset-url-btn" title="Reset to Home URL" aria-label="Reset URL">↺</button>
+                    <div class="preview-item-wrapper">
+                        <div class="preview-item-compact" data-link-id="${link.id}">
+                            <div class="preview-url-old">${escapeHtml(link.broken_url)}</div>
+                            <div class="preview-arrow-compact">→</div>
+                            <div class="preview-url-new editable" 
+                                 contenteditable="true" 
+                                 data-original-url="${escapeHtml(homeUrl)}"
+                                 data-category="external"
+                                 spellcheck="false">${escapeHtml(homeUrl)}</div>
+                            <button class="reset-url-btn" title="Reset to Home URL" aria-label="Reset URL">↺</button>
+                        </div>
                     </div>
                 `;
             });
@@ -4347,16 +4353,18 @@
 
             withSuggestion.slice(0, 10).forEach(link => {
                 modalHtml += `
-                    <div class="preview-item-compact" data-link-id="${link.id}" style="display: flex; align-items: center; gap: 10px;">
-                        <div class="preview-url-old" style="flex: 1;">${escapeHtml(link.broken_url)}</div>
-                        <div class="preview-arrow-compact">→</div>
-                        <div class="preview-url-new editable" 
-                             contenteditable="true" 
-                             data-original-url="${escapeHtml(link.suggested_url)}"
-                             data-category="suggested"
-                             spellcheck="false" style="flex: 1;">${escapeHtml(link.suggested_url)}</div>
-                        <button class="reset-url-btn" title="Reset to original URL">↺</button>
-                        <button class="delete-link-btn" data-link-id="${link.id}" title="Delete this link" style="background: #fff; color: #dc3232; border: 1px solid #dc3232; padding: 4px 8px; border-radius: 3px; cursor: pointer;">×</button>
+                    <div class="preview-item-wrapper">
+                        <div class="preview-item-compact" data-link-id="${link.id}" style="display: flex; align-items: center; gap: 10px;">
+                            <div class="preview-url-old" style="flex: 1;">${escapeHtml(link.broken_url)}</div>
+                            <div class="preview-arrow-compact">→</div>
+                            <div class="preview-url-new editable" 
+                                 contenteditable="true" 
+                                 data-original-url="${escapeHtml(link.suggested_url)}"
+                                 data-category="suggested"
+                                 spellcheck="false" style="flex: 1;">${escapeHtml(link.suggested_url)}</div>
+                            <button class="reset-url-btn" title="Reset to original URL">↺</button>
+                            <button class="delete-link-btn" data-link-id="${link.id}" title="Delete this link" style="background: #fff; color: #dc3232; border: 1px solid #dc3232; padding: 4px 8px; border-radius: 3px; cursor: pointer;">×</button>
+                        </div>
                     </div>
                 `;
             });
@@ -4391,16 +4399,18 @@
 
             internalNoSuggestion.slice(0, 10).forEach(link => {
                 modalHtml += `
-                    <div class="preview-item-compact" data-link-id="${link.id}" style="display: flex; align-items: center; gap: 10px;">
-                        <div class="preview-url-old" style="flex: 1;">${escapeHtml(link.broken_url)}</div>
-                        <div class="preview-arrow-compact">→</div>
-                        <div class="preview-url-new editable" 
-                             contenteditable="true" 
-                             data-original-url="${escapeHtml(homeUrl)}"
-                             data-category="internal-no-suggestion"
-                             spellcheck="false" style="flex: 1;">${escapeHtml(homeUrl)}</div>
-                        <button class="reset-url-btn" title="Reset to Home URL">↺</button>
-                        <button class="delete-link-btn" data-link-id="${link.id}" title="Delete this link" style="background: #fff; color: #dc3232; border: 1px solid #dc3232; padding: 4px 8px; border-radius: 3px; cursor: pointer;">×</button>
+                    <div class="preview-item-wrapper">
+                        <div class="preview-item-compact" data-link-id="${link.id}" style="display: flex; align-items: center; gap: 10px;">
+                            <div class="preview-url-old" style="flex: 1;">${escapeHtml(link.broken_url)}</div>
+                            <div class="preview-arrow-compact">→</div>
+                            <div class="preview-url-new editable" 
+                                 contenteditable="true" 
+                                 data-original-url="${escapeHtml(homeUrl)}"
+                                 data-category="internal-no-suggestion"
+                                 spellcheck="false" style="flex: 1;">${escapeHtml(homeUrl)}</div>
+                            <button class="reset-url-btn" title="Reset to Home URL">↺</button>
+                            <button class="delete-link-btn" data-link-id="${link.id}" title="Delete this link" style="background: #fff; color: #dc3232; border: 1px solid #dc3232; padding: 4px 8px; border-radius: 3px; cursor: pointer;">×</button>
+                        </div>
                     </div>
                 `;
             });
@@ -4435,16 +4445,18 @@
 
             external.slice(0, 10).forEach(link => {
                 modalHtml += `
-                    <div class="preview-item-compact" data-link-id="${link.id}" style="display: flex; align-items: center; gap: 10px;">
-                        <div class="preview-url-old" style="flex: 1;">${escapeHtml(link.broken_url)}</div>
-                        <div class="preview-arrow-compact">→</div>
-                        <div class="preview-url-new editable" 
-                             contenteditable="true" 
-                             data-original-url="${escapeHtml(homeUrl)}"
-                             data-category="external"
-                             spellcheck="false" style="flex: 1;">${escapeHtml(homeUrl)}</div>
-                        <button class="reset-url-btn" title="Reset to Home URL">↺</button>
-                        <button class="delete-link-btn" data-link-id="${link.id}" title="Delete this link" style="background: #fff; color: #dc3232; border: 1px solid #dc3232; padding: 4px 8px; border-radius: 3px; cursor: pointer;">×</button>
+                    <div class="preview-item-wrapper">
+                        <div class="preview-item-compact" data-link-id="${link.id}" style="display: flex; align-items: center; gap: 10px;">
+                            <div class="preview-url-old" style="flex: 1;">${escapeHtml(link.broken_url)}</div>
+                            <div class="preview-arrow-compact">→</div>
+                            <div class="preview-url-new editable" 
+                                 contenteditable="true" 
+                                 data-original-url="${escapeHtml(homeUrl)}"
+                                 data-category="external"
+                                 spellcheck="false" style="flex: 1;">${escapeHtml(homeUrl)}</div>
+                            <button class="reset-url-btn" title="Reset to Home URL">↺</button>
+                            <button class="delete-link-btn" data-link-id="${link.id}" title="Delete this link" style="background: #fff; color: #dc3232; border: 1px solid #dc3232; padding: 4px 8px; border-radius: 3px; cursor: pointer;">×</button>
+                        </div>
                     </div>
                 `;
             });
@@ -5163,10 +5175,16 @@
     function validateInlineUrl($element) {
         const url = $element.text().trim();
         const $item = $element.closest('.preview-item-compact');
+        const $wrapper = $item.closest('.preview-item-wrapper');
         const linkId = $item.data('link-id');
 
-        // Remove any existing validation message for this item (sibling, not child)
-        $item.siblings('.inline-url-validation[data-for="' + linkId + '"]').remove();
+        console.log('[INLINE VALIDATION] validateInlineUrl called. URL:', url, 'linkId:', linkId, 'wrapper found:', $wrapper.length > 0);
+
+        // Determine container to use: wrapper if available, else fall back to item's parent
+        const $container = $wrapper.length ? $wrapper : $item.parent();
+
+        // Remove any existing validation message for this item
+        $container.find('.inline-url-validation[data-for="' + linkId + '"]').remove();
 
         if (!url) {
             return;
@@ -5176,12 +5194,14 @@
         try {
             new URL(url);
         } catch (e) {
+            console.log('[INLINE VALIDATION] Invalid URL format');
             $element.addClass('url-invalid').removeClass('url-valid');
-            $item.after('<div class="inline-url-validation invalid" data-for="' + linkId + '" style="color: #dc3232; font-size: 11px; margin: 2px 0 4px; padding-left: 4px;">⚠ Invalid URL format</div>');
+            $container.append('<div class="inline-url-validation invalid" data-for="' + linkId + '" style="color: #dc3232; font-size: 11px; margin: 4px 0 2px; padding: 0 4px; display: block;">⚠ Invalid URL format</div>');
             return;
         }
 
         // AJAX validation using same endpoint as individual fix
+        console.log('[INLINE VALIDATION] Sending AJAX request to test URL:', url);
         $.ajax({
             url: seoautofixBrokenUrls.ajaxUrl,
             method: 'POST',
@@ -5191,22 +5211,24 @@
                 url: url
             },
             success: function (response) {
+                console.log('[INLINE VALIDATION] AJAX success:', response);
                 // Remove previous feedback (in case of race condition)
-                $item.siblings('.inline-url-validation[data-for="' + linkId + '"]').remove();
+                $container.find('.inline-url-validation[data-for="' + linkId + '"]').remove();
 
                 if (response.success && response.data.is_valid) {
                     $element.addClass('url-valid').removeClass('url-invalid');
-                    $item.after('<div class="inline-url-validation valid" data-for="' + linkId + '" style="color: #46b450; font-size: 11px; margin: 2px 0 4px; padding-left: 4px;">✓ URL is valid</div>');
+                    $container.append('<div class="inline-url-validation valid" data-for="' + linkId + '" style="color: #46b450; font-size: 11px; margin: 4px 0 2px; padding: 0 4px; display: block;">✓ URL is valid</div>');
                 } else {
                     const errorMsg = response.data ? response.data.message : 'URL is broken or unreachable';
                     $element.addClass('url-invalid').removeClass('url-valid');
-                    $item.after('<div class="inline-url-validation invalid" data-for="' + linkId + '" style="color: #dc3232; font-size: 11px; margin: 2px 0 4px; padding-left: 4px;">⚠ ' + escapeHtml(errorMsg) + '</div>');
+                    $container.append('<div class="inline-url-validation invalid" data-for="' + linkId + '" style="color: #dc3232; font-size: 11px; margin: 4px 0 2px; padding: 0 4px; display: block;">⚠ ' + escapeHtml(errorMsg) + '</div>');
                 }
             },
-            error: function () {
-                $item.siblings('.inline-url-validation[data-for="' + linkId + '"]').remove();
+            error: function (jqXHR, textStatus) {
+                console.log('[INLINE VALIDATION] AJAX error:', textStatus, jqXHR.status, jqXHR.responseText);
+                $container.find('.inline-url-validation[data-for="' + linkId + '"]').remove();
                 $element.addClass('url-invalid').removeClass('url-valid');
-                $item.after('<div class="inline-url-validation invalid" data-for="' + linkId + '" style="color: #dc3232; font-size: 11px; margin: 2px 0 4px; padding-left: 4px;">⚠ Failed to validate URL</div>');
+                $container.append('<div class="inline-url-validation invalid" data-for="' + linkId + '" style="color: #dc3232; font-size: 11px; margin: 4px 0 2px; padding: 0 4px; display: block;">⚠ Failed to validate URL</div>');
             }
         });
     }
@@ -5216,9 +5238,11 @@
      */
     function clearInlineValidation($element) {
         const $item = $element.closest('.preview-item-compact');
+        const $wrapper = $item.closest('.preview-item-wrapper');
         const linkId = $item.data('link-id');
-        // Remove sibling validation messages (injected after the flex row)
-        $item.siblings('.inline-url-validation[data-for="' + linkId + '"]').remove();
+        // Remove validation messages from wrapper or parent
+        const $container = $wrapper.length ? $wrapper : $item.parent();
+        $container.find('.inline-url-validation[data-for="' + linkId + '"]').remove();
         $element.removeClass('url-invalid url-valid');
     }
 
