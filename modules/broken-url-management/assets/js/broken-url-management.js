@@ -3994,13 +3994,14 @@
      */
     function setupInlineEditing() {
         const $modal = $('#bulk-replace-modal');
+        let inlineValidationTimeouts = {};
 
         // Handle focus on editable URLs - add visual indicator
         $modal.on('focus', '.preview-url-new.editable', function () {
             $(this).addClass('editing');
         });
 
-        // Handle blur - remove editing indicator
+        // Handle blur - remove editing indicator and validate
         $modal.on('blur', '.preview-url-new.editable', function () {
             $(this).removeClass('editing');
             const $this = $(this);
@@ -4010,21 +4011,31 @@
             // Mark as modified if changed
             if (currentUrl !== originalUrl) {
                 $this.addClass('modified');
+                // Validate the modified URL
+                validateInlineUrl($this);
             } else {
                 $this.removeClass('modified');
+                clearInlineValidation($this);
             }
         });
 
-        // Handle input - mark as modified while typing
+        // Handle input - mark as modified while typing + debounced validation
         $modal.on('input', '.preview-url-new.editable', function () {
             const $this = $(this);
             const originalUrl = $this.data('original-url');
             const currentUrl = $this.text().trim();
+            const linkId = $this.closest('.preview-item-compact').data('link-id');
 
             if (currentUrl !== originalUrl) {
                 $this.addClass('modified');
+                // Debounced validation
+                clearTimeout(inlineValidationTimeouts[linkId]);
+                inlineValidationTimeouts[linkId] = setTimeout(function () {
+                    validateInlineUrl($this);
+                }, 600);
             } else {
                 $this.removeClass('modified');
+                clearInlineValidation($this);
             }
         });
 
@@ -4036,9 +4047,10 @@
             const $urlField = $item.find('.preview-url-new.editable');
             const originalUrl = $urlField.data('original-url');
 
-            // Reset to original URL
+            // Reset to original URL and clear validation
             $urlField.text(originalUrl);
             $urlField.removeClass('modified editing');
+            clearInlineValidation($urlField);
         });
 
         // Prevent line breaks in contenteditable
@@ -4749,6 +4761,7 @@
      */
     function setupInlineEditingForModal(modalSelector) {
         const $modal = $(modalSelector);
+        let inlineValidationTimeouts = {};
 
         $modal.on('focus', '.preview-url-new.editable', function () {
             $(this).addClass('editing');
@@ -4762,8 +4775,10 @@
 
             if (currentUrl !== originalUrl) {
                 $this.addClass('modified');
+                validateInlineUrl($this);
             } else {
                 $this.removeClass('modified');
+                clearInlineValidation($this);
             }
         });
 
@@ -4771,11 +4786,17 @@
             const $this = $(this);
             const originalUrl = $this.data('original-url');
             const currentUrl = $this.text().trim();
+            const linkId = $this.closest('.preview-item-compact').data('link-id');
 
             if (currentUrl !== originalUrl) {
                 $this.addClass('modified');
+                clearTimeout(inlineValidationTimeouts[linkId]);
+                inlineValidationTimeouts[linkId] = setTimeout(function () {
+                    validateInlineUrl($this);
+                }, 600);
             } else {
                 $this.removeClass('modified');
+                clearInlineValidation($this);
             }
         });
 
@@ -4788,6 +4809,7 @@
 
             $urlField.text(originalUrl);
             $urlField.removeClass('modified editing');
+            clearInlineValidation($urlField);
         });
 
         $modal.on('keydown', '.preview-url-new.editable', function (e) {
@@ -5132,6 +5154,69 @@
         $('#bulk-progress-modal').fadeOut(200, function () {
             $(this).remove();
         });
+    }
+
+    /**
+     * Validate inline-edited URL in bulk modals
+     * Shows validation feedback directly below the editable element
+     */
+    function validateInlineUrl($element) {
+        const url = $element.text().trim();
+        const $item = $element.closest('.preview-item-compact');
+
+        // Remove any existing validation message for this item
+        $item.find('.inline-url-validation').remove();
+
+        if (!url) {
+            return;
+        }
+
+        // Basic format check first
+        try {
+            new URL(url);
+        } catch (e) {
+            $element.addClass('url-invalid').removeClass('url-valid');
+            $item.append('<div class="inline-url-validation invalid" style="color: #dc3232; font-size: 11px; margin-top: 2px;">⚠ Invalid URL format</div>');
+            return;
+        }
+
+        // AJAX validation using same endpoint as individual fix
+        $.ajax({
+            url: seoautofixBrokenUrls.ajaxUrl,
+            method: 'POST',
+            data: {
+                action: 'seoautofix_broken_links_test_url',
+                nonce: seoautofixBrokenUrls.nonce,
+                url: url
+            },
+            success: function (response) {
+                // Remove previous feedback (in case of race condition)
+                $item.find('.inline-url-validation').remove();
+
+                if (response.success && response.data.is_valid) {
+                    $element.addClass('url-valid').removeClass('url-invalid');
+                    $item.append('<div class="inline-url-validation valid" style="color: #46b450; font-size: 11px; margin-top: 2px;">✓ URL is valid</div>');
+                } else {
+                    const errorMsg = response.data ? response.data.message : 'URL is broken or unreachable';
+                    $element.addClass('url-invalid').removeClass('url-valid');
+                    $item.append('<div class="inline-url-validation invalid" style="color: #dc3232; font-size: 11px; margin-top: 2px;">⚠ ' + escapeHtml(errorMsg) + '</div>');
+                }
+            },
+            error: function () {
+                $item.find('.inline-url-validation').remove();
+                $element.addClass('url-invalid').removeClass('url-valid');
+                $item.append('<div class="inline-url-validation invalid" style="color: #dc3232; font-size: 11px; margin-top: 2px;">⚠ Failed to validate URL</div>');
+            }
+        });
+    }
+
+    /**
+     * Clear inline validation feedback for an element
+     */
+    function clearInlineValidation($element) {
+        const $item = $element.closest('.preview-item-compact');
+        $item.find('.inline-url-validation').remove();
+        $element.removeClass('url-invalid url-valid');
     }
 
     /**
