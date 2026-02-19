@@ -19,13 +19,13 @@
         totalPages: 0,         // Total pages known from backend (set on first batch response)
         pagesProcessed: 0,     // Pages dispatched so far by backend
         batchSize: 5,          // Fixed batch size (matches hardcoded value in processBatch)
-        batchUniqueUrls: 0,    // Unique URLs in the current batch
         urlsTestedInBatch: 0,  // URLs tested so far within the current batch (for micro-progress)
         totalUrlsTested: 0,    // Running cumulative count of unique URLs tested across all batches
-        totalBrokenFound: 0,   // Running cumulative count of broken link occurrences saved
-        cum4xx: 0,             // Cumulative 4xx error count
-        cum5xx: 0,             // Cumulative 5xx error count
-        currentProgress: 0     // Current progress bar % (float, 0–100)
+        totalBrokenFound: 0,   // Running cumulative count of UNIQUE broken URLs found
+        cum4xx: 0,             // Cumulative 4xx error count (unique URLs)
+        cum5xx: 0,             // Cumulative 5xx error count (unique URLs)
+        currentProgress: 0,    // Current progress bar % (float, 0–100)
+        seenBrokenUrls: new Set() // Tracks broken URLs already counted — prevents double-counting across batches
     };
 
     // Header/Footer link deduplication tracking
@@ -424,9 +424,9 @@
                     // Reset scanState for new scan
                     scanState = {
                         totalPages: 0, pagesProcessed: 0, batchSize: 5,
-                        batchUniqueUrls: 0, urlsTestedInBatch: 0,
-                        totalUrlsTested: 0, totalBrokenFound: 0,
-                        cum4xx: 0, cum5xx: 0, currentProgress: 0
+                        urlsTestedInBatch: 0, totalUrlsTested: 0,
+                        totalBrokenFound: 0, cum4xx: 0, cum5xx: 0,
+                        currentProgress: 0, seenBrokenUrls: new Set()
                     };
                     seenHeaderFooterLinks = {}; // Reset header/footer tracking
                     urlTestCache = {}; // Clear URL test cache for new scan
@@ -643,7 +643,7 @@
             // Step 4: Test all unique URLs via proxy, with micro-progress callback
             console.log('[SCAN V3] Testing ' + uniqueUrls.length + ' unique URLs...');
 
-            const testResults = await testURLsBatch(uniqueUrls, 10, function (result) {
+            const testResults = await testURLsBatch(uniqueUrls, 10, function (result, url) {
                 scanState.urlsTestedInBatch++;
                 scanState.totalUrlsTested++;
 
@@ -656,10 +656,12 @@
                 $('#scan-progress-percentage').text(Math.round(scanState.currentProgress) + '%');
                 $('#scan-urls-tested').text(scanState.totalUrlsTested);
 
-                // ── Immediate broken-link stat update ────────────────────────
-                // Update header counts the moment a broken URL is detected,
-                // without waiting for the batch DB save to complete.
-                if (result && result.is_broken) {
+                // ── Immediate broken-link stat update (deduplicated) ─────────
+                // Only count a broken URL the FIRST time we see it across all batches.
+                // Same URL can appear in multiple batches via cache — without this guard
+                // the count inflates (e.g. 21 shown when only 7 are truly broken).
+                if (result && result.is_broken && url && !scanState.seenBrokenUrls.has(url)) {
+                    scanState.seenBrokenUrls.add(url);
                     scanState.totalBrokenFound++;
                     if (result.error_type === '4xx') scanState.cum4xx++;
                     if (result.error_type === '5xx') scanState.cum5xx++;
@@ -669,8 +671,8 @@
                     $('#header-4xx-count').text(scanState.cum4xx);
                     $('#header-5xx-count').text(scanState.cum5xx);
 
-                    console.log('[SCAN V3] 🔴 Broken URL detected in real-time — total:', scanState.totalBrokenFound,
-                        '| 4xx:', scanState.cum4xx, '| 5xx:', scanState.cum5xx);
+                    console.log('[SCAN V3] 🔴 New broken URL (first seen):', url,
+                        '| total:', scanState.totalBrokenFound, '| 4xx:', scanState.cum4xx, '| 5xx:', scanState.cum5xx);
                 }
             });
 
@@ -5897,8 +5899,8 @@
             if (urlTestCache[url]) {
                 console.log(`[TEST URLS BATCH] 💾 Using cached result for: ${url}`);
                 results.push(urlTestCache[url]);
-                // Still fire progress callback for cached hits — pass result so stats update immediately
-                if (progressCallback) progressCallback(urlTestCache[url]);
+                // Still fire progress callback for cached hits — pass result + url so stats update immediately
+                if (progressCallback) progressCallback(urlTestCache[url], url);
                 continue; // Skip actual test - no delay needed for cached results!
             }
 
@@ -5912,8 +5914,8 @@
                 urlTestCache[url] = result;
                 results.push(result);
 
-                // Fire progress callback after each URL test — pass result so stats update immediately
-                if (progressCallback) progressCallback(result);
+                // Fire progress callback after each URL test — pass result + url so stats update immediately
+                if (progressCallback) progressCallback(result, url);
 
                 // Add delay between URL tests to prevent AJAX spam (only for actual tests)
                 if (i < urls.length - 1) {
@@ -5933,8 +5935,8 @@
                 urlTestCache[url] = errorResult;
                 results.push(errorResult);
 
-                // Fire progress callback even on errors — pass result so stats update immediately
-                if (progressCallback) progressCallback(errorResult);
+                // Fire progress callback even on errors — pass result + url so stats update immediately
+                if (progressCallback) progressCallback(errorResult, url);
             }
         }
 
