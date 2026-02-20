@@ -5851,7 +5851,7 @@
             $.ajax({
                 url: seoautofixBrokenUrls.ajaxUrl,
                 method: 'POST',
-                timeout: 120000, // 120 seconds timeout for slow external URLs
+                timeout: 1200000, // 120 seconds timeout for slow external URLs
                 data: {
                     action: 'seoautofix_broken_links_test_url_proxy',
                     nonce: seoautofixBrokenUrls.nonce,

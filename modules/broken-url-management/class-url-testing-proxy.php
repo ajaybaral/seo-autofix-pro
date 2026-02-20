@@ -23,7 +23,8 @@ class URL_Testing_Proxy
     /**
      * Timeout for requests (seconds)
      */
-    const REQUEST_TIMEOUT = 10;
+    const REQUEST_TIMEOUT = 600
+    ;
 
     /**
      * User agent string

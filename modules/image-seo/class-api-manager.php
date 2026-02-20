@@ -78,7 +78,7 @@ class API_Manager {
         
         // Make API request
         $response = wp_remote_post(self::API_ENDPOINT, array(
-            'timeout' => 30,
+            'timeout' => 300,
             'headers' => array(
                 'Content-Type' => 'application/json',
                 'Authorization' => 'Bearer ' . $api_key
