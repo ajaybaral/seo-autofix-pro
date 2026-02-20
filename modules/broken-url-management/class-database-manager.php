@@ -309,35 +309,42 @@ class Database_Manager
         $where = array();
         $where_values = array($scan_id);
 
-        $where[] = 'scan_id = %s';
-        $where[] = 'is_deleted = 0';
+        $where[] = 'r.scan_id = %s';
+        $where[] = 'r.is_deleted = 0';
 
         // Apply legacy filter (internal/external)
         if ($filter === 'internal') {
-            $where[] = "link_type = 'internal'";
+            $where[] = "r.link_type = 'internal'";
         } elseif ($filter === 'external') {
-            $where[] = "link_type = 'external'";
+            $where[] = "r.link_type = 'external'";
         }
 
         // Apply error type filter
         if ($error_type === '4xx') {
-            $where[] = 'status_code >= 400 AND status_code < 500';
+            $where[] = 'r.status_code >= 400 AND r.status_code < 500';
         } elseif ($error_type === '5xx') {
-            $where[] = 'status_code >= 500 AND status_code < 600';
+            $where[] = 'r.status_code >= 500 AND r.status_code < 600';
         }
 
         // Apply location filter
         if ($location !== 'all' && !empty($location)) {
-            $where[] = 'link_location = %s';
+            $where[] = 'r.link_location = %s';
             $where_values[] = strtolower($location); // Convert to lowercase to match database values
         }
 
-        // Note: page_type filter would require additional data we don't currently store
-        // This would need the post status from wp_posts table
+        // Apply page_type filter by JOINing with wp_posts table
+        $join_clause = '';
+        if ($page_type === 'published') {
+            $join_clause = "INNER JOIN {$wpdb->posts} AS p ON r.found_on_page_id = p.ID";
+            $where[] = "p.post_status = 'publish'";
+        } elseif ($page_type === 'drafts') {
+            $join_clause = "INNER JOIN {$wpdb->posts} AS p ON r.found_on_page_id = p.ID";
+            $where[] = "p.post_status = 'draft'";
+        }
 
         // Apply search
         if (!empty($search)) {
-            $where[] = '(broken_url LIKE %s OR suggested_url LIKE %s OR reason LIKE %s)';
+            $where[] = '(r.broken_url LIKE %s OR r.suggested_url LIKE %s OR r.reason LIKE %s)';
             $search_term = '%' . $wpdb->esc_like($search) . '%';
             $where_values[] = $search_term;
             $where_values[] = $search_term;
@@ -349,7 +356,7 @@ class Database_Manager
         // Get total count
         $total = $wpdb->get_var(
             $wpdb->prepare(
-                "SELECT COUNT(*) FROM {$this->table_results} {$where_clause}",
+                "SELECT COUNT(*) FROM {$this->table_results} AS r {$join_clause} {$where_clause}",
                 $where_values
             )
         );
@@ -360,9 +367,10 @@ class Database_Manager
         // Get results
         $results = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT * FROM {$this->table_results} 
+                "SELECT r.* FROM {$this->table_results} AS r 
+                {$join_clause}
                 {$where_clause} 
-                ORDER BY id ASC 
+                ORDER BY r.id ASC 
                 LIMIT %d OFFSET %d",
                 array_merge($where_values, array($per_page, $offset))
             ),

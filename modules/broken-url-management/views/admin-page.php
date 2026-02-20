@@ -73,11 +73,10 @@ $recent_scans = $db_manager->get_scans(10);
         <div class="seoautofix-filters-new">
             <div class="filter-dropdowns">
                 <select id="filter-page-type" class="filter-select">
-                    <option value="all"><?php echo esc_html__('Showing Published Pages Only', 'seo-autofix-pro'); ?>
+                    <option value="published" selected><?php echo esc_html__('Published Pages', 'seo-autofix-pro'); ?>
                     </option>
-                    <option value="published"><?php echo esc_html__('Published Pages', 'seo-autofix-pro'); ?></option>
                     <option value="drafts"><?php echo esc_html__('Drafts', 'seo-autofix-pro'); ?></option>
-                    <option value="all-pages"><?php echo esc_html__('All Pages', 'seo-autofix-pro'); ?></option>
+                    <option value="all"><?php echo esc_html__('All Pages', 'seo-autofix-pro'); ?></option>
                 </select>
 
                 <select id="filter-error-type" class="filter-select">
