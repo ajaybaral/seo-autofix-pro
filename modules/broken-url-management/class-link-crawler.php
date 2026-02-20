@@ -36,6 +36,40 @@ class Link_Crawler
     const PARALLEL_LIMIT = 100;
 
     /**
+     * Universal link-bearing key names.
+     * Builder-agnostic: works for Elementor, Gutenberg, WPBakery, Divi,
+     * ACF, theme options, nav menus, widgets, and custom builders.
+     */
+    public static $LINK_KEYS = array(
+        'url',
+        'href',
+        'link',
+        'external_url',
+        'custom_link',
+        'attachment_link',
+        'file_url',
+        'button_link',
+        'cta_link',
+        'redirect_url',
+        'source_url',
+        '_menu_item_url',
+        'icon_link',
+        'link_url',
+        'action_url',
+        'target_url',
+        'link_to',
+        'slide_url',
+        'banner_link',
+        'card_link',
+        'image_url',
+        'background_url',
+        'video_url',
+        'document_url',
+        'download_url',
+        'popup_url',
+    );
+
+    /**
      * Database manager
      */
     private $db_manager;
@@ -743,61 +777,18 @@ class Link_Crawler
      */
     public function search_elementor_data_for_links($data, $page_id, $page_title, $page_url, &$links)
     {
-        if (!is_array($data)) {
-            return;
-        }
-        
-        foreach ($data as $key => $value) {
-            // Check for URL fields in common Elementor widgets
-            if ($key === 'url' && is_string($value) && !empty($value) && $value !== '#') {
-                // Skip mailto, tel, javascript, etc.
-                if (!preg_match('/^(mailto|tel|javascript):/i', $value)) {
-                    $links[] = array(
-                        'url' => $value,
-                        'found_on_page_id' => $page_id,
-                        'found_on_page_title' => $page_title,
-                        'found_on_url' => $page_url,
-                        'location' => 'elementor_data',
-                        'anchor_text' => $this->get_elementor_link_text($data),
-                        'context' => 'Elementor widget'
-                    );
-                }
-            }
-            // Check for link fields (Elementor button/link widgets)
-            elseif ($key === 'link' && is_array($value) && isset($value['url'])) {
-                $link_url = $value['url'];
-                if (!empty($link_url) && $link_url !== '#' && !preg_match('/^(mailto|tel|javascript):/i', $link_url)) {
-                    $links[] = array(
-                        'url' => $link_url,
-                        'found_on_page_id' => $page_id,
-                        'found_on_page_title' => $page_title,
-                        'found_on_url' => $page_url,
-                        'location' => 'elementor_data',
-                        'anchor_text' => $this->get_elementor_link_text($data),
-                        'context' => 'Elementor link widget'
-                    );
-                }
-            }
-            // Check for image URLs (background images, widget images)
-            elseif (($key === 'background_image' || $key === 'image') && is_array($value) && isset($value['url'])) {
-                $img_url = $value['url'];
-                if (!empty($img_url) && strpos($img_url, 'data:') !== 0) {
-                    $links[] = array(
-                        'url' => $img_url,
-                        'found_on_page_id' => $page_id,
-                        'found_on_page_title' => $page_title,
-                        'found_on_url' => $page_url,
-                        'location' => 'elementor_image',
-                        'anchor_text' => 'Image in Elementor',
-                        'context' => 'Elementor ' . $key
-                    );
-                }
-            }
-            // Recurse into nested arrays
-            elseif (is_array($value)) {
-                $this->search_elementor_data_for_links($value, $page_id, $page_title, $page_url, $links);
-            }
-        }
+        // Delegate entirely to the universal deep recursive engine.
+        // This ensures all builders (Icon Boxes, Repeaters, Buttons, Slides, etc.)
+        // are traversed at unlimited depth.
+        $this->deep_extract_links(
+            $data,
+            $page_id,
+            $page_title,
+            $page_url,
+            'elementor_data',
+            'elementor',
+            $links
+        );
     }
 
     /**
@@ -823,6 +814,194 @@ class Link_Crawler
         }
         return '[Elementor Link]';
     }
+
+    // =========================================================================
+    // UNIVERSAL DEEP RECURSIVE EXTRACTION ENGINE
+    // =========================================================================
+
+    /**
+     * Recursively traverse ANY nested data structure (arrays, objects,
+     * embedded JSON strings, PHP-serialized blobs) and collect all URLs
+     * found at any nesting depth.
+     *
+     * Design principles:
+     * - Builder-agnostic: no assumptions about schema shape
+     * - Unlimited depth: stops only at $depth > 30 guard
+     * - Inline decoding: JSON and serialized strings are decoded during
+     *   traversal, so URLs buried inside nested blobs are always found
+     * - Link-key aware: ANY key in self::$LINK_KEYS triggers URL collection
+     *   whether the value is a plain string OR an array containing 'url'
+     *   (the Elementor link-object pattern: {url:"...", is_external:"", ...})
+     * - All array values are recursed regardless of whether their key
+     *   matched a link key — siblings are never skipped
+     *
+     * @param mixed  $data      The data to traverse
+     * @param int    $page_id
+     * @param string $page_title
+     * @param string $page_url
+     * @param string $location  Semantic location tag (e.g. 'elementor_data', 'postmeta', 'content')
+     * @param string $builder   Builder identifier
+     * @param array  &$links    Collected link objects (appended, never wiped)
+     * @param int    $depth     Current recursion depth (internal)
+     */
+    public function deep_extract_links(
+        $data,
+        $page_id,
+        $page_title,
+        $page_url,
+        $location,
+        $builder,
+        &$links,
+        $depth = 0
+    ) {
+        // Safety guard: prevent infinite recursion on circular/pathological data
+        if ($depth > 30) {
+            return;
+        }
+
+        // ── String ───────────────────────────────────────────────────────────
+        if (is_string($data)) {
+            $data = trim($data);
+            if (empty($data) || strlen($data) < 4) {
+                return;
+            }
+            // Attempt JSON decode
+            if ($data[0] === '{' || $data[0] === '[') {
+                $decoded = json_decode($data, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $this->deep_extract_links($decoded, $page_id, $page_title, $page_url, $location, $builder, $links, $depth + 1);
+                    return;
+                }
+            }
+            // Attempt PHP unserialize
+            if (is_serialized($data)) {
+                $unserialized = @unserialize($data);
+                if ($unserialized !== false && (is_array($unserialized) || is_object($unserialized))) {
+                    $this->deep_extract_links($unserialized, $page_id, $page_title, $page_url, $location, $builder, $links, $depth + 1);
+                    return;
+                }
+            }
+            // Plain string: only collect if it looks like an HTTP/HTTPS URL
+            // (Guards against accidentally treating non-URL strings as links)
+            if (preg_match('/^https?:\/\//i', $data)) {
+                $this->maybe_collect_url($data, '[string value]', $page_id, $page_title, $page_url, $location, $builder, $links);
+            }
+            return;
+        }
+
+        // ── Object → cast to array ────────────────────────────────────────────
+        if (is_object($data)) {
+            $data = (array) $data;
+        }
+
+        if (!is_array($data)) {
+            return;
+        }
+
+        // ── Array traversal ───────────────────────────────────────────────────
+        foreach ($data as $key => $value) {
+            $key_str = (string) $key;
+
+            // ── Link-key awareness ────────────────────────────────────────────
+            if (in_array($key_str, self::$LINK_KEYS, true)) {
+
+                if (is_string($value) && !empty($value)) {
+                    // Direct URL string value
+                    $this->maybe_collect_url($value, $key_str, $page_id, $page_title, $page_url, $location, $builder, $links);
+
+                } elseif (is_array($value)) {
+                    // Elementor link-object pattern: {"url": "...", "is_external": "", ...}
+                    if (isset($value['url']) && is_string($value['url']) && !empty($value['url'])) {
+                        $this->maybe_collect_url($value['url'], $key_str . '.url', $page_id, $page_title, $page_url, $location, $builder, $links);
+                    }
+                    // Continue recursing into the link-value array below (intentional fall-through)
+                }
+            }
+
+            // ── Always recurse into array/object children ─────────────────────
+            // This is the critical difference vs the old elseif approach:
+            // We NEVER skip a value just because its key matched a link key.
+            // Nested repeater items inside a link array are still fully traversed.
+            if (is_array($value) || is_object($value)) {
+                $this->deep_extract_links($value, $page_id, $page_title, $page_url, $location, $builder, $links, $depth + 1);
+
+            } elseif (is_string($value) && strlen($value) > 10) {
+                // Detect embedded JSON or serialized blobs inside scalar meta values
+                // (e.g. a postmeta key whose value is a JSON-encoded array of items)
+                if ($value[0] === '{' || $value[0] === '[') {
+                    $decoded = json_decode($value, true);
+                    if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                        $this->deep_extract_links($decoded, $page_id, $page_title, $page_url, $location, $builder, $links, $depth + 1);
+                    }
+                } elseif (is_serialized($value)) {
+                    $unserialized = @unserialize($value);
+                    if ($unserialized !== false && (is_array($unserialized) || is_object($unserialized))) {
+                        $this->deep_extract_links($unserialized, $page_id, $page_title, $page_url, $location, $builder, $links, $depth + 1);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Validate and collect a URL candidate into the $links array.
+     * Single point of URL sanity-checking across the entire extraction engine.
+     *
+     * @param string $url         Raw URL candidate
+     * @param string $key_context The key name that triggered collection (for anchor_text)
+     * @param int    $page_id
+     * @param string $page_title
+     * @param string $page_url
+     * @param string $location
+     * @param string $builder
+     * @param array  &$links
+     */
+    private function maybe_collect_url(
+        $url,
+        $key_context,
+        $page_id,
+        $page_title,
+        $page_url,
+        $location,
+        $builder,
+        &$links
+    ) {
+        $url = trim($url);
+
+        if (empty($url) || $url === '#') {
+            return;
+        }
+
+        // Reject non-http(s) schemes
+        if (preg_match('/^(mailto|tel|javascript|data:|ftp|feed|#)/i', $url)) {
+            return;
+        }
+
+        // Convert root-relative URLs to absolute
+        if (strpos($url, '/') === 0 && strpos($url, '//') !== 0) {
+            $parsed = parse_url(home_url());
+            $url    = $parsed['scheme'] . '://' . $parsed['host']
+                    . (isset($parsed['port']) ? ':' . $parsed['port'] : '')
+                    . $url;
+        }
+
+        // Must be a valid URL after normalization
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            return;
+        }
+
+        $links[] = array(
+            'url'                  => $url,
+            'found_on_url'         => $page_url,
+            'found_on_page_id'     => $page_id,
+            'found_on_page_title'  => $page_title,
+            'location'             => $location,
+            'anchor_text'          => '[' . $key_context . ']',
+            'builder'              => $builder,
+            'dynamic_source'       => false,
+        );
+    }
+
 
     /**
      * Extract HTML section (header, footer, sidebar)
@@ -1394,33 +1573,26 @@ class Link_Crawler
     /** @internal */
     private function _collect_gutenberg_links(array $blocks, $page_id, $page_title, $page_url, &$links)
     {
-        static $url_keys = array('url', 'href', 'link', 'src', 'mediaUrl', 'backgroundUrl');
-
         foreach ($blocks as $block) {
-            // Scan block attributes for URL fields
+            // Run the universal engine on all block attrs —
+            // this covers any URL field a block may define, not just a fixed whitelist
             if (!empty($block['attrs']) && is_array($block['attrs'])) {
-                foreach ($url_keys as $k) {
-                    if (!empty($block['attrs'][$k]) && is_string($block['attrs'][$k])) {
-                        $url = $block['attrs'][$k];
-                        if (!preg_match('/^(mailto|tel|javascript|#|data:)/i', $url)) {
-                            $links[] = array(
-                                'url'                  => $url,
-                                'found_on_url'         => $page_url,
-                                'found_on_page_id'     => $page_id,
-                                'found_on_page_title'  => $page_title,
-                                'location'             => 'content',
-                                'anchor_text'          => $block['attrs']['text'] ?? $block['attrs']['label'] ?? '[Block]',
-                                'builder'              => 'gutenberg',
-                                'dynamic_source'       => false,
-                            );
-                        }
-                    }
-                }
+                $this->deep_extract_links(
+                    $block['attrs'],
+                    $page_id,
+                    $page_title,
+                    $page_url,
+                    'content',
+                    'gutenberg',
+                    $links
+                );
             }
-            // Also scan innerHTML for <a href> / <img src> as Gutenberg stores raw HTML
+
+            // Also scan innerHTML for <a href> / <img src> (Gutenberg stores raw HTML here)
             if (!empty($block['innerHTML'])) {
                 $this->_extract_links_from_html_string($block['innerHTML'], $page_id, $page_title, $page_url, 'gutenberg', $links);
             }
+
             // Recurse into inner blocks
             if (!empty($block['innerBlocks'])) {
                 $this->_collect_gutenberg_links($block['innerBlocks'], $page_id, $page_title, $page_url, $links);
@@ -1522,14 +1694,21 @@ class Link_Crawler
         $links = array();
 
         // Keys already handled by builder-specific extractors — skip to avoid duplicates
-        $skip_keys = array('_elementor_data', '_elementor_page_settings', '_edit_lock', '_edit_last',
-                           '_wp_page_template', '_wp_attachment_metadata', '_thumbnail_id',
-                           '_wp_old_slug', '_wp_trash_meta_status', '_wp_trash_meta_time');
-
-        // Link-bearing keys (same list as the replacement engine)
-        static $LINK_KEYS = array('url', 'href', 'link', 'external_url', 'custom_link',
-                                  'attachment_link', 'file_url', 'button_link',
-                                  'cta_link', 'redirect_url', 'source_url');
+        static $skip_keys = null;
+        if ($skip_keys === null) {
+            $skip_keys = array(
+                '_elementor_data',
+                '_elementor_page_settings',
+                '_edit_lock',
+                '_edit_last',
+                '_wp_page_template',
+                '_wp_attachment_metadata',
+                '_thumbnail_id',
+                '_wp_old_slug',
+                '_wp_trash_meta_status',
+                '_wp_trash_meta_time',
+            );
+        }
 
         $all_meta = get_post_meta($page_id);
         if (empty($all_meta)) {
@@ -1540,74 +1719,37 @@ class Link_Crawler
             if (in_array($meta_key, $skip_keys, true)) {
                 continue;
             }
-            // Skip hidden/internal WordPress meta
+            // Skip core WordPress internal meta
             if (strpos($meta_key, '_wp_') === 0) {
                 continue;
             }
 
             foreach ($meta_values as $raw_value) {
-                // Try JSON
-                $decoded = json_decode($raw_value, true);
-                if (json_last_error() === JSON_ERROR_NONE && (is_array($decoded) || is_object($decoded))) {
-                    $this->_scan_meta_structure($decoded, $LINK_KEYS, $page_id, $page_title, $page_url, $builder, $links);
-                    continue;
-                }
-
-                // Try PHP serialized
-                if (is_serialized($raw_value)) {
-                    $unserialized = @unserialize($raw_value);
-                    if (is_array($unserialized) || is_object($unserialized)) {
-                        $this->_scan_meta_structure($unserialized, $LINK_KEYS, $page_id, $page_title, $page_url, $builder, $links);
-                        continue;
-                    }
-                }
-
-                // Plain string — check if it looks like a URL
-                $candidate = trim($raw_value);
-                if (filter_var($candidate, FILTER_VALIDATE_URL) && !preg_match('/^(mailto|tel|javascript|data:)/i', $candidate)) {
-                    $links[] = array(
-                        'url'                 => $candidate,
-                        'found_on_url'        => $page_url,
-                        'found_on_page_id'    => $page_id,
-                        'found_on_page_title' => $page_title,
-                        'location'            => 'postmeta',
-                        'anchor_text'         => '[Meta: ' . esc_html($meta_key) . ']',
-                        'builder'             => $builder,
-                        'dynamic_source'      => false,
-                    );
-                }
+                // Route each raw meta value through the universal deep engine.
+                // It handles JSON strings, serialized blobs, plain URLs, and
+                // nested arrays at all levels automatically.
+                $this->deep_extract_links(
+                    $raw_value,
+                    $page_id,
+                    $page_title,
+                    $page_url,
+                    'postmeta',
+                    $builder,
+                    $links
+                );
             }
         }
 
+        \SEOAutoFix_Debug_Logger::log('[STORAGE_EXTRACT] Postmeta scan page ' . $page_id . ': ' . count($links) . ' supplemental links');
         return $links;
     }
 
+    // _scan_meta_structure() is retained for backwards compatibility with any
+    // external callers but now simply delegates to the universal engine.
     /** @internal */
     private function _scan_meta_structure($data, array $link_keys, $page_id, $page_title, $page_url, $builder, &$links)
     {
-        if (is_object($data)) {
-            $data = (array) $data;
-        }
-        if (!is_array($data)) {
-            return;
-        }
-        foreach ($data as $k => $v) {
-            if (in_array($k, $link_keys, true) && is_string($v) && !empty($v)) {
-                if (filter_var($v, FILTER_VALIDATE_URL) && !preg_match('/^(mailto|tel|javascript|data:)/i', $v)) {
-                    $links[] = array(
-                        'url'                 => $v,
-                        'found_on_url'        => $page_url,
-                        'found_on_page_id'    => $page_id,
-                        'found_on_page_title' => $page_title,
-                        'location'            => 'postmeta',
-                        'anchor_text'         => '[Meta field: ' . esc_html($k) . ']',
-                        'builder'             => $builder,
-                        'dynamic_source'      => false,
-                    );
-                }
-            } elseif (is_array($v) || is_object($v)) {
-                $this->_scan_meta_structure($v, $link_keys, $page_id, $page_title, $page_url, $builder, $links);
-            }
-        }
+        // Ignore $link_keys param — the universal engine uses self::$LINK_KEYS instead
+        $this->deep_extract_links($data, $page_id, $page_title, $page_url, 'postmeta', $builder, $links);
     }
 }
