@@ -448,10 +448,12 @@ class SEOAutoFix_Broken_Url_Management
         add_action('wp_ajax_seoautofix_broken_links_test_external_url', array($this, 'ajax_test_external_url'));
         add_action('wp_ajax_seoautofix_broken_links_test_external_urls_batch', array($this, 'ajax_test_external_urls_batch'));
 
-        // NEW v3.0: Frontend-driven scanning endpoints
         add_action('wp_ajax_seoautofix_broken_links_get_page_urls_batch', array($this, 'ajax_get_page_urls_batch'));
         add_action('wp_ajax_seoautofix_broken_links_test_url_proxy', array($this, 'ajax_test_url_proxy'));
         add_action('wp_ajax_seoautofix_broken_links_save_broken_links_batch', array($this, 'ajax_save_broken_links_batch'));
+
+        // Storage-based link extraction (replaces JS HTML-fetch + DOMParser step)
+        add_action('wp_ajax_seoautofix_broken_links_extract_links_from_storage', array($this, 'ajax_extract_links_from_storage'));
     }
 
     /**
@@ -2036,6 +2038,120 @@ class SEOAutoFix_Broken_Url_Management
             'progress' => $progress_percent,
             'pages_processed' => $new_progress,
             'total_pages' => count($all_urls)
+        ));
+    }
+
+    /**
+     * AJAX: Extract links from storage (builder-aware, no HTML fetch)
+     * Receives a batch of page objects from the JS scan loop and returns
+     * all links extracted from storage, in the same flat shape that the
+     * old JS fetchPageHTML / extractLinksFromHTML combination produced.
+     *
+     * POST params:
+     *   nonce  – seoautofix_broken_urls_nonce
+     *   pages  – JSON-encoded array of {url, page_id, page_title}
+     *   scan_id – current scan ID (used for header/footer singleton tracking)
+     */
+    public function ajax_extract_links_from_storage()
+    {
+        check_ajax_referer('seoautofix_broken_urls_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Unauthorized', 'seo-autofix-pro')));
+        }
+
+        $pages_json = isset($_POST['pages']) ? wp_unslash($_POST['pages']) : '[]';
+        $pages      = json_decode($pages_json, true);
+        $scan_id    = isset($_POST['scan_id']) ? sanitize_text_field($_POST['scan_id']) : '';
+
+        if (!is_array($pages)) {
+            wp_send_json_error(array('message' => 'Invalid pages data'));
+        }
+
+        \SEOAutoFix_Debug_Logger::log('[EXTRACT_STORAGE] Called for ' . count($pages) . ' pages, scan_id: ' . $scan_id);
+
+        $crawler    = new Link_Crawler();
+        $site_url   = home_url('/');
+        $all_links  = array();
+
+        // ── Per-page extraction ─────────────────────────────────────────────
+        foreach ($pages as $page_data) {
+            $page_id    = isset($page_data['page_id'])    ? intval($page_data['page_id'])              : 0;
+            $page_url   = isset($page_data['url'])        ? esc_url_raw($page_data['url'])             : '';
+            $page_title = isset($page_data['page_title']) ? sanitize_text_field($page_data['page_title']) : '';
+
+            if (empty($page_url)) {
+                continue;
+            }
+
+            \SEOAutoFix_Debug_Logger::log('[EXTRACT_STORAGE] Processing page: ' . $page_url . ' (ID: ' . $page_id . ')');
+
+            $page_links = $crawler->extract_links_from_storage($page_id, $page_title, $page_url);
+
+            \SEOAutoFix_Debug_Logger::log('[EXTRACT_STORAGE] Page ' . $page_id . ': ' . count($page_links) . ' links extracted');
+
+            $all_links = array_merge($all_links, $page_links);
+        }
+
+        // ── Nav menus (site-wide — append once; JS deduplication by url+location handles the rest) ─
+        // We use a transient so nav menu links are only injected on the FIRST batch of each scan.
+        if (!empty($scan_id)) {
+            $nav_done_key = 'seoautofix_nav_extracted_' . $scan_id;
+            if (!get_transient($nav_done_key)) {
+                $nav_links = $crawler->extract_links_from_nav_menus();
+                $all_links = array_merge($all_links, $nav_links);
+                \SEOAutoFix_Debug_Logger::log('[EXTRACT_STORAGE] Nav menus added: ' . count($nav_links) . ' links');
+
+                $hf_links  = $crawler->extract_links_from_hf_templates();
+                $all_links = array_merge($all_links, $hf_links);
+                \SEOAutoFix_Debug_Logger::log('[EXTRACT_STORAGE] HF templates added: ' . count($hf_links) . ' links');
+
+                set_transient($nav_done_key, 1, DAY_IN_SECONDS);
+            }
+        }
+
+        // ── Normalise & deduplicate by (url , location) ─────────────────────
+        $seen      = array();
+        $deduplicated = array();
+        foreach ($all_links as $link) {
+            // Ensure required keys exist
+            $link = array_merge(array(
+                'url'                  => '',
+                'found_on_url'         => $site_url,
+                'found_on_page_id'     => 0,
+                'found_on_page_title'  => '',
+                'location'             => 'content',
+                'anchor_text'          => '',
+                'builder'              => 'classic',
+                'dynamic_source'       => false,
+            ), $link);
+
+            $url = trim($link['url']);
+            if (empty($url)) {
+                continue;
+            }
+
+            // Determine link_type
+            $link['link_type'] = (strpos($url, $site_url) === 0 || strpos($url, home_url()) === 0)
+                ? 'internal'
+                : 'external';
+
+            // Deduplicate within this batch by url+location to prevent DB bloat.
+            // (Header/footer global dedup is handled in JS using seenHeaderFooterLinks.)
+            $dedup_key = md5($url . '|' . $link['location'] . '|' . $link['found_on_url']);
+            if (isset($seen[$dedup_key])) {
+                continue;
+            }
+            $seen[$dedup_key] = true;
+
+            $deduplicated[] = $link;
+        }
+
+        \SEOAutoFix_Debug_Logger::log('[EXTRACT_STORAGE] Total links after dedup: ' . count($deduplicated));
+
+        wp_send_json_success(array(
+            'links' => $deduplicated,
+            'count' => count($deduplicated),
         ));
     }
 

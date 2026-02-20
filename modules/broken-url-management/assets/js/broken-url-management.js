@@ -566,57 +566,53 @@
 
             console.log('[SCAN V3] Processing ' + pageUrls.length + ' pages...');
 
-            // Step 2: Fetch and parse HTML for each page (SEQUENTIAL to prevent overload)
-            const pagesWithLinks = [];
+            // Step 2: Extract links from storage (builder-aware, server-side)
+            // Replaces: per-page fetchPageHTML() + extractLinksFromHTML() calls
+            console.log('[SCAN V3] 📦 Requesting storage-based link extraction from backend...');
 
-            for (let i = 0; i < pageUrls.length; i++) {
-                const pageData = pageUrls[i];
-                const pageUrl = pageData.url;
-                const pageTitle = pageData.page_title || '';
-                const pageId = pageData.page_id || 0;
-
-                console.log(`[SCAN V3] 🔄 Processing page ${i + 1}/${pageUrls.length}:`, pageUrl);
-
-                try {
-                    // Fetch rendered HTML
-                    const html = await fetchPageHTML(pageUrl);
-
-                    // Extract links using native browser DOMParser
-                    const links = extractLinksFromHTML(html, pageUrl, pageTitle, pageId);
-
-                    pagesWithLinks.push({ pageUrl, pageTitle, pageId, links });
-
-                    // Add delay between pages to prevent server overload
-                    if (i < pageUrls.length - 1) {
-                        console.log('[SCAN V3] ⏱️ Throttling: waiting 500ms before next page...');
-                        await sleep(500); // 1 second delay
+            let storageLinks = [];
+            try {
+                const storageResponse = await $.ajax({
+                    url: seoautofixBrokenUrls.ajaxUrl,
+                    method: 'POST',
+                    data: {
+                        action: 'seoautofix_broken_links_extract_links_from_storage',
+                        nonce: seoautofixBrokenUrls.nonce,
+                        scan_id: currentScanId,
+                        pages: JSON.stringify(pageUrls)
                     }
-                } catch (error) {
-                    console.error('[SCAN V3] Error processing page ' + pageUrl + ':', error);
-                    pagesWithLinks.push({ pageUrl, pageTitle, pageId, links: [] });
-                }
-            }
-            console.log('[SCAN V3] ✅ Parsed ' + pagesWithLinks.length + ' pages');
+                });
 
-            // Step 3: Collect all unique links
+                if (storageResponse.success) {
+                    storageLinks = storageResponse.data.links || [];
+                    console.log('[SCAN V3] ✅ Storage extraction returned ' + storageLinks.length + ' links');
+                } else {
+                    console.warn('[SCAN V3] ⚠️ Storage extraction failed, falling back to 0 links:', storageResponse);
+                }
+            } catch (err) {
+                console.error('[SCAN V3] ❌ Storage extraction AJAX error:', err);
+            }
+
+            // Step 3: Build allLinks map from flat storage link array
+            // Shape matches what extractLinksFromHTML() previously produced.
             const allLinks = {};
 
-            pagesWithLinks.forEach(({ links }) => {
-                links.forEach(link => {
-                    if (!allLinks[link.url]) {
-                        allLinks[link.url] = {
-                            url: link.url,
-                            link_type: link.link_type,
-                            occurrences: []
-                        };
-                    }
-                    allLinks[link.url].occurrences.push({
-                        found_on_url: link.found_on_url,
-                        found_on_page_id: link.found_on_page_id,
-                        found_on_page_title: link.found_on_page_title,
-                        anchor_text: link.anchor_text,
-                        location: link.location
-                    });
+            storageLinks.forEach(link => {
+                const url = link.url;
+                if (!url) return;
+                if (!allLinks[url]) {
+                    allLinks[url] = {
+                        url: url,
+                        link_type: link.link_type || 'internal',
+                        occurrences: []
+                    };
+                }
+                allLinks[url].occurrences.push({
+                    found_on_url:         link.found_on_url         || '',
+                    found_on_page_id:     link.found_on_page_id     || 0,
+                    found_on_page_title:  link.found_on_page_title  || '',
+                    anchor_text:          link.anchor_text          || '',
+                    location:             link.location             || 'content'
                 });
             });
 

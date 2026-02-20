@@ -695,7 +695,7 @@ class Link_Crawler
      * @param string $page_url Page URL
      * @return array Links found in Elementor data
      */
-    private function extract_links_from_elementor_data($page_id, $page_title, $page_url)
+    public function extract_links_from_elementor_data($page_id, $page_title, $page_url)
     {
         // Check if page uses Elementor
         $is_elementor = get_post_meta($page_id, '_elementor_edit_mode', true) === 'builder';
@@ -741,7 +741,7 @@ class Link_Crawler
      * @param string $page_url Page URL
      * @param array &$links Links array (passed by reference)
      */
-    private function search_elementor_data_for_links($data, $page_id, $page_title, $page_url, &$links)
+    public function search_elementor_data_for_links($data, $page_id, $page_title, $page_url, &$links)
     {
         if (!is_array($data)) {
             return;
@@ -1197,6 +1197,417 @@ class Link_Crawler
                 'anchor_text' => $anchor_text,
                 'location' => $location
             ));
+        }
+    }
+
+    // =========================================================================
+    // STORAGE-BASED EXTRACTION (builder-aware, no HTML fetch)
+    // =========================================================================
+
+    /**
+     * Master router: extract links from storage for a single page.
+     * Detects the builder and dispatches to the correct extractor.
+     * Also appends nav-menu and header/footer template links.
+     *
+     * @param int    $page_id    Post ID (0 = homepage)
+     * @param string $page_title Post title
+     * @param string $page_url   Permalink
+     * @return array Flat array of link objects
+     */
+    public function extract_links_from_storage($page_id, $page_title, $page_url)
+    {
+        $links = array();
+
+        if ($page_id > 0) {
+            // Detect builder
+            $builder = 'classic';
+            if (class_exists('SEOAutoFix\\BrokenUrlManagement\\Builder_Detector')) {
+                $builder = Builder_Detector::detect($page_id);
+            } elseif (get_post_meta($page_id, '_elementor_edit_mode', true) === 'builder') {
+                $builder = 'elementor';
+            } elseif (has_blocks(get_the_content(null, false, $page_id))) {
+                $builder = 'gutenberg';
+            }
+
+            \SEOAutoFix_Debug_Logger::log('[STORAGE_EXTRACT] Page ID ' . $page_id . ' → builder: ' . $builder);
+
+            switch ($builder) {
+                case 'elementor':
+                    $links = array_merge($links, $this->extract_links_from_elementor_data($page_id, $page_title, $page_url));
+                    // Also scan _elementor_page_settings
+                    $page_settings = get_post_meta($page_id, '_elementor_page_settings', true);
+                    if (!empty($page_settings) && is_array($page_settings)) {
+                        $this->search_elementor_data_for_links($page_settings, $page_id, $page_title, $page_url, $links);
+                    }
+                    break;
+
+                case 'gutenberg':
+                    $links = array_merge($links, $this->extract_links_from_gutenberg($page_id, $page_title, $page_url));
+                    break;
+
+                case 'wpbakery':
+                case 'divi':
+                case 'classic':
+                default:
+                    $links = array_merge($links, $this->extract_links_from_classic($page_id, $page_title, $page_url));
+                    break;
+            }
+
+            // Always run postmeta deep scan as a supplemental layer (catches non-builder meta, e.g. ACF fields)
+            $links = array_merge($links, $this->extract_links_from_postmeta($page_id, $page_title, $page_url, $builder));
+
+            \SEOAutoFix_Debug_Logger::log('[STORAGE_EXTRACT] Page ' . $page_id . ': ' . count($links) . ' raw links before nav/hf merge');
+        }
+
+        return $links;
+    }
+
+    /**
+     * Standalone: extract nav menu links (called once per scan by the AJAX handler,
+     * not per page, since menus are site-wide).
+     *
+     * @return array Flat array of link objects (found_on_url = home_url)
+     */
+    public function extract_links_from_nav_menus()
+    {
+        $links = array();
+        $home_url  = home_url('/');
+        $site_name = get_bloginfo('name') . ' – Nav Menu';
+
+        $menus = wp_get_nav_menus();
+        if (empty($menus)) {
+            return $links;
+        }
+
+        foreach ($menus as $menu) {
+            $items = wp_get_nav_menu_items($menu->term_id);
+            if (empty($items)) {
+                continue;
+            }
+            foreach ($items as $item) {
+                $url = get_post_meta($item->ID, '_menu_item_url', true);
+                if (empty($url)) {
+                    // Fallback: use the object URL if this is a custom link type
+                    $url = $item->url;
+                }
+                if (empty($url) || $url === '#' || preg_match('/^(mailto|tel|javascript):/i', $url)) {
+                    continue;
+                }
+                $links[] = array(
+                    'url'                  => $url,
+                    'found_on_url'         => $home_url,
+                    'found_on_page_id'     => 0,
+                    'found_on_page_title'  => $site_name,
+                    'location'             => 'nav_menu',
+                    'anchor_text'          => $item->title ?: '[Nav Item]',
+                    'builder'              => 'nav_menu',
+                    'dynamic_source'       => false,
+                );
+            }
+        }
+
+        \SEOAutoFix_Debug_Logger::log('[STORAGE_EXTRACT] Nav menus: ' . count($links) . ' links found');
+        return $links;
+    }
+
+    /**
+     * Standalone: extract links from Elementor header/footer library templates.
+     *
+     * @return array Flat array of link objects (found_on_url = home_url)
+     */
+    public function extract_links_from_hf_templates()
+    {
+        $links    = array();
+        $home_url = home_url('/');
+
+        // Elementor Theme Builder templates stored as 'elementor_library' posts
+        $templates = get_posts(array(
+            'post_type'      => 'elementor_library',
+            'post_status'    => 'publish',
+            'posts_per_page' => 50,
+            'meta_query'     => array(
+                array(
+                    'key'     => '_elementor_template_type',
+                    'value'   => array('header', 'footer'),
+                    'compare' => 'IN',
+                ),
+            ),
+        ));
+
+        foreach ($templates as $template) {
+            $ttype  = get_post_meta($template->ID, '_elementor_template_type', true);
+            $tlabel = ucfirst($ttype) . ' Template: ' . $template->post_title;
+
+            // Extract from _elementor_data
+            $el_data = get_post_meta($template->ID, '_elementor_data', true);
+            if (!empty($el_data)) {
+                $decoded = json_decode($el_data, true);
+                if (is_array($decoded)) {
+                    $template_links = array();
+                    $this->search_elementor_data_for_links($decoded, $template->ID, $tlabel, $home_url, $template_links);
+                    // Override location to header/footer so deduplication logic in JS still works
+                    foreach ($template_links as &$tl) {
+                        $tl['location']            = $ttype; // 'header' or 'footer'
+                        $tl['found_on_url']        = $home_url;
+                        $tl['found_on_page_id']    = 0;
+                        $tl['found_on_page_title'] = 'Home Page';
+                        $tl['builder']             = 'elementor';
+                    }
+                    unset($tl);
+                    $links = array_merge($links, $template_links);
+                }
+            }
+        }
+
+        \SEOAutoFix_Debug_Logger::log('[STORAGE_EXTRACT] HF templates: ' . count($links) . ' links found');
+        return $links;
+    }
+
+    /**
+     * Extract links from Gutenberg blocks (parse_blocks on post_content).
+     *
+     * @param int    $page_id
+     * @param string $page_title
+     * @param string $page_url
+     * @return array
+     */
+    public function extract_links_from_gutenberg($page_id, $page_title, $page_url)
+    {
+        $links   = array();
+        $post    = get_post($page_id);
+        if (!$post || empty($post->post_content)) {
+            return $links;
+        }
+
+        if (!function_exists('parse_blocks')) {
+            // Fallback to classic
+            return $this->extract_links_from_classic($page_id, $page_title, $page_url);
+        }
+
+        $blocks = parse_blocks($post->post_content);
+        $this->_collect_gutenberg_links($blocks, $page_id, $page_title, $page_url, $links);
+
+        \SEOAutoFix_Debug_Logger::log('[STORAGE_EXTRACT] Gutenberg page ' . $page_id . ': ' . count($links) . ' links');
+        return $links;
+    }
+
+    /** @internal */
+    private function _collect_gutenberg_links(array $blocks, $page_id, $page_title, $page_url, &$links)
+    {
+        static $url_keys = array('url', 'href', 'link', 'src', 'mediaUrl', 'backgroundUrl');
+
+        foreach ($blocks as $block) {
+            // Scan block attributes for URL fields
+            if (!empty($block['attrs']) && is_array($block['attrs'])) {
+                foreach ($url_keys as $k) {
+                    if (!empty($block['attrs'][$k]) && is_string($block['attrs'][$k])) {
+                        $url = $block['attrs'][$k];
+                        if (!preg_match('/^(mailto|tel|javascript|#|data:)/i', $url)) {
+                            $links[] = array(
+                                'url'                  => $url,
+                                'found_on_url'         => $page_url,
+                                'found_on_page_id'     => $page_id,
+                                'found_on_page_title'  => $page_title,
+                                'location'             => 'content',
+                                'anchor_text'          => $block['attrs']['text'] ?? $block['attrs']['label'] ?? '[Block]',
+                                'builder'              => 'gutenberg',
+                                'dynamic_source'       => false,
+                            );
+                        }
+                    }
+                }
+            }
+            // Also scan innerHTML for <a href> / <img src> as Gutenberg stores raw HTML
+            if (!empty($block['innerHTML'])) {
+                $this->_extract_links_from_html_string($block['innerHTML'], $page_id, $page_title, $page_url, 'gutenberg', $links);
+            }
+            // Recurse into inner blocks
+            if (!empty($block['innerBlocks'])) {
+                $this->_collect_gutenberg_links($block['innerBlocks'], $page_id, $page_title, $page_url, $links);
+            }
+        }
+    }
+
+    /**
+     * Extract links from classic (or unknown builder) post_content using regex.
+     *
+     * @param int    $page_id
+     * @param string $page_title
+     * @param string $page_url
+     * @return array
+     */
+    public function extract_links_from_classic($page_id, $page_title, $page_url)
+    {
+        $links = array();
+        $post  = get_post($page_id);
+        if (!$post || empty($post->post_content)) {
+            return $links;
+        }
+
+        $this->_extract_links_from_html_string($post->post_content, $page_id, $page_title, $page_url, 'classic', $links);
+
+        \SEOAutoFix_Debug_Logger::log('[STORAGE_EXTRACT] Classic page ' . $page_id . ': ' . count($links) . ' links');
+        return $links;
+    }
+
+    /**
+     * Internal helper: parse an HTML/shortcode string for <a href> and <img src>.
+     *
+     * @internal
+     */
+    private function _extract_links_from_html_string($html, $page_id, $page_title, $page_url, $builder, &$links)
+    {
+        // Extract <a href=...>
+        preg_match_all('/<a\s[^>]*href=["\']([^"\'\s]+)["\'][^>]*>(.*?)<\/a>/is', $html, $a_matches, PREG_SET_ORDER);
+        foreach ($a_matches as $m) {
+            $href        = html_entity_decode(trim($m[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $anchor_text = trim(strip_tags($m[2]));
+            if (empty($href) || preg_match('/^(mailto|tel|javascript|#|data:)/i', $href)) {
+                continue;
+            }
+            // Make absolute
+            if (strpos($href, '/') === 0 && strpos($href, '//') !== 0) {
+                $parsed = parse_url(home_url());
+                $href   = $parsed['scheme'] . '://' . $parsed['host'] . (isset($parsed['port']) ? ':' . $parsed['port'] : '') . $href;
+            }
+            $links[] = array(
+                'url'                  => $href,
+                'found_on_url'         => $page_url,
+                'found_on_page_id'     => $page_id,
+                'found_on_page_title'  => $page_title,
+                'location'             => 'content',
+                'anchor_text'          => $anchor_text ?: '[No text]',
+                'builder'              => $builder,
+                'dynamic_source'       => false,
+            );
+        }
+
+        // Extract <img src=...>
+        preg_match_all('/<img\s[^>]*src=["\']([^"\'\s]+)["\'][^>]*>/is', $html, $img_matches, PREG_SET_ORDER);
+        foreach ($img_matches as $m) {
+            $src = html_entity_decode(trim($m[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            if (empty($src) || strpos($src, 'data:') === 0) {
+                continue;
+            }
+            if (strpos($src, '/') === 0 && strpos($src, '//') !== 0) {
+                $parsed = parse_url(home_url());
+                $src    = $parsed['scheme'] . '://' . $parsed['host'] . (isset($parsed['port']) ? ':' . $parsed['port'] : '') . $src;
+            }
+            $links[] = array(
+                'url'                  => $src,
+                'found_on_url'         => $page_url,
+                'found_on_page_id'     => $page_id,
+                'found_on_page_title'  => $page_title,
+                'location'             => 'content',
+                'anchor_text'          => '[Image]',
+                'builder'              => $builder,
+                'dynamic_source'       => false,
+            );
+        }
+    }
+
+    /**
+     * Supplemental postmeta deep scan: checks all non-standard meta keys for URLs.
+     * Handles JSON, PHP-serialized blobs, and plain strings.
+     * This runs AFTER the primary builder extractor as a catch-all layer.
+     *
+     * @param int    $page_id
+     * @param string $page_title
+     * @param string $page_url
+     * @param string $builder   Builder name (used to skip meta already covered)
+     * @return array
+     */
+    public function extract_links_from_postmeta($page_id, $page_title, $page_url, $builder = 'classic')
+    {
+        $links = array();
+
+        // Keys already handled by builder-specific extractors — skip to avoid duplicates
+        $skip_keys = array('_elementor_data', '_elementor_page_settings', '_edit_lock', '_edit_last',
+                           '_wp_page_template', '_wp_attachment_metadata', '_thumbnail_id',
+                           '_wp_old_slug', '_wp_trash_meta_status', '_wp_trash_meta_time');
+
+        // Link-bearing keys (same list as the replacement engine)
+        static $LINK_KEYS = array('url', 'href', 'link', 'external_url', 'custom_link',
+                                  'attachment_link', 'file_url', 'button_link',
+                                  'cta_link', 'redirect_url', 'source_url');
+
+        $all_meta = get_post_meta($page_id);
+        if (empty($all_meta)) {
+            return $links;
+        }
+
+        foreach ($all_meta as $meta_key => $meta_values) {
+            if (in_array($meta_key, $skip_keys, true)) {
+                continue;
+            }
+            // Skip hidden/internal WordPress meta
+            if (strpos($meta_key, '_wp_') === 0) {
+                continue;
+            }
+
+            foreach ($meta_values as $raw_value) {
+                // Try JSON
+                $decoded = json_decode($raw_value, true);
+                if (json_last_error() === JSON_ERROR_NONE && (is_array($decoded) || is_object($decoded))) {
+                    $this->_scan_meta_structure($decoded, $LINK_KEYS, $page_id, $page_title, $page_url, $builder, $links);
+                    continue;
+                }
+
+                // Try PHP serialized
+                if (is_serialized($raw_value)) {
+                    $unserialized = @unserialize($raw_value);
+                    if (is_array($unserialized) || is_object($unserialized)) {
+                        $this->_scan_meta_structure($unserialized, $LINK_KEYS, $page_id, $page_title, $page_url, $builder, $links);
+                        continue;
+                    }
+                }
+
+                // Plain string — check if it looks like a URL
+                $candidate = trim($raw_value);
+                if (filter_var($candidate, FILTER_VALIDATE_URL) && !preg_match('/^(mailto|tel|javascript|data:)/i', $candidate)) {
+                    $links[] = array(
+                        'url'                 => $candidate,
+                        'found_on_url'        => $page_url,
+                        'found_on_page_id'    => $page_id,
+                        'found_on_page_title' => $page_title,
+                        'location'            => 'postmeta',
+                        'anchor_text'         => '[Meta: ' . esc_html($meta_key) . ']',
+                        'builder'             => $builder,
+                        'dynamic_source'      => false,
+                    );
+                }
+            }
+        }
+
+        return $links;
+    }
+
+    /** @internal */
+    private function _scan_meta_structure($data, array $link_keys, $page_id, $page_title, $page_url, $builder, &$links)
+    {
+        if (is_object($data)) {
+            $data = (array) $data;
+        }
+        if (!is_array($data)) {
+            return;
+        }
+        foreach ($data as $k => $v) {
+            if (in_array($k, $link_keys, true) && is_string($v) && !empty($v)) {
+                if (filter_var($v, FILTER_VALIDATE_URL) && !preg_match('/^(mailto|tel|javascript|data:)/i', $v)) {
+                    $links[] = array(
+                        'url'                 => $v,
+                        'found_on_url'        => $page_url,
+                        'found_on_page_id'    => $page_id,
+                        'found_on_page_title' => $page_title,
+                        'location'            => 'postmeta',
+                        'anchor_text'         => '[Meta field: ' . esc_html($k) . ']',
+                        'builder'             => $builder,
+                        'dynamic_source'      => false,
+                    );
+                }
+            } elseif (is_array($v) || is_object($v)) {
+                $this->_scan_meta_structure($v, $link_keys, $page_id, $page_title, $page_url, $builder, $links);
+            }
         }
     }
 }
