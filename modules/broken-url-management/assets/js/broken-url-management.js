@@ -245,7 +245,7 @@
             // Debounce validation (500ms)
             urlValidationTimeout = setTimeout(function () {
                 validateCustomUrl(url);
-            }, 500);
+            }, 100);
         });
 
         // Auto-fix panel buttons
@@ -5913,8 +5913,8 @@
 
                 // Add delay between URL tests to prevent AJAX spam (only for actual tests)
                 if (i < urls.length - 1) {
-                    console.log('[TEST URLS BATCH] ⏱️ Throttling: 100ms delay...');
-                    await sleep(100); // 100ms delay between each test
+                    console.log('[TEST URLS BATCH] ⏱️ Throttling: 50ms delay...');
+                    await sleep(50); // 100ms delay between each test
                 }
             } catch (error) {
                 console.error('[TEST URLS BATCH] Error testing URL:', url, error);

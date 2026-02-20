@@ -70,6 +70,43 @@ class Link_Crawler
     );
 
     /**
+     * Canonical list of text/anchor field names.
+     * When the traversal engine finds a LINK_KEY, it scans siblings
+     * of the same array for any of these keys to use as anchor text.
+     * Order matters: earlier entries take priority.
+     */
+    public static $TEXT_KEYS = array(
+        // Generic
+        'title',
+        'text',
+        'label',
+        // Elementor-specific
+        'title_text',
+        'button_text',
+        'heading_title',
+        'editor',
+        'inner_text',
+        // Gutenberg / Core
+        'content',
+        'value',
+        'name',
+        // Media
+        'caption',
+        'alt',
+        'aria_label',
+        // Custom builders / ACF
+        'description',
+        'sub_title',
+        'subtitle',
+        'card_title',
+        'box_title',
+        'item_label',
+        'nav_label',
+        'menu_title',
+    );
+
+
+    /**
      * Database manager
      */
     private $db_manager;
@@ -881,10 +918,10 @@ class Link_Crawler
                     return;
                 }
             }
-            // Plain string: only collect if it looks like an HTTP/HTTPS URL
-            // (Guards against accidentally treating non-URL strings as links)
+            // Plain string: only collect if it looks like an HTTP/HTTPS URL.
+            // These are naked by definition — no surrounding anchor element.
             if (preg_match('/^https?:\/\//i', $data)) {
-                $this->maybe_collect_url($data, '[string value]', $page_id, $page_title, $page_url, $location, $builder, $links);
+                $this->maybe_collect_url($data, '[string value]', $page_id, $page_title, $page_url, $location, $builder, $links, null, 'naked', 'text_regex', 'high');
             }
             return;
         }
@@ -905,14 +942,18 @@ class Link_Crawler
             // ── Link-key awareness ────────────────────────────────────────────
             if (in_array($key_str, self::$LINK_KEYS, true)) {
 
+                // Resolve anchor text from sibling fields BEFORE calling collect.
+                // This is how "Poor combustion" is found next to heading_link.url.
+                $anchor_ctx = $this->resolve_anchor_from_context($data, $key_str);
+
                 if (is_string($value) && !empty($value)) {
                     // Direct URL string value
-                    $this->maybe_collect_url($value, $key_str, $page_id, $page_title, $page_url, $location, $builder, $links);
+                    $this->maybe_collect_url($value, $key_str, $page_id, $page_title, $page_url, $location, $builder, $links, $anchor_ctx);
 
                 } elseif (is_array($value)) {
                     // Elementor link-object pattern: {"url": "...", "is_external": "", ...}
                     if (isset($value['url']) && is_string($value['url']) && !empty($value['url'])) {
-                        $this->maybe_collect_url($value['url'], $key_str . '.url', $page_id, $page_title, $page_url, $location, $builder, $links);
+                        $this->maybe_collect_url($value['url'], $key_str . '.url', $page_id, $page_title, $page_url, $location, $builder, $links, $anchor_ctx);
                     }
                     // Continue recursing into the link-value array below (intentional fall-through)
                 }
@@ -944,17 +985,22 @@ class Link_Crawler
     }
 
     /**
-     * Validate and collect a URL candidate into the $links array.
-     * Single point of URL sanity-checking across the entire extraction engine.
+     * Validate, classify, and collect a URL candidate into the $links array.
+     * Single point of URL sanity-checking AND anchor/classification enforcement
+     * across the entire extraction engine.
      *
-     * @param string $url         Raw URL candidate
-     * @param string $key_context The key name that triggered collection (for anchor_text)
-     * @param int    $page_id
-     * @param string $page_title
-     * @param string $page_url
-     * @param string $location
-     * @param string $builder
-     * @param array  &$links
+     * @param string      $url          Raw URL candidate
+     * @param string      $key_context  The key name that triggered collection
+     * @param int         $page_id
+     * @param string      $page_title
+     * @param string      $page_url
+     * @param string      $location
+     * @param string      $builder
+     * @param array       &$links
+     * @param array|null  $anchor_ctx   Output of resolve_anchor_from_context() or null
+     * @param string|null $force_kind   Override link_kind (naked|media|structured|container)
+     * @param string|null $force_source Override anchor_source (field|html|text_regex|derived)
+     * @param string|null $force_conf   Override confidence (high|medium|low)
      */
     private function maybe_collect_url(
         $url,
@@ -964,7 +1010,11 @@ class Link_Crawler
         $page_url,
         $location,
         $builder,
-        &$links
+        &$links,
+        $anchor_ctx   = null,
+        $force_kind   = null,
+        $force_source = null,
+        $force_conf   = null
     ) {
         $url = trim($url);
 
@@ -990,18 +1040,167 @@ class Link_Crawler
             return;
         }
 
+        // ── Anchor text resolution (priority order) ───────────────────────────
+        if ($anchor_ctx !== null && !empty($anchor_ctx['text'])) {
+            // Case A: resolved from sibling field (highest quality)
+            $anchor_text   = $anchor_ctx['text'];
+            $anchor_source = $anchor_ctx['source'];     // 'field'
+            $confidence    = $anchor_ctx['confidence']; // 'high' or 'medium'
+        } else {
+            // Fallback — use key name as a human-readable hint
+            $anchor_text   = '[' . $key_context . ']';
+            $anchor_source = 'derived';
+            $confidence    = 'low';
+        }
+
+        // ── Link kind classification ──────────────────────────────────────────
+        if ($force_kind !== null) {
+            $link_kind     = $force_kind;
+            $anchor_source = $force_source ?? $anchor_source;
+            $confidence    = $force_conf   ?? $confidence;
+        } elseif ($this->is_naked_url($url, $anchor_text)) {
+            $link_kind     = 'naked';
+            // For naked links, the URL itself is the visible text
+            $anchor_text   = $url;
+            $anchor_source = ($anchor_source === 'derived') ? 'text_regex' : $anchor_source;
+            $confidence    = 'high';
+        } else {
+            $link_kind = 'structured';
+        }
+
         $links[] = array(
             'url'                  => $url,
             'found_on_url'         => $page_url,
             'found_on_page_id'     => $page_id,
             'found_on_page_title'  => $page_title,
             'location'             => $location,
-            'anchor_text'          => '[' . $key_context . ']',
+            'anchor_text'          => $anchor_text,
             'builder'              => $builder,
             'dynamic_source'       => false,
+            // Classification metadata (internal, not breaking to frontend)
+            'link_kind'            => $link_kind,
+            'anchor_source'        => $anchor_source,
+            'confidence'           => $confidence,
         );
     }
 
+    // =========================================================================
+    // ANCHOR RESOLUTION & LINK CLASSIFICATION HELPERS
+    // =========================================================================
+
+    /**
+     * Resolve human-readable anchor text from sibling fields in the same
+     * context array where a link key was found.
+     *
+     * Two-pass strategy:
+     *   Pass 1 — check canonical TEXT_KEYS list (high confidence)
+     *   Pass 2 — check any non-URL, non-link-key string value (medium confidence)
+     *
+     * Example: given array ["title" => "Poor combustion", "link" => {"url": "..."}]
+     *          when $link_key = "link", returns {text:"Poor combustion", source:"field", confidence:"high"}
+     *
+     * @param array  $context  The array being traversed when the link key was found
+     * @param string $link_key The key name that triggered link detection
+     * @return array|null {text, source, confidence} or null if no text field found
+     */
+    private function resolve_anchor_from_context(array $context, $link_key)
+    {
+        // Pass 1: check canonical text keys (priority order from $TEXT_KEYS)
+        foreach (self::$TEXT_KEYS as $tk) {
+            if (isset($context[$tk]) && is_string($context[$tk])) {
+                $candidate = trim(strip_tags(html_entity_decode($context[$tk], ENT_QUOTES | ENT_HTML5, 'UTF-8')));
+                if (!empty($candidate)) {
+                    return array(
+                        'text'       => substr($candidate, 0, 255),
+                        'source'     => 'field',
+                        'confidence' => 'high',
+                    );
+                }
+            }
+        }
+
+        // Pass 2: any non-URL string value that is not itself a link key
+        foreach ($context as $k => $v) {
+            if ($k === $link_key) {
+                continue;
+            }
+            if (in_array((string) $k, self::$LINK_KEYS, true)) {
+                continue;
+            }
+            if (!is_string($v)) {
+                continue;
+            }
+            $v = trim($v);
+            if (empty($v) || strlen($v) < 2) {
+                continue;
+            }
+            // Skip values that look like URLs or raw IDs
+            if (preg_match('/^https?:\/\//i', $v) || is_numeric($v)) {
+                continue;
+            }
+            $candidate = trim(strip_tags(html_entity_decode($v, ENT_QUOTES | ENT_HTML5, 'UTF-8')));
+            if (!empty($candidate)) {
+                return array(
+                    'text'       => substr($candidate, 0, 255),
+                    'source'     => 'field',
+                    'confidence' => 'medium',
+                );
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Normalize a URL or anchor text for naked-link comparison.
+     * Strips protocol, trailing slash, decodes entities, lowercases.
+     *
+     * @param string $value
+     * @return string
+     */
+    public static function normalize_url_for_comparison($value)
+    {
+        $value = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $value = strtolower($value);
+        $value = preg_replace('/^https?:\/\//', '', $value);
+        $value = rtrim($value, '/');
+        return trim($value);
+    }
+
+    /**
+     * Determine whether a link is "naked" (anchor text equals or IS the URL).
+     *
+     * A link is naked if:
+     *   - Normalized anchor_text === normalized URL, OR
+     *   - anchor_text itself is a valid HTTP URL, OR
+     *   - anchor_text is empty / a placeholder
+     *
+     * @param string $url
+     * @param string $anchor_text
+     * @return bool
+     */
+    private function is_naked_url($url, $anchor_text)
+    {
+        if (empty(trim($anchor_text))) {
+            return true;
+        }
+
+        // Placeholder values from the extraction engine
+        if (preg_match('/^\[.*\]$/', $anchor_text)) {
+            return true;
+        }
+
+        // If anchor text itself is a valid URL, it's naked
+        if (preg_match('/^https?:\/\//i', $anchor_text) && filter_var($anchor_text, FILTER_VALIDATE_URL)) {
+            return true;
+        }
+
+        // Normalized comparison
+        $norm_url    = self::normalize_url_for_comparison($url);
+        $norm_anchor = self::normalize_url_for_comparison($anchor_text);
+
+        return ($norm_url === $norm_anchor);
+    }
 
     /**
      * Extract HTML section (header, footer, sidebar)
@@ -1629,11 +1828,17 @@ class Link_Crawler
      */
     private function _extract_links_from_html_string($html, $page_id, $page_title, $page_url, $builder, &$links)
     {
-        // Extract <a href=...>
+        if (empty($html)) {
+            return;
+        }
+
+        // ── Extract <a href=...> ──────────────────────────────────────────────
         preg_match_all('/<a\s[^>]*href=["\']([^"\'\s]+)["\'][^>]*>(.*?)<\/a>/is', $html, $a_matches, PREG_SET_ORDER);
         foreach ($a_matches as $m) {
             $href        = html_entity_decode(trim($m[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            $anchor_text = trim(strip_tags($m[2]));
+            $inner_html  = $m[2];
+            $inner_text  = trim(strip_tags($inner_html));
+
             if (empty($href) || preg_match('/^(mailto|tel|javascript|#|data:)/i', $href)) {
                 continue;
             }
@@ -1642,19 +1847,50 @@ class Link_Crawler
                 $parsed = parse_url(home_url());
                 $href   = $parsed['scheme'] . '://' . $parsed['host'] . (isset($parsed['port']) ? ':' . $parsed['port'] : '') . $href;
             }
+            if (!filter_var($href, FILTER_VALIDATE_URL)) {
+                continue;
+            }
+
+            // ── Classify ──────────────────────────────────────────────────────
+            // Case D: img-only content → media
+            $is_img_only = (empty($inner_text) && preg_match('/<img\s/i', $inner_html));
+            if ($is_img_only) {
+                // Try alt text from first img
+                preg_match('/<img[^>]*alt=["\']([^"\']*)["\'][^>]*>/i', $inner_html, $alt_m);
+                $alt_text    = !empty($alt_m[1]) ? trim($alt_m[1]) : '';
+                $anchor_text = $alt_text ?: '[Image Link]';
+                $link_kind   = 'media';
+                $confidence  = $alt_text ? 'medium' : 'low';
+            }
+            // Case B-naked: inner text equals URL → naked
+            elseif (!empty($inner_text) && $this->is_naked_url($href, $inner_text)) {
+                $anchor_text = $href;
+                $link_kind   = 'naked';
+                $confidence  = 'high';
+            }
+            // Case B-structured: real anchor text
+            else {
+                $anchor_text = $inner_text ?: '[No text]';
+                $link_kind   = empty($inner_text) ? 'naked' : 'structured';
+                $confidence  = empty($inner_text) ? 'low' : 'high';
+            }
+
             $links[] = array(
                 'url'                  => $href,
                 'found_on_url'         => $page_url,
                 'found_on_page_id'     => $page_id,
                 'found_on_page_title'  => $page_title,
                 'location'             => 'content',
-                'anchor_text'          => $anchor_text ?: '[No text]',
+                'anchor_text'          => $anchor_text,
                 'builder'              => $builder,
                 'dynamic_source'       => false,
+                'link_kind'            => $link_kind,
+                'anchor_source'        => 'html',
+                'confidence'           => $confidence,
             );
         }
 
-        // Extract <img src=...>
+        // ── Extract <img src=...> (direct image references) ───────────────────
         preg_match_all('/<img\s[^>]*src=["\']([^"\'\s]+)["\'][^>]*>/is', $html, $img_matches, PREG_SET_ORDER);
         foreach ($img_matches as $m) {
             $src = html_entity_decode(trim($m[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
@@ -1665,6 +1901,9 @@ class Link_Crawler
                 $parsed = parse_url(home_url());
                 $src    = $parsed['scheme'] . '://' . $parsed['host'] . (isset($parsed['port']) ? ':' . $parsed['port'] : '') . $src;
             }
+            if (!filter_var($src, FILTER_VALIDATE_URL)) {
+                continue;
+            }
             $links[] = array(
                 'url'                  => $src,
                 'found_on_url'         => $page_url,
@@ -1674,6 +1913,34 @@ class Link_Crawler
                 'anchor_text'          => '[Image]',
                 'builder'              => $builder,
                 'dynamic_source'       => false,
+                'link_kind'            => 'media',
+                'anchor_source'        => 'html',
+                'confidence'           => 'high',
+            );
+        }
+
+        // ── Case C: plain-text bare URLs (regex) ──────────────────────────────
+        // Catches URLs typed directly in content, NOT inside <a> or <img> tags.
+        // Strip existing HTML tags first so we only search visible text.
+        $plain_text = strip_tags($html);
+        preg_match_all('/https?:\/\/[^\s"\'<>\[\]{}\\\\]+/i', $plain_text, $bare_matches);
+        foreach ($bare_matches[0] as $bare_url) {
+            $bare_url = rtrim($bare_url, '.,;:!?)');
+            if (!filter_var($bare_url, FILTER_VALIDATE_URL)) {
+                continue;
+            }
+            $links[] = array(
+                'url'                  => $bare_url,
+                'found_on_url'         => $page_url,
+                'found_on_page_id'     => $page_id,
+                'found_on_page_title'  => $page_title,
+                'location'             => 'content',
+                'anchor_text'          => $bare_url,
+                'builder'              => $builder,
+                'dynamic_source'       => false,
+                'link_kind'            => 'naked',
+                'anchor_source'        => 'text_regex',
+                'confidence'           => 'high',
             );
         }
     }
