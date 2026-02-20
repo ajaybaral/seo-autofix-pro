@@ -739,11 +739,14 @@ class SEOAutoFix_Broken_Url_Management
                     usleep(150000);
                 }
 
-                // Remove the link from WordPress content
-                $success = $this->remove_link_from_content(
+                // Remove the link from WordPress content (location-aware 4-layer engine)
+                $engine_result = $this->remove_link_from_content(
                     $entry['found_on_url'],
-                    $entry['broken_url']
+                    $entry['broken_url'],
+                    $location
                 );
+                $success = $engine_result['success'] ?? false;
+                $last_engine_result = $engine_result;
 
                 \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] Attempt ' . $attempt . ' removal result: ' . ($success ? 'SUCCESS' : 'FAILED'));
 
@@ -800,17 +803,27 @@ class SEOAutoFix_Broken_Url_Management
                 // TRANSACTIONAL: Do NOT update table
                 \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ❌ TRANSACTIONAL: NOT updating table — verification failed after ' . $attempts . ' attempts');
 
-                wp_send_json_error(array(
-                    'message' => sprintf(
+                $response = [
+                    'operation'       => 'delete',
+                    'verified'        => false,
+                    'attempts'        => $attempts,
+                    'builder_used'    => $builder_type,
+                    'table_updated'   => false,
+                ];
+
+                // Check if builder engine flagged manual_required on last attempt
+                if (!empty($last_engine_result['manual_required'])) {
+                    $response['message']         = __('This link appears to be dynamically injected or hardcoded. Please modify manually.', 'seo-autofix-pro');
+                    $response['manual_required'] = true;
+                    $response['reason']          = $last_engine_result['reason'] ?? '';
+                } else {
+                    $response['message'] = sprintf(
                         __('Failed to remove link — verification failed after %d attempt(s). Content may not have been modified.', 'seo-autofix-pro'),
                         $attempts
-                    ),
-                    'operation' => 'delete',
-                    'verified' => false,
-                    'attempts' => $attempts,
-                    'builder_used' => $builder_type,
-                    'table_updated' => false
-                ));
+                    );
+                }
+
+                wp_send_json_error($response);
             }
         } catch (\Exception $e) {
             \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] Exception: ' . $e->getMessage());
@@ -825,23 +838,20 @@ class SEOAutoFix_Broken_Url_Management
     }
 
     /**
-     * Remove link from WordPress post content — builder-aware with universal fallback.
+     * Remove link from WordPress post content — 4-layer durable engine.
      *
-     * Flow:
-     *   1. Detect builder → try builder-specific link removal
-     *   2. If builder returns 0 removals → fallback to universal engine
-     *
-     * @param string $page_url   Page where link was found
-     * @param string $broken_url Broken URL to remove
-     * @return bool Success
+     * @param string $page_url   Page where link was found.
+     * @param string $broken_url Broken URL to remove.
+     * @param string $location   Link location (content, header, footer, sidebar).
+     * @return bool Success.
      */
-    private function remove_link_from_content($page_url, $broken_url)
+    private function remove_link_from_content($page_url, $broken_url, $location = 'content')
     {
         \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ===== remove_link_from_content() START =====');
         \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Page URL   : ' . $page_url);
         \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Broken URL : ' . $broken_url);
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Location   : ' . $location);
 
-        // Resolve post ID using the robust multi-fallback method from Link_Analyzer
         $link_analyzer = new Link_Analyzer();
         $post_id = $link_analyzer->get_post_id_from_url_public($page_url);
 
@@ -852,32 +862,22 @@ class SEOAutoFix_Broken_Url_Management
             return false;
         }
 
-        // Step 1: Try builder-specific removal first
+        // 4-layer engine — location-aware
         $builder_engine = new Builder_Replacement_Engine();
-        $builder_result = $builder_engine->remove_link($post_id, $broken_url);
+        $result = $builder_engine->remove_link($post_id, $broken_url, $location);
 
-        if ($builder_result['success']) {
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ✅ Builder-specific removal succeeded (' . $builder_result['builder'] . ')');
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ===== remove_link_from_content() END =====');
-            return true;
-        }
-
-        // Step 2: Fallback to universal engine
-        \SEOAutoFix_Debug_Logger::log('[FALLBACK] Triggered universal removal (builder returned 0)');
-        $universal_engine = new Universal_Replacement_Engine();
-        $result = $universal_engine->remove_link_globally($post_id, $broken_url);
+        \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Engine result: success=' . ($result['success'] ? 'YES' : 'NO')
+            . ' method=' . ($result['method'] ?? 'unknown')
+            . ' manual_required=' . (!empty($result['manual_required']) ? 'YES' : 'NO'));
 
         if ($result['success']) {
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ✅ Universal engine removal succeeded');
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ✅ Removal succeeded via ' . ($result['method'] ?? 'unknown'));
         } else {
-            \SEOAutoFix_Debug_Logger::log('[FINAL] ❌ Link not stored in WordPress content. It may be hardcoded or dynamically injected.');
-        }
-        if (!empty($result['removed_from'])) {
-            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] Removed from: ' . implode(', ', $result['removed_from']));
+            \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ❌ All layers returned 0. Reason: ' . ($result['reason'] ?? 'unknown'));
         }
 
         \SEOAutoFix_Debug_Logger::log('[REMOVE_LINK] ===== remove_link_from_content() END =====');
-        return $result['success'];
+        return $result;
     }
 
     /**

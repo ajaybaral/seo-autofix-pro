@@ -152,14 +152,14 @@ class Link_Analyzer
             // Apply fix to the content
             \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Attempting to replace link. Found on: ' . $entry['found_on_url'] . ', Broken: ' . $entry['broken_url'] . ', Replacement: ' . $replacement_url);
 
-            // Determine replacement strategy based on link location
-            $location = isset($entry['link_location']) ? $entry['link_location'] : 'content';
+            // Pass link_location through so the 4-layer engine can route correctly
+            $location     = isset($entry['link_location']) ? $entry['link_location'] : 'content';
             $builder_type = isset($entry['builder_type']) ? $entry['builder_type'] : null;
 
             \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Link location: ' . $location . ' | Stored builder: ' . ($builder_type ?: 'null'));
 
             // --- Per-post lock to prevent race conditions ---
-            $post_id = $this->get_post_id_from_url($entry['found_on_url']);
+            $post_id  = $this->get_post_id_from_url($entry['found_on_url']);
             $lock_key = $post_id ? 'seoautofix_lock_' . $post_id : null;
 
             if ($lock_key && get_transient($lock_key)) {
@@ -172,57 +172,53 @@ class Link_Analyzer
                 continue;
             }
 
-            // Acquire lock (10-second TTL, auto-expires)
             if ($lock_key) {
                 set_transient($lock_key, time(), 10);
             }
 
-            $verified = false;
-            $attempts = 0;
-            $max_attempts = 2; // 1 retry
+            $verified        = false;
+            $manual_required = false;
+            $manual_reason   = '';
+            $attempts        = 0;
+            $max_attempts    = 2;
 
             try {
                 for ($attempt = 1; $attempt <= $max_attempts; $attempt++) {
                     $attempts = $attempt;
-                    $success = false;
 
                     if ($attempt > 1) {
                         \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] ⏳ Retry #' . ($attempt - 1) . ' after 150ms delay...');
-                        usleep(150000); // 150ms delay before retry
+                        usleep(150000);
                     }
 
-                    // For header/footer/sidebar links, try site-wide replacement FIRST
-                    if (in_array($location, ['header', 'footer', 'sidebar'])) {
-                        \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Header/Footer/Sidebar link - trying site-wide elements first');
-                        $success = $this->replace_in_site_wide_elements($entry['broken_url'], $replacement_url);
+                    // Single call into the 4-layer builder engine (location-aware)
+                    $success = $this->replace_link_in_content(
+                        $entry['found_on_url'],
+                        $entry['broken_url'],
+                        $replacement_url,
+                        $location,
+                        $manual_required,
+                        $manual_reason
+                    );
 
-                        if (!$success) {
-                            \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Site-wide replacement failed, trying content as fallback');
-                            $success = $this->replace_link_in_content($entry['found_on_url'], $entry['broken_url'], $replacement_url);
-                        }
-                    } else {
-                        \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Content link - trying post content first');
-                        $success = $this->replace_link_in_content($entry['found_on_url'], $entry['broken_url'], $replacement_url);
-
-                        if (!$success) {
-                            \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Content replacement failed, trying site-wide elements as fallback');
-                            $success = $this->replace_in_site_wide_elements($entry['broken_url'], $replacement_url);
-                        }
+                    // If the engine flagged manual_required, no point retrying
+                    if ($manual_required) {
+                        break;
                     }
 
                     \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Attempt ' . $attempt . ' replacement result: ' . ($success ? 'SUCCESS' : 'FAILED'));
 
                     if (!$success) {
-                        continue; // try again
+                        continue;
                     }
 
-                    // CRITICAL: Verify the fix with builder-aware check
+                    // Verify the fix with normalized, builder-aware check
                     \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] Verifying fix (attempt ' . $attempt . ')...');
                     $verified = $this->verify_fix_applied($entry['found_on_url'], $entry['broken_url'], $location, $builder_type);
 
                     if ($verified) {
                         \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] ✅ VERIFICATION PASSED on attempt ' . $attempt);
-                        break; // Success — exit retry loop
+                        break;
                     }
 
                     \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] ❌ VERIFICATION FAILED on attempt ' . $attempt);
@@ -260,6 +256,17 @@ class Link_Analyzer
                         esc_url($replacement_url),
                         $attempts
                     );
+                } elseif ($manual_required) {
+                    // Layer 4 exhausted — structured manual intervention response
+                    $failed_count++;
+                    \SEOAutoFix_Debug_Logger::log('[APPLY_FIXES] 🛑 manual_required — ' . $manual_reason);
+                    $messages[] = [
+                        'id'              => $entry_id,
+                        'status'          => 'manual_required',
+                        'broken_url'      => $entry['broken_url'],
+                        'message'         => __('This link appears to be dynamically injected or hardcoded. Please modify manually.', 'seo-autofix-pro'),
+                        'reason'          => $manual_reason,
+                    ];
                 } else {
                     // TRANSACTIONAL: Do NOT update table — leave as unfixed
                     $failed_count++;
@@ -400,72 +407,57 @@ class Link_Analyzer
     }
 
     /**
-     * Replace link in post/page content — builder-aware with universal fallback.
+     * Replace link in post/page content — 4-layer durable engine.
      *
-     * Flow:
-     *   1. Detect builder → try builder-specific replacement
-     *   2. If builder returns 0 → fallback to universal engine (post_content + all meta)
-     *   3. If universal returns 0 → fallback to global site-wide search
+     * Delegates entirely to Builder_Replacement_Engine which now implements
+     * the full 4-layer strategy internally (Layer 1 builder, Layer 2 template,
+     * Layer 3 postmeta deep-scan, Layer 4 global fallback).
      *
-     * @param string $page_url Page where link was found
-     * @param string $broken_url Broken URL to replace
-     * @param string $replacement_url New URL
-     * @return bool Success
+     * @param string $page_url        Page where link was found.
+     * @param string $broken_url      Broken URL to replace.
+     * @param string $replacement_url New URL.
+     * @param string $location        Link location (content, header, footer, sidebar).
+     * @param bool   &$manual_required Set to true if all layers fail.
+     * @param string &$manual_reason   Human-readable reason for the failure.
+     * @return bool Success.
      */
-    private function replace_link_in_content($page_url, $broken_url, $replacement_url)
-    {
+    private function replace_link_in_content(
+        $page_url,
+        $broken_url,
+        $replacement_url,
+        $location = 'content',
+        &$manual_required = false,
+        &$manual_reason = ''
+    ) {
         \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ===== replace_link_in_content() START =====');
         \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Page URL     : ' . $page_url);
         \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Broken URL   : ' . $broken_url);
         \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Replacement  : ' . $replacement_url);
+        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Location     : ' . $location);
 
-        // Get post ID from URL with multiple fallback methods
         $post_id = $this->get_post_id_from_url($page_url);
-
-        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Post ID from URL: ' . $post_id);
+        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Post ID from URL: ' . ($post_id ?: 'NOT FOUND'));
 
         if (!$post_id) {
             \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ❌ Failed to get post ID from URL after all fallback attempts');
             return false;
         }
 
-        // ── Step 1: Builder-specific replacement ─────────────────────────
+        // 4-layer engine — location-aware
         $builder_engine = new Builder_Replacement_Engine();
-        $builder_result = $builder_engine->replace_url($post_id, $broken_url, $replacement_url);
+        $result         = $builder_engine->replace_url($post_id, $broken_url, $replacement_url, $location);
 
-        if ($builder_result['success']) {
-            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ✅ Builder-specific replacement succeeded');
-            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Builder: ' . $builder_result['builder'] . ' | Replacements: ' . $builder_result['replacements']);
-            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ===== replace_link_in_content() END =====');
-            return true;
+        \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Builder engine result: success=' . ($result['success'] ? 'YES' : 'NO')
+            . ' method=' . $result['method']
+            . ' manual_required=' . ($result['manual_required'] ? 'YES' : 'NO'));
+
+        if ($result['manual_required']) {
+            $manual_required = true;
+            $manual_reason   = $result['reason'];
         }
 
-        // ── Step 2: Fallback to universal engine (post_content + all meta) ──
-        \SEOAutoFix_Debug_Logger::log('[FALLBACK] Triggered universal replacement (builder returned 0)');
-
-        $result = $this->universal_engine->replace_url_in_post($post_id, $broken_url, $replacement_url);
-
-        if ($result['success']) {
-            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ✅ Universal engine succeeded');
-            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] Replacements made: ' . $result['stats']['replacements_made']);
-            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ===== replace_link_in_content() END =====');
-            return true;
-        }
-
-        // ── Step 3: Global fallback — search across ALL posts ───────────
-        \SEOAutoFix_Debug_Logger::log('[FALLBACK] Universal engine found nothing — trying global site-wide search');
-
-        $global_success = $this->replace_url_in_all_posts_globally($broken_url, $replacement_url);
-
-        if ($global_success) {
-            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ✅ Global fallback replacement succeeded');
-            \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ===== replace_link_in_content() END =====');
-            return true;
-        }
-
-        \SEOAutoFix_Debug_Logger::log('[FINAL] ❌ URL not found anywhere in the database. It may be hardcoded or dynamically generated.');
         \SEOAutoFix_Debug_Logger::log('[REPLACE_LINK] ===== replace_link_in_content() END =====');
-        return false;
+        return $result['success'];
     }
 
 
@@ -513,33 +505,62 @@ class Link_Analyzer
         \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] Verifying fix for broken URL: ' . $broken_url);
         \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] Page URL: ' . $page_url . ' | Location: ' . $location . ' | Builder: ' . ($builder_type ?: 'auto-detect'));
 
-        // For header/footer/sidebar, check site-wide elements
-        if (in_array($location, ['header', 'footer', 'sidebar'])) {
-            \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] Checking site-wide elements for broken URL...');
-            $still_exists = $this->check_url_in_site_wide_elements($broken_url);
-            if ($still_exists) {
-                \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] ❌ Broken URL still found in site-wide elements');
-                return false;
+        $norm = Builder_Replacement_Engine::normalize_url($broken_url);
+
+        // ── Header / Footer: check Elementor templates + nav menus ───────
+        if (in_array($location, ['header', 'footer'], true)) {
+            \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] Checking Elementor templates for location: ' . $location);
+
+            $template_posts = get_posts([
+                'post_type'   => 'elementor_library',
+                'post_status' => 'publish',
+                'numberposts' => -1,
+                'meta_query'  => [[  'key' => '_elementor_template_type', 'value' => $location ]],
+            ]);
+
+            foreach ($template_posts as $tpl) {
+                $raw = get_post_meta($tpl->ID, '_elementor_data', true);
+                if (!empty($raw)) {
+                    $norm_raw = Builder_Replacement_Engine::normalize_url($raw);
+                    if (stripos($raw, $broken_url) !== false
+                        || stripos($norm_raw, $norm) !== false) {
+                        \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] ❌ Broken URL still exists in template #' . $tpl->ID);
+                        return false;
+                    }
+                }
             }
-            \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] ✅ Broken URL not found in site-wide elements');
+
+            // Check nav menu items
+            foreach (array_keys(get_registered_nav_menus()) as $loc) {
+                $menu_id = get_nav_menu_locations()[$loc] ?? 0;
+                if (!$menu_id) continue;
+                $items = wp_get_nav_menu_items($menu_id, ['update_post_term_cache' => false]);
+                if (empty($items)) continue;
+                foreach ($items as $item) {
+                    if (Builder_Replacement_Engine::normalize_url($item->url) === $norm) {
+                        \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] ❌ Broken URL still in nav menu item #' . $item->ID);
+                        return false;
+                    }
+                }
+            }
+
+            \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] ✅ Broken URL not found in templates/menus — fix verified');
             return true;
         }
 
-        // For content, check post storage
+        // ── Content / Sidebar: check post storage ─────────────────────────
         $post_id = $this->get_post_id_from_url($page_url);
         if (!$post_id) {
             \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] ⚠️ Could not get post ID — assuming fix was applied');
             return true;
         }
 
-        // IMPORTANT: Flush WP object cache to force fresh DB read
+        // Flush WP object cache to force fresh DB read
         clean_post_cache($post_id);
+        wp_cache_delete($post_id, 'post_meta');
 
-        // Determine builder (use stored value, fallback to detection)
         $builder = $builder_type ?? Builder_Detector::detect($post_id);
         \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] Using builder: ' . $builder);
-
-        $normalized_broken = untrailingslashit($broken_url);
 
         // --- Check post_content ---
         $post = get_post($post_id);
@@ -549,46 +570,46 @@ class Link_Analyzer
         }
 
         $content = $post->post_content;
-        \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] Retrieved fresh post_content, length: ' . strlen($content));
+        \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] Fresh post_content length: ' . strlen($content));
 
-        $found_in_content = (stripos($content, $broken_url) !== false) || (stripos($content, $normalized_broken) !== false);
-
-        if ($found_in_content) {
+        if (stripos($content, $broken_url) !== false
+            || stripos($content, untrailingslashit($broken_url)) !== false) {
             \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] ❌ Broken URL still exists in post_content!');
             return false;
         }
 
-        // --- Check builder-specific storage ---
-        if ($builder === Builder_Detector::ELEMENTOR || $builder === 'elementor') {
+        // --- Check Elementor storage ---
+        if (in_array($builder, [Builder_Detector::ELEMENTOR, 'elementor'], true)) {
             $raw = get_post_meta($post_id, '_elementor_data', true);
-            if (!empty($raw)) {
-                $in_elementor = (stripos($raw, $broken_url) !== false) || (stripos($raw, $normalized_broken) !== false);
-                if ($in_elementor) {
-                    \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] ❌ Broken URL still exists in _elementor_data!');
-                    return false;
-                }
-                \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] ✅ Broken URL not found in _elementor_data');
+            if (!empty($raw) && stripos($raw, $broken_url) !== false) {
+                \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] ❌ Broken URL still exists in _elementor_data!');
+                return false;
             }
+            // Also check via normalized form
+            if (!empty($raw) && stripos($raw, untrailingslashit($broken_url)) !== false) {
+                \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] ❌ Broken URL (no-slash) still exists in _elementor_data!');
+                return false;
+            }
+            \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] ✅ _elementor_data clear');
         }
 
-        // --- Check all non-excluded meta keys ---
-        $all_meta = get_post_meta($post_id);
-        $skip_keys = ['_edit_lock', '_edit_last', '_wp_page_template', '_thumbnail_id',
-                       '_wp_attachment_metadata', '_wp_attached_file', '_encloseme', '_pingme',
-                       '_elementor_css', '_elementor_version', '_elementor_edit_mode',
-                       '_elementor_template_type', '_elementor_pro_version', '_elementor_data'];
+        // --- Check all other post meta ---
+        $skip_keys = [
+            '_edit_lock', '_edit_last', '_wp_page_template', '_thumbnail_id',
+            '_wp_attachment_metadata', '_wp_attached_file', '_encloseme', '_pingme',
+            '_elementor_css', '_elementor_version', '_elementor_edit_mode',
+            '_elementor_template_type', '_elementor_pro_version', '_elementor_data',
+            '_elementor_page_settings',
+        ];
 
-        if (!empty($all_meta)) {
-            foreach ($all_meta as $meta_key => $meta_values) {
-                if (in_array($meta_key, $skip_keys, true)) {
-                    continue;
-                }
-                foreach ($meta_values as $meta_value) {
-                    if (!is_string($meta_value)) continue;
-                    if (stripos($meta_value, $broken_url) !== false || stripos($meta_value, $normalized_broken) !== false) {
-                        \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] ❌ Broken URL still exists in meta key: ' . $meta_key);
-                        return false;
-                    }
+        foreach ((get_post_meta($post_id) ?: []) as $meta_key => $meta_values) {
+            if (in_array($meta_key, $skip_keys, true)) continue;
+            foreach ($meta_values as $meta_value) {
+                if (!is_string($meta_value)) continue;
+                if (stripos($meta_value, $broken_url) !== false
+                    || stripos($meta_value, untrailingslashit($broken_url)) !== false) {
+                    \SEOAutoFix_Debug_Logger::log('[VERIFY_FIX] ❌ Broken URL still in meta key: ' . $meta_key);
+                    return false;
                 }
             }
         }
