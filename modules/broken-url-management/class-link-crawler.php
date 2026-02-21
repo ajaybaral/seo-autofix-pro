@@ -1047,10 +1047,48 @@ class Link_Crawler
             $anchor_source = $anchor_ctx['source'];     // 'field'
             $confidence    = $anchor_ctx['confidence']; // 'high' or 'medium'
         } else {
-            // Fallback — use key name as a human-readable hint
-            $anchor_text   = '[' . $key_context . ']';
-            $anchor_source = 'derived';
-            $confidence    = 'low';
+            // Fallback — try to derive a meaningful label from the URL itself.
+            // For media URLs (images, videos, documents) extract the filename and
+            // humanize it, e.g. "product-photo-2024.jpg" → "Image: Product Photo 2024".
+            // This prevents path-segment leaks (e.g. "library") from appearing as
+            // anchor text when builder data siblings contain folder/slug strings.
+            $media_extensions = array(
+                'jpg','jpeg','png','gif','webp','svg','avif','ico','bmp','tiff','tif',
+                'mp4','webm','ogv','mov','avi',
+                'mp3','wav','ogg','m4a',
+                'pdf','doc','docx','xls','xlsx','ppt','pptx','zip','rar','7z',
+            );
+            $path_info = pathinfo(parse_url($url, PHP_URL_PATH));
+            $file_ext  = isset($path_info['extension']) ? strtolower($path_info['extension']) : '';
+
+            if ($file_ext !== '' && in_array($file_ext, $media_extensions, true)) {
+                // Humanize: replace hyphens/underscores with spaces, title-case
+                $raw_name    = isset($path_info['filename']) ? $path_info['filename'] : '';
+                $human_name  = ucwords(str_replace(array('-', '_'), ' ', $raw_name));
+
+                // Prefix based on type
+                $image_exts = array('jpg','jpeg','png','gif','webp','svg','avif','ico','bmp','tiff','tif');
+                $video_exts = array('mp4','webm','ogv','mov','avi');
+                $audio_exts = array('mp3','wav','ogg','m4a');
+                if (in_array($file_ext, $image_exts, true)) {
+                    $prefix = 'Image';
+                } elseif (in_array($file_ext, $video_exts, true)) {
+                    $prefix = 'Video';
+                } elseif (in_array($file_ext, $audio_exts, true)) {
+                    $prefix = 'Audio';
+                } else {
+                    $prefix = 'File';
+                }
+
+                $anchor_text   = $human_name !== '' ? $prefix . ': ' . $human_name : '[' . $prefix . ']';
+                $anchor_source = 'derived';
+                $confidence    = 'medium';
+            } else {
+                // Non-media URL with no anchor context: use key name as hint
+                $anchor_text   = '[' . $key_context . ']';
+                $anchor_source = 'derived';
+                $confidence    = 'low';
+            }
         }
 
         // ── Link kind classification ──────────────────────────────────────────

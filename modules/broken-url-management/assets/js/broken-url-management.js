@@ -3549,26 +3549,40 @@
     }
 
     /**
-     * Perform bulk remove operation
+     * Perform bulk remove operation, grouped by page.
+     * Processes all links on one page before moving to the next.
      */
     function performBulkRemove(links) {
-        console.log('[PERFORM BULK REMOVE] Removing', links.length, 'links using individual delete_entry');
+        console.log('[PERFORM BULK REMOVE] Removing', links.length, 'links, grouped by page.');
 
-        showMassActionProgress('Deleted', links.length);
+        // Group links by found_on_page_id
+        const linksByPage = links.reduce((acc, link) => {
+            const pageId = link.found_on_page_id || 'unknown_page'; // Use a fallback for links without page_id
+            if (!acc[pageId]) {
+                acc[pageId] = [];
+            }
+            acc[pageId].push(link);
+            return acc;
+        }, {});
+
+        const pageIds = Object.keys(linksByPage);
+        const totalLinks = links.length;
+
+        showMassActionProgress('Deleted', totalLinks);
 
         let successCount = 0;
         let failCount = 0;
-        let currentIndex = 0;
+        let currentPageIndex = 0;
 
-        const deleteNext = () => {
-            if (currentIndex >= links.length) {
-                // All done
+        const processNextPage = () => {
+            if (currentPageIndex >= pageIds.length) {
+                // All pages processed
                 hideMassActionProgress();
                 console.log('[BULK REMOVE] Completed. Success:', successCount, 'Failed:', failCount);
 
                 if (successCount > 0) {
                     updateHeaderBrokenCount();
-                    updateStatsFromVisibleRows();
+                    updateStatsFromVisibleRows(); // Re-evaluate stats based on remaining visible rows
                     updateButtonStates();
                     updateFixedReportButtonText();
                     $('#undo-last-fix-btn, #undo-changes-btn').prop('disabled', false);
@@ -3580,99 +3594,116 @@
                 return;
             }
 
-            const link = links[currentIndex];
-            const entryId = link.id;
-            console.log(`[BULK REMOVE] Deleting ${currentIndex + 1}/${links.length}, ID:`, entryId);
+            const currentPageId = pageIds[currentPageIndex];
+            const linksOnCurrentPage = linksByPage[currentPageId];
+            console.log(`[BULK REMOVE] Processing page ${currentPageIndex + 1}/${pageIds.length} (ID: ${currentPageId}) with ${linksOnCurrentPage.length} links.`);
 
-            $.ajax({
-                url: seoautofixBrokenUrls.ajaxUrl,
-                method: 'POST',
-                data: {
-                    action: 'seoautofix_broken_links_delete_entry',
-                    nonce: seoautofixBrokenUrls.nonce,
-                    id: entryId
-                },
-                success: function (response) {
-                    if (response.success) {
-                        successCount++;
-                        updateMassActionProgress();
-                        console.log('[BULK REMOVE] ✅ Deleted ID:', entryId);
+            let currentLinkIndexOnPage = 0;
 
-                        // Track in undoStack (same as individual delete)
-                        const $row = $(`tr[data-id="${entryId}"]`);
-                        const rowData = $row.data('result');
-
-                        if (rowData) {
-                            undoStack.push({
-                                id: entryId,
-                                action: 'delete',
-                                original_data: rowData,
-                                row_html: $row[0] ? $row[0].outerHTML : ''
-                            });
-
-                            fixedLinksSession.push({
-                                id: entryId,
-                                location: rowData.found_on_page_title || 'Unknown',
-                                anchor_text: rowData.anchor_text || '',
-                                broken_url: rowData.broken_url,
-                                link_type: rowData.link_type,
-                                status_code: rowData.status_code,
-                                error_type: rowData.error_type,
-                                suggested_url: '',
-                                reason: 'Link deleted (bulk)',
-                                is_fixed: 1,
-                                fixed_at: new Date().toISOString()
-                            });
-                        }
-
-                        // Animate row (same as individual delete)
-                        if ($row.length) {
-                            animateDeletedRow($row, function () {
-                                // ✅ Update header count
-                                updateHeaderBrokenCount();
-                                updateStatsAfterFix(1);
-
-                                // ✅ Update stat cards (identical to individual delete)
-                                if (rowData) {
-                                    if (rowData.status_code >= 400 && rowData.status_code < 500) {
-                                        const c = parseInt($('#header-4xx-count').text()) || 0;
-                                        $('#header-4xx-count').text(Math.max(0, c - 1));
-                                    } else if (rowData.status_code >= 500) {
-                                        const c = parseInt($('#header-5xx-count').text()) || 0;
-                                        $('#header-5xx-count').text(Math.max(0, c - 1));
-                                    }
-                                    if (rowData.link_type === 'internal') {
-                                        const c = parseInt($('#stat-internal-count').text()) || 0;
-                                        $('#stat-internal-count, #internal-broken-count, [data-stat="internal"]').text(Math.max(0, c - 1));
-                                    } else if (rowData.link_type === 'external') {
-                                        const c = parseInt($('#stat-external-count').text()) || 0;
-                                        $('#stat-external-count, #external-broken-count, [data-stat="external"]').text(Math.max(0, c - 1));
-                                    }
-                                }
-
-                                // ✅ Update button states (enables undo)
-                                updateButtonStates();
-                                console.log('[BULK REMOVE] ✅ Row animation complete, stats and buttons updated for ID:', entryId);
-                            });
-                        }
-                    } else {
-                        failCount++;
-                        console.error('[BULK REMOVE] ❌ Failed ID:', entryId, response.data);
-                    }
-
-                    currentIndex++;
-                    deleteNext();
-                },
-                error: function (jqXHR, textStatus, errorThrown) {
-                    failCount++;
-                    console.error('[BULK REMOVE] ❌ AJAX error ID:', entryId, textStatus);
-                    currentIndex++;
-                    deleteNext();
+            const deleteNextLinkOnPage = () => {
+                if (currentLinkIndexOnPage >= linksOnCurrentPage.length) {
+                    // All links on current page processed, move to next page
+                    currentPageIndex++;
+                    processNextPage();
+                    return;
                 }
-            });
+
+                const link = linksOnCurrentPage[currentLinkIndexOnPage];
+                const entryId = link.id;
+                console.log(`[BULK REMOVE] Deleting link ${currentLinkIndexOnPage + 1}/${linksOnCurrentPage.length} on page ${currentPageId}, ID:`, entryId);
+
+                $.ajax({
+                    url: seoautofixBrokenUrls.ajaxUrl,
+                    method: 'POST',
+                    data: {
+                        action: 'seoautofix_broken_links_delete_entry',
+                        nonce: seoautofixBrokenUrls.nonce,
+                        id: entryId
+                    },
+                    success: function (response) {
+                        if (response.success) {
+                            successCount++;
+                            updateMassActionProgress();
+                            console.log('[BULK REMOVE] ✅ Deleted ID:', entryId);
+
+                            // Track in undoStack (same as individual delete)
+                            const $row = $(`tr[data-id="${entryId}"]`);
+                            const rowData = $row.data('result');
+
+                            if (rowData) {
+                                undoStack.push({
+                                    id: entryId,
+                                    action: 'delete',
+                                    original_data: rowData,
+                                    row_html: $row[0] ? $row[0].outerHTML : ''
+                                });
+
+                                fixedLinksSession.push({
+                                    id: entryId,
+                                    location: rowData.found_on_page_title || 'Unknown',
+                                    anchor_text: rowData.anchor_text || '',
+                                    broken_url: rowData.broken_url,
+                                    link_type: rowData.link_type,
+                                    status_code: rowData.status_code,
+                                    error_type: rowData.error_type,
+                                    suggested_url: '',
+                                    reason: 'Link deleted (bulk)',
+                                    is_fixed: 1,
+                                    fixed_at: new Date().toISOString()
+                                });
+                            }
+
+                            // Animate row (same as individual delete)
+                            if ($row.length) {
+                                animateDeletedRow($row, function () {
+                                    // ✅ Update header count
+                                    updateHeaderBrokenCount();
+                                    updateStatsAfterFix(1);
+
+                                    // ✅ Update stat cards (identical to individual delete)
+                                    if (rowData) {
+                                        if (rowData.status_code >= 400 && rowData.status_code < 500) {
+                                            const c = parseInt($('#header-4xx-count').text()) || 0;
+                                            $('#header-4xx-count').text(Math.max(0, c - 1));
+                                        } else if (rowData.status_code >= 500) {
+                                            const c = parseInt($('#header-5xx-count').text()) || 0;
+                                            $('#header-5xx-count').text(Math.max(0, c - 1));
+                                        }
+                                        if (rowData.link_type === 'internal') {
+                                            const c = parseInt($('#stat-internal-count').text()) || 0;
+                                            $('#stat-internal-count, #internal-broken-count, [data-stat="internal"]').text(Math.max(0, c - 1));
+                                        } else if (rowData.link_type === 'external') {
+                                            const c = parseInt($('#stat-external-count').text()) || 0;
+                                            $('#stat-external-count, #external-broken-count, [data-stat="external"]').text(Math.max(0, c - 1));
+                                        }
+                                    }
+
+                                    // ✅ Update button states (enables undo)
+                                    updateButtonStates();
+                                    console.log('[BULK REMOVE] ✅ Row animation complete, stats and buttons updated for ID:', entryId);
+                                });
+                            }
+                        } else {
+                            failCount++;
+                            console.error('[BULK REMOVE] ❌ Failed ID:', entryId, response.data);
+                        }
+
+                        currentLinkIndexOnPage++;
+                        deleteNextLinkOnPage();
+                    },
+                    error: function (jqXHR, textStatus, errorThrown) {
+                        failCount++;
+                        console.error('[BULK REMOVE] ❌ AJAX error ID:', entryId, textStatus);
+                        currentLinkIndexOnPage++;
+                        deleteNextLinkOnPage();
+                    }
+                });
+            };
+
+            deleteNextLinkOnPage(); // Start processing links for the current page
         };
 
-        deleteNext();
+        processNextPage(); // Start processing pages
     }
 
     /**
@@ -3771,10 +3802,10 @@
                         </label>
                         <div class="category-description">Will replace broken URLs with suggested URLs (click to edit)</div>
                     </div>
-                    <div class="category-preview">
+                    <div class="category-preview" style="max-height: 300px; overflow-y: auto;">
             `;
 
-            withSuggestion.slice(0, 5).forEach(link => {
+            withSuggestion.forEach(link => {
                 modalHtml += `
                     <div class="preview-item-wrapper">
                         <div class="preview-item-compact" data-link-id="${link.id}">
@@ -3790,10 +3821,6 @@
                     </div>
                 `;
             });
-
-            if (withSuggestion.length > 5) {
-                modalHtml += `<div class="preview-more-compact">... and ${withSuggestion.length - 5} more</div>`;
-            }
 
             modalHtml += `
                     </div>
@@ -3813,10 +3840,10 @@
                         </label>
                         <div class="category-description">Will replace with Home Page: <code>${escapeHtml(homeUrl)}</code> (click to edit)</div>
                     </div>
-                    <div class="category-preview">
+                    <div class="category-preview" style="max-height: 300px; overflow-y: auto;">
             `;
 
-            internalNoSuggestion.slice(0, 5).forEach(link => {
+            internalNoSuggestion.forEach(link => {
                 modalHtml += `
                     <div class="preview-item-wrapper">
                         <div class="preview-item-compact" data-link-id="${link.id}">
@@ -3832,10 +3859,6 @@
                     </div>
                 `;
             });
-
-            if (internalNoSuggestion.length > 5) {
-                modalHtml += `<div class="preview-more-compact">... and ${internalNoSuggestion.length - 5} more</div>`;
-            }
 
             modalHtml += `
                     </div>
@@ -3855,10 +3878,10 @@
                         </label>
                         <div class="category-description">Will replace with Home Page URL (click to edit)</div>
                     </div>
-                    <div class="category-preview">
+                    <div class="category-preview" style="max-height: 300px; overflow-y: auto;">
             `;
 
-            external.slice(0, 5).forEach(link => {
+            external.forEach(link => {
                 modalHtml += `
                     <div class="preview-item-wrapper">
                         <div class="preview-item-compact" data-link-id="${link.id}">
@@ -3874,10 +3897,6 @@
                     </div>
                 `;
             });
-
-            if (external.length > 5) {
-                modalHtml += `<div class="preview-more-compact">... and ${external.length - 5} more</div>`;
-            }
 
             modalHtml += `
                     </div>
@@ -4365,10 +4384,10 @@
                         </button>
                     </div>
                     <div class="category-description">Will replace with suggested URLs (click to edit) or delete all</div>
-                    <div class="category-preview">
+                    <div class="category-preview" style="max-height: 300px; overflow-y: auto;">
             `;
 
-            withSuggestion.slice(0, 10).forEach(link => {
+            withSuggestion.forEach(link => {
                 modalHtml += `
                     <div class="preview-item-wrapper">
                         <div class="preview-item-compact" data-link-id="${link.id}" style="display: flex; align-items: center; gap: 10px;">
@@ -4385,10 +4404,6 @@
                     </div>
                 `;
             });
-
-            if (withSuggestion.length > 10) {
-                modalHtml += `<div class="preview-more-compact">... and ${withSuggestion.length - 10} more</div>`;
-            }
 
             modalHtml += `
                     </div>
@@ -4411,10 +4426,10 @@
                         </button>
                     </div>
                     <div class="category-description">Will replace with Home Page: <code>${escapeHtml(homeUrl)}</code> (click to edit) or delete all</div>
-                    <div class="category-preview">
+                    <div class="category-preview" style="max-height: 300px; overflow-y: auto;">
             `;
 
-            internalNoSuggestion.slice(0, 10).forEach(link => {
+            internalNoSuggestion.forEach(link => {
                 modalHtml += `
                     <div class="preview-item-wrapper">
                         <div class="preview-item-compact" data-link-id="${link.id}" style="display: flex; align-items: center; gap: 10px;">
@@ -4431,10 +4446,6 @@
                     </div>
                 `;
             });
-
-            if (internalNoSuggestion.length > 10) {
-                modalHtml += `<div class="preview-more-compact">... and ${internalNoSuggestion.length - 10} more</div>`;
-            }
 
             modalHtml += `
                     </div>
@@ -4457,10 +4468,10 @@
                         </button>
                     </div>
                     <div class="category-description">Will replace with Home Page URL (click to edit) or delete all</div>
-                    <div class="category-preview">
+                    <div class="category-preview" style="max-height: 300px; overflow-y: auto;">
             `;
 
-            external.slice(0, 10).forEach(link => {
+            external.forEach(link => {
                 modalHtml += `
                     <div class="preview-item-wrapper">
                         <div class="preview-item-compact" data-link-id="${link.id}" style="display: flex; align-items: center; gap: 10px;">
@@ -4477,10 +4488,6 @@
                     </div>
                 `;
             });
-
-            if (external.length > 10) {
-                modalHtml += `<div class="preview-more-compact">... and ${external.length - 10} more</div>`;
-            }
 
             modalHtml += `
                     </div>
