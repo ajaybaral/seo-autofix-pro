@@ -3,7 +3,7 @@
  * Plugin Name: SEO AutoFix Pro
  * Plugin URI: https://seoautofixpro.com
  * Description: AI-powered SEO automation for WordPress. Detects and fixes SEO issues automatically using OpenAI.
- * Version: 1.4.5
+ * Version: 1.4.7
  * Author: SEO AutoFix Pro Team
  * Author URI: https://seoautofixpro.com
  * License: GPL v2 or later
