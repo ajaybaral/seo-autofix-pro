@@ -1041,11 +1041,14 @@ class Link_Crawler
         }
 
         // ── Anchor text resolution (priority order) ───────────────────────────
+        \SEOAutoFix_Debug_Logger::log('[MAYBE COLLECT] maybe_collect_url() — url="' . $url . '" key="' . $key_context . '" anchor_ctx=' . ($anchor_ctx !== null ? '"' . substr($anchor_ctx['text'], 0, 60) . '" (source=' . $anchor_ctx['source'] . ',conf=' . $anchor_ctx['confidence'] . ')' : 'NULL'));
+
         if ($anchor_ctx !== null && !empty($anchor_ctx['text'])) {
             // Case A: resolved from sibling field (highest quality)
             $anchor_text   = $anchor_ctx['text'];
             $anchor_source = $anchor_ctx['source'];     // 'field'
             $confidence    = $anchor_ctx['confidence']; // 'high' or 'medium'
+            \SEOAutoFix_Debug_Logger::log('[MAYBE COLLECT] ✅ Using anchor_ctx text: "' . substr($anchor_text, 0, 80) . '"');
         } else {
             // Fallback — try to derive a meaningful label from the URL itself.
             // For media URLs (images, videos, documents) extract the filename and
@@ -1060,6 +1063,8 @@ class Link_Crawler
             );
             $path_info = pathinfo(parse_url($url, PHP_URL_PATH));
             $file_ext  = isset($path_info['extension']) ? strtolower($path_info['extension']) : '';
+
+            \SEOAutoFix_Debug_Logger::log('[MAYBE COLLECT] No anchor_ctx — detected file_ext="' . $file_ext . '" from url path');
 
             if ($file_ext !== '' && in_array($file_ext, $media_extensions, true)) {
                 // Humanize: replace hyphens/underscores with spaces, title-case
@@ -1083,11 +1088,13 @@ class Link_Crawler
                 $anchor_text   = $human_name !== '' ? $prefix . ': ' . $human_name : '[' . $prefix . ']';
                 $anchor_source = 'derived';
                 $confidence    = 'medium';
+                \SEOAutoFix_Debug_Logger::log('[MAYBE COLLECT] ✅ FIX3 FILENAME FALLBACK applied: "' . $anchor_text . '"');
             } else {
                 // Non-media URL with no anchor context: use key name as hint
                 $anchor_text   = '[' . $key_context . ']';
                 $anchor_source = 'derived';
                 $confidence    = 'low';
+                \SEOAutoFix_Debug_Logger::log('[MAYBE COLLECT] ℹ️ Non-media fallback: "' . $anchor_text . '"');
             }
         }
 
@@ -1143,11 +1150,14 @@ class Link_Crawler
      */
     private function resolve_anchor_from_context(array $context, $link_key)
     {
+        \SEOAutoFix_Debug_Logger::log('[ANCHOR RESOLVE] resolve_anchor_from_context() called — link_key="' . $link_key . '" context_keys=[' . implode(',', array_keys($context)) . ']');
+
         // Pass 1: check canonical text keys (priority order from $TEXT_KEYS)
         foreach (self::$TEXT_KEYS as $tk) {
             if (isset($context[$tk]) && is_string($context[$tk])) {
                 $candidate = trim(strip_tags(html_entity_decode($context[$tk], ENT_QUOTES | ENT_HTML5, 'UTF-8')));
                 if (!empty($candidate)) {
+                    \SEOAutoFix_Debug_Logger::log('[ANCHOR RESOLVE] ✅ Pass 1 HIT — key="' . $tk . '" value="' . substr($candidate, 0, 80) . '" (confidence=high)');
                     return array(
                         'text'       => substr($candidate, 0, 255),
                         'source'     => 'field',
@@ -1156,6 +1166,8 @@ class Link_Crawler
                 }
             }
         }
+
+        \SEOAutoFix_Debug_Logger::log('[ANCHOR RESOLVE] ⚠️ Pass 1 MISS — no TEXT_KEY sibling found');
 
         // Pass 2: any non-URL string value that is not itself a link key
         foreach ($context as $k => $v) {
@@ -1178,6 +1190,7 @@ class Link_Crawler
             }
             $candidate = trim(strip_tags(html_entity_decode($v, ENT_QUOTES | ENT_HTML5, 'UTF-8')));
             if (!empty($candidate)) {
+                \SEOAutoFix_Debug_Logger::log('[ANCHOR RESOLVE] ⚠️ Pass 2 HIT — key="' . $k . '" value="' . substr($candidate, 0, 80) . '" (confidence=medium) ← THIS MAY BE WRONG FOR IMAGES');
                 return array(
                     'text'       => substr($candidate, 0, 255),
                     'source'     => 'field',
@@ -1186,6 +1199,7 @@ class Link_Crawler
             }
         }
 
+        \SEOAutoFix_Debug_Logger::log('[ANCHOR RESOLVE] ℹ️ Pass 2 MISS — returning null (will use filename fallback for media URLs)');
         return null;
     }
 

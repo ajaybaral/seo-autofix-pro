@@ -614,6 +614,18 @@
                     anchor_text:          link.anchor_text          || '',
                     location:             link.location             || 'content'
                 });
+
+                // 🔍 ANCHOR TEXT DEBUG — log every media/image link as received from backend
+                const isMediaUrl = /\.(jpg|jpeg|png|gif|webp|svg|avif|mp4|pdf|doc|docx|zip)(\?.*)?$/i.test(url);
+                if (isMediaUrl) {
+                    console.log('[ANCHOR TEXT DEBUG] 🖼️ Media URL from backend:', {
+                        url: url,
+                        anchor_text_raw: link.anchor_text,
+                        anchor_text_stored: link.anchor_text || '',
+                        location: link.location,
+                        found_on_url: link.found_on_url
+                    });
+                }
             });
 
             const uniqueUrls = Object.keys(allLinks);
@@ -3553,11 +3565,24 @@
      * Processes all links on one page before moving to the next.
      */
     function performBulkRemove(links) {
-        console.log('[PERFORM BULK REMOVE] Removing', links.length, 'links, grouped by page.');
+        console.log('[PERFORM BULK REMOVE] ===== START =====');
+        console.log('[PERFORM BULK REMOVE] Total links received:', links.length);
 
-        // Group links by found_on_page_id
+        // ── DIAGNOSTIC: inspect first link object to see all available fields ──
+        if (links.length > 0) console.log('[PERFORM BULK REMOVE] Sample link[0] fields:', JSON.stringify(links[0]));
+        if (links.length > 1) console.log('[PERFORM BULK REMOVE] Sample link[1] fields:', JSON.stringify(links[1]));
+
+        // Log page_id distribution for every link
+        console.log('[PERFORM BULK REMOVE] found_on_page_id values per link:');
+        links.forEach((link, idx) => {
+            console.log('  [' + idx + '] id=' + link.id + ' found_on_page_id="' + link.found_on_page_id + '" found_on_url="' + link.found_on_url + '"');
+        });
+
+        // Group links by found_on_page_id (non-zero) or fall back to found_on_url
         const linksByPage = links.reduce((acc, link) => {
-            const pageId = link.found_on_page_id || 'unknown_page'; // Use a fallback for links without page_id
+            const pageId = (link.found_on_page_id && String(link.found_on_page_id) !== '0')
+                ? String(link.found_on_page_id)
+                : (link.found_on_url || 'unknown_page');
             if (!acc[pageId]) {
                 acc[pageId] = [];
             }
@@ -3567,6 +3592,13 @@
 
         const pageIds = Object.keys(linksByPage);
         const totalLinks = links.length;
+
+        // Log the groups formed
+        console.log('[PERFORM BULK REMOVE] Formed ' + pageIds.length + ' page group(s):');
+        pageIds.forEach((pid, i) => {
+            const ids = linksByPage[pid].map(function(l) { return l.id; }).join(', ');
+            console.log('  Group[' + i + '] key="' + pid + '" → ' + linksByPage[pid].length + ' link(s) [IDs: ' + ids + ']');
+        });
 
         showMassActionProgress('Deleted', totalLinks);
 
@@ -3612,6 +3644,8 @@
                 const entryId = link.id;
                 console.log(`[BULK REMOVE] Deleting link ${currentLinkIndexOnPage + 1}/${linksOnCurrentPage.length} on page ${currentPageId}, ID:`, entryId);
 
+                console.log('[BULK REMOVE] → Sending AJAX delete | ID:', entryId, '| page key:', currentPageId, '| link index:', currentLinkIndexOnPage);
+
                 $.ajax({
                     url: seoautofixBrokenUrls.ajaxUrl,
                     method: 'POST',
@@ -3621,6 +3655,8 @@
                         id: entryId
                     },
                     success: function (response) {
+                        console.log('[BULK REMOVE] ← Response for ID:', entryId, '| success:', response.success, '| data:', JSON.stringify(response.data));
+
                         if (response.success) {
                             successCount++;
                             updateMassActionProgress();
@@ -3692,8 +3728,9 @@
                         deleteNextLinkOnPage();
                     },
                     error: function (jqXHR, textStatus, errorThrown) {
+                        console.error('[BULK REMOVE] ✗ HTTP error ID:', entryId, '| status:', jqXHR.status, '| text:', textStatus, '| error:', errorThrown);
+                        console.error('[BULK REMOVE] ✗ Raw response:', jqXHR.responseText);
                         failCount++;
-                        console.error('[BULK REMOVE] ❌ AJAX error ID:', entryId, textStatus);
                         currentLinkIndexOnPage++;
                         deleteNextLinkOnPage();
                     }

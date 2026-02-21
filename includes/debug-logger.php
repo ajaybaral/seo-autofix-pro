@@ -34,6 +34,21 @@ class SEOAutoFix_Debug_Logger {
         self::init($module);
         @file_put_contents(self::$log_file, '');
     }
+
+    /**
+     * Clear ALL debug log files (debug-*.log) in the plugin directory.
+     * Call this on plugin activation or at the start of a new scan so old
+     * entries from previous sessions never bleed into fresh logs.
+     */
+    public static function clear_all() {
+        $pattern = SEOAUTOFIX_PLUGIN_DIR . 'debug-*.log';
+        $files = glob($pattern);
+        if ($files) {
+            foreach ($files as $file) {
+                @file_put_contents($file, '');
+            }
+        }
+    }
     
     public static function get_log_path($module = 'general') {
         self::init($module);

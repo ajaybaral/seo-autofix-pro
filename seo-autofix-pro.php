@@ -261,6 +261,12 @@ class SEO_AutoFix_Pro
      */
     public function activate()
     {
+        // Clear all stale debug logs on (re)activation so the plugin always
+        // starts fresh — no old January (or other session) entries will remain.
+        if (class_exists('SEOAutoFix_Debug_Logger')) {
+            \SEOAutoFix_Debug_Logger::clear_all();
+        }
+
         // Set plugin activation flag
         update_option('seoautofix_activated', true);
         update_option('seoautofix_version', SEOAUTOFIX_VERSION);

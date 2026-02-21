@@ -461,6 +461,10 @@ class SEOAutoFix_Broken_Url_Management
      */
     public function ajax_start_scan()
     {
+        // Clear all previous debug logs so each scan produces fresh, self-contained output.
+        // This prevents old entries (e.g. from January) bleeding into new scan logs.
+        \SEOAutoFix_Debug_Logger::clear_all();
+
         \SEOAutoFix_Debug_Logger::log('[SKU] [START_SCAN] ========== AJAX ENDPOINT CALLED ==========');
         \SEOAutoFix_Debug_Logger::log('[SKU] [START_SCAN] Timestamp: ' . current_time('mysql'));
         \SEOAutoFix_Debug_Logger::log('[BROKEN URLS] ajax_start_scan() called');
@@ -685,9 +689,10 @@ class SEOAutoFix_Broken_Url_Management
 
         $id = isset($_POST['id']) ? intval($_POST['id']) : 0;
 
-        \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ===== ajax_delete_entry called for ID: ' . $id . ' =====');
+        \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ========== START: ID=' . $id . ' | time=' . current_time('mysql') . ' ==========');
 
         if (empty($id)) {
+            \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ❌ No ID provided — returning error');
             wp_send_json_error(array('message' => __('Invalid ID', 'seo-autofix-pro')));
         }
 
@@ -699,11 +704,11 @@ class SEOAutoFix_Broken_Url_Management
             $entry = $db_manager->get_entry($id);
 
             if (!$entry) {
-                \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] Entry not found: ' . $id);
+                \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ❌ Entry ID ' . $id . ' not found in database');
                 wp_send_json_error(array('message' => __('Entry not found', 'seo-autofix-pro')));
             }
 
-            \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] Entry data: ' . print_r($entry, true));
+            \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] Entry found — broken_url="' . $entry['broken_url'] . '" found_on_url="' . $entry['found_on_url'] . '" location="' . ($entry['link_location'] ?? 'N/A') . '" builder="' . ($entry['builder_type'] ?? 'N/A') . '" is_deleted=' . $entry['is_deleted']);
 
             // Resolve post ID for locking
             $link_analyzer = new Link_Analyzer();
@@ -711,11 +716,16 @@ class SEOAutoFix_Broken_Url_Management
             $builder_type = isset($entry['builder_type']) ? $entry['builder_type'] : null;
             $location = isset($entry['link_location']) ? $entry['link_location'] : 'content';
 
+            \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] Resolved post_id=' . ($post_id ?: 'NULL') . ' | location=' . $location . ' | builder=' . ($builder_type ?: 'none'));
+
             // --- Per-post lock ---
             if ($post_id) {
                 $lock_key = 'seoautofix_lock_' . $post_id;
-                if (get_transient($lock_key)) {
-                    \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ⚠️ Lock active for post ' . $post_id);
+                $lock_value = get_transient($lock_key);
+                \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] Lock check for post ' . $post_id . ': ' . ($lock_value ? '🔒 LOCKED (set ' . (time() - (int)$lock_value) . 's ago)' : '🔓 FREE'));
+
+                if ($lock_value) {
+                    \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ❌ BLOCKED BY LOCK — returning lock-conflict error for ID=' . $id);
                     wp_send_json_error(array(
                         'message' => __('Another operation is in progress for this page. Please try again.', 'seo-autofix-pro'),
                         'operation' => 'delete',
@@ -726,6 +736,7 @@ class SEOAutoFix_Broken_Url_Management
                     ));
                 }
                 set_transient($lock_key, time(), 10);
+                \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] 🔒 Lock ACQUIRED for post ' . $post_id . ' (10s TTL)');
             }
 
             // --- Retry loop with verification ---
@@ -750,7 +761,7 @@ class SEOAutoFix_Broken_Url_Management
                 $success = $engine_result['success'] ?? false;
                 $last_engine_result = $engine_result;
 
-                \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] Attempt ' . $attempt . ' removal result: ' . ($success ? 'SUCCESS' : 'FAILED'));
+                \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] Attempt ' . $attempt . ' removal result: ' . ($success ? 'SUCCESS' : 'FAILED') . ' | method=' . ($engine_result['method'] ?? 'N/A') . ' | reason=' . ($engine_result['reason'] ?? 'N/A') . ' | manual_required=' . (!empty($engine_result['manual_required']) ? 'YES' : 'NO'));
 
                 if (!$success) {
                     continue;
@@ -791,7 +802,7 @@ class SEOAutoFix_Broken_Url_Management
                 // SOFT DELETE: Mark as deleted only after verified removal
                 $db_manager->delete_entry($id);
 
-                \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ✅ Transactional delete complete — verified and table updated');
+                \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ✅ SUCCESS: Transactional delete complete — ID=' . $id . ' verified and table updated');
 
                 wp_send_json_success(array(
                     'message' => __('Link removed from content successfully', 'seo-autofix-pro'),
@@ -803,7 +814,7 @@ class SEOAutoFix_Broken_Url_Management
                 ));
             } else {
                 // TRANSACTIONAL: Do NOT update table
-                \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ❌ TRANSACTIONAL: NOT updating table — verification failed after ' . $attempts . ' attempts');
+                \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ❌ FAILURE: verification failed after ' . $attempts . ' attempt(s) for ID=' . $id . ' | manual_required=' . (!empty($last_engine_result['manual_required']) ? 'YES' : 'NO') . ' | last_reason=' . ($last_engine_result['reason'] ?? 'N/A'));
 
                 $response = [
                     'operation'       => 'delete',
@@ -825,6 +836,7 @@ class SEOAutoFix_Broken_Url_Management
                     );
                 }
 
+                \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ❌ Sending error response: ' . json_encode($response));
                 wp_send_json_error($response);
             }
         } catch (\Exception $e) {
