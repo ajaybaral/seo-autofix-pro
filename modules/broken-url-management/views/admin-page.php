@@ -67,6 +67,22 @@ $recent_scans = $db_manager->get_scans(10);
         </div>
     </div>
 
+    <!-- Mass Action Progress Bar (hidden by default) -->
+    <div id="mass-action-progress-container" class="seoautofix-progress-container" style="display: none;">
+        <div class="seoautofix-progress-info">
+            <span id="mass-action-progress-text"><?php echo esc_html__('Processing...', 'seo-autofix-pro'); ?></span>
+            <span id="mass-action-progress-percentage">0%</span>
+        </div>
+        <div class="seoautofix-progress-bar">
+            <div id="mass-action-progress-fill" class="seoautofix-progress-fill"></div>
+        </div>
+        <div class="seoautofix-progress-details">
+            <span id="mass-action-done-count">0</span>
+            &nbsp;<?php echo esc_html__('URL(s)', 'seo-autofix-pro'); ?>&nbsp;
+            <span id="mass-action-done-label"><?php echo esc_html__('processed', 'seo-autofix-pro'); ?></span>
+        </div>
+    </div>
+
     <!-- Results Section -->
     <div id="results-container" style="display: none;">
         <!-- Filters and Search -->

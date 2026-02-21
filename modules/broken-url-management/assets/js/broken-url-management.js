@@ -3554,7 +3554,7 @@
     function performBulkRemove(links) {
         console.log('[PERFORM BULK REMOVE] Removing', links.length, 'links using individual delete_entry');
 
-        showBulkProgressModal('Removing Broken Links', links.length);
+        showMassActionProgress('Deleted', links.length);
 
         let successCount = 0;
         let failCount = 0;
@@ -3563,7 +3563,7 @@
         const deleteNext = () => {
             if (currentIndex >= links.length) {
                 // All done
-                closeBulkProgressModal();
+                hideMassActionProgress();
                 console.log('[BULK REMOVE] Completed. Success:', successCount, 'Failed:', failCount);
 
                 if (successCount > 0) {
@@ -3595,6 +3595,7 @@
                 success: function (response) {
                     if (response.success) {
                         successCount++;
+                        updateMassActionProgress();
                         console.log('[BULK REMOVE] ✅ Deleted ID:', entryId);
 
                         // Track in undoStack (same as individual delete)
@@ -4116,7 +4117,7 @@
         console.log('[BULK REPLACE V2] ===== START =====');
         console.log('[BULK REPLACE V2] Processing', links.length, 'links using individual apply_fixes');
 
-        showBulkProgressModal('Replacing Broken Links', links.length);
+        showMassActionProgress('Replaced', links.length);
 
         let successCount = 0;
         let failCount = 0;
@@ -4126,7 +4127,7 @@
         const processNext = () => {
             if (currentIndex >= links.length) {
                 // All done
-                closeBulkProgressModal();
+                hideMassActionProgress();
                 console.log('[BULK REPLACE V2] Completed. Replaced:', successCount, 'Deleted:', deletedCount, 'Failed:', failCount);
 
                 if (successCount > 0 || deletedCount > 0) {
@@ -4165,6 +4166,7 @@
                     success: function (response) {
                         if (response.success) {
                             deletedCount++;
+                            updateMassActionProgress();
                             trackBulkActionInUndoAndSession(entryId, link, 'delete');
                             const $row = $(`tr[data-id="${entryId}"]`);
                             if ($row.length) {
@@ -4201,6 +4203,7 @@
                     success: function (response) {
                         if (response.success && (response.data.fixed_count || 0) > 0) {
                             successCount++;
+                            updateMassActionProgress();
                             trackBulkActionInUndoAndSession(entryId, link, 'fix');
                             const $row = $(`tr[data-id="${entryId}"]`);
                             if ($row.length) {
@@ -4537,9 +4540,13 @@
             let successCount = 0;
             let failCount = 0;
 
+            // Show inline progress bar
+            showMassActionProgress('Deleted', linksToDelete.length);
+
             const deleteNextLink = (index) => {
                 if (index >= linksToDelete.length) {
                     // All done
+                    hideMassActionProgress();
                     console.log('[FIX ALL - CATEGORY DELETE] Completed. Success:', successCount, 'Failed:', failCount);
 
                     if (successCount > 0) {
@@ -4564,6 +4571,7 @@
                     success: function (response) {
                         if (response.success) {
                             successCount++;
+                            updateMassActionProgress();
                             console.log('[FIX ALL - CATEGORY DELETE] ✅ Deleted ID:', link.id);
 
                             // ✅ TRACK DELETION BEFORE removing row (same as individual delete)
@@ -4970,7 +4978,7 @@
             return;
         }
 
-        showBulkProgressModal('Deleting Links', linkIds.length);
+        showMassActionProgress('Deleted', linkIds.length);
 
         $.ajax({
             url: seoautofixBrokenUrls.ajaxUrl,
@@ -4982,7 +4990,7 @@
             },
             success: function (response) {
                 console.log('[BULK DELETE] Backend response:', response);
-                closeBulkProgressModal();
+                hideMassActionProgress();
 
                 if (response.success) {
                     const deletedCount = response.data.deleted_count || linkIds.length;
@@ -5008,7 +5016,7 @@
                     error: errorThrown,
                     responseText: jqXHR.responseText
                 });
-                closeBulkProgressModal();
+                hideMassActionProgress();
                 alert('Error deleting links: ' + textStatus);
             }
         });
@@ -5180,6 +5188,60 @@
         $('#bulk-progress-modal').fadeOut(200, function () {
             $(this).remove();
         });
+    }
+
+    /**
+     * Show the mass-action inline progress bar (replaces bulk spinner modal for sequential loops)
+     * @param {string} actionLabel  Past-tense verb shown in the stat line e.g. "Deleted", "Replaced"
+     * @param {number} total        Total number of items to process
+     */
+    function showMassActionProgress(actionLabel, total) {
+        window._massActionLabel = actionLabel;
+        window._massActionTotal = total;
+        window._massActionDone  = 0;
+
+        // Reset bar
+        $('#mass-action-progress-fill').css('width', '0%');
+        $('#mass-action-progress-percentage').text('0%');
+        $('#mass-action-progress-text').text('Processing...');
+        $('#mass-action-done-count').text('0');
+        $('#mass-action-done-label').text('URL(s) ' + actionLabel.toLowerCase());
+
+        $('#mass-action-progress-container').show();
+
+        // Disable all bulk action buttons while in progress
+        $('#remove-broken-links-btn, #replace-broken-links-btn, #fix-all-issues-btn').prop('disabled', true);
+    }
+
+    /**
+     * Advance the mass-action progress bar by 1 step
+     */
+    function updateMassActionProgress() {
+        window._massActionDone = (window._massActionDone || 0) + 1;
+        const total = window._massActionTotal || 1;
+        const done  = window._massActionDone;
+        const pct   = Math.min(Math.round((done / total) * 100), 100);
+
+        $('#mass-action-progress-fill').css('width', pct + '%');
+        $('#mass-action-progress-percentage').text(pct + '%');
+        $('#mass-action-done-count').text(done);
+
+        console.log('[MASS ACTION PROGRESS] ' + done + '/' + total + ' (' + pct + '%)');
+    }
+
+    /**
+     * Hide the mass-action progress bar (with brief delay so user sees 100%)
+     */
+    function hideMassActionProgress() {
+        $('#mass-action-progress-fill').css('width', '100%');
+        $('#mass-action-progress-percentage').text('100%');
+
+        // Re-enable bulk action buttons
+        $('#remove-broken-links-btn, #replace-broken-links-btn, #fix-all-issues-btn').prop('disabled', false);
+
+        setTimeout(function () {
+            $('#mass-action-progress-container').fadeOut(400);
+        }, 800);
     }
 
     /**

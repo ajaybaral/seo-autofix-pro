@@ -183,6 +183,10 @@ class Alt_Generator
             $first_page = $context['pages'][0];
             $page_info = "Page Title: " . $first_page['title'] . "\n";
 
+            if (!empty($first_page['url'])) {
+                $page_info .= "Page URL: " . $first_page['url'] . "\n";
+            }
+
             if (!empty($first_page['h1'])) {
                 $page_info .= "Page H1: " . $first_page['h1'] . "\n";
             }
@@ -215,11 +219,11 @@ class Alt_Generator
         $prompt .= "- Filename: " . $filename . "\n\n";
 
         $prompt .= "Requirements:\n";
-        $prompt .= "- Length: Concise but descriptive (no strict character limit)\n";
+        $prompt .= "- Length: Catchy and concise, targeting 60-70 characters\n";
         $prompt .= "- Descriptive and specific based on ACTUAL image content\n";
-        $prompt .= "- Include relevant keywords naturally from the page context\n";
+        $prompt .= "- If a Page URL is provided above, use it as reference to identify the main keywords of that page and naturally include them in the alt text\n";
         $prompt .= "- Accessible for screen readers\n";
-        $prompt .= "Use the same language as the page content\n";
+        $prompt .= "- Use the same language as the page content\n";
         $prompt .= "- SEO-optimized\n\n";
 
         $prompt .= "Return ONLY the alt text, nothing else.";
