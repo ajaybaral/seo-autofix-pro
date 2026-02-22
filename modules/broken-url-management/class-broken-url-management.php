@@ -804,6 +804,13 @@ class SEOAutoFix_Broken_Url_Management
 
                 \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ✅ SUCCESS: Transactional delete complete — ID=' . $id . ' verified and table updated');
 
+                // ⚡ Release lock BEFORE sending response so next sequential request is never blocked
+                if ($lock_key) {
+                    delete_transient($lock_key);
+                    \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] 🔓 Lock pre-released (success) for post ' . $post_id);
+                    $lock_key = null; // Prevent double-delete in finally
+                }
+
                 wp_send_json_success(array(
                     'message' => __('Link removed from content successfully', 'seo-autofix-pro'),
                     'operation' => 'delete',
@@ -837,6 +844,14 @@ class SEOAutoFix_Broken_Url_Management
                 }
 
                 \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ❌ Sending error response: ' . json_encode($response));
+
+                // ⚡ Release lock BEFORE sending response
+                if ($lock_key) {
+                    delete_transient($lock_key);
+                    \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] 🔓 Lock pre-released (failure) for post ' . $post_id);
+                    $lock_key = null; // Prevent double-delete in finally
+                }
+
                 wp_send_json_error($response);
             }
         } catch (\Exception $e) {

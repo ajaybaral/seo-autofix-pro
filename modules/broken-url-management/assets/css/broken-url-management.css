@@ -1651,3 +1651,29 @@
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
 }
+
+/* ── Link-kind badges (3-type classification model) ─────────────────────── */
+.link-kind-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+
+/* Naked URL — grey pill */
+.link-kind-naked {
+    background: #f0f0f1;
+    color: #50575e;
+    border: 1px solid #c3c4c7;
+}
+
+/* Component link (Image / Icon / Button / Widget) — indigo/purple pill */
+.link-kind-component {
+    background: #f0eafb;
+    color: #6d28d9;
+    border: 1px solid #c4b5fd;
+}

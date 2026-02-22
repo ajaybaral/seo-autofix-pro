@@ -961,26 +961,20 @@
             errorClass = errorType === '5xx' ? 'error-5xx' : 'error-4xx';
         }
 
-        // Determine link type display (Anchor Text vs Naked Link)
+        // 3-type link display model
+        // naked     → "Naked URL"  label
+        // component → badge label (Image / Icon / Button / Widget / Video / Audio / File)
+        // text      → quoted anchor text
+        const COMPONENT_LABELS = new Set(['Image', 'Icon', 'Button', 'Widget', 'Video', 'Audio', 'File']);
+        const anchorText = (result.anchor_text || '').trim();
         let linkTypeDisplay = '';
-        console.log('[ANCHOR TEXT CHECK]', {
-            anchor_text: result.anchor_text,
-            anchor_text_type: typeof result.anchor_text,
-            anchor_text_length: result.anchor_text ? result.anchor_text.length : 0,
-            trimmed: result.anchor_text ? result.anchor_text.trim() : ''
-        });
 
-        // Check if it's a real anchor text (not empty, not the URL itself, not placeholder text)
-        const hasRealAnchorText = result.anchor_text &&
-            result.anchor_text.trim() !== '' &&
-            result.anchor_text.trim() !== result.broken_url &&
-            result.anchor_text !== '[No text]' &&
-            !result.anchor_text.startsWith('Image: ');
-
-        if (hasRealAnchorText) {
-            linkTypeDisplay = 'Anchor Text: "' + escapeHtml(result.anchor_text) + '"';
+        if (anchorText === 'Naked URL' || anchorText === '' || anchorText === result.broken_url) {
+            linkTypeDisplay = '<span class="link-kind-badge link-kind-naked">Naked URL</span>';
+        } else if (COMPONENT_LABELS.has(anchorText)) {
+            linkTypeDisplay = '<span class="link-kind-badge link-kind-component">' + escapeHtml(anchorText) + '</span>';
         } else {
-            linkTypeDisplay = 'Naked Link:';
+            linkTypeDisplay = 'Anchor Text: "' + escapeHtml(anchorText) + '"';
         }
 
         // Get page title or use found_on_url
@@ -3579,10 +3573,15 @@
         });
 
         // Group links by found_on_page_id (non-zero) or fall back to found_on_url
+        // Normalize URL keys by removing trailing slashes to prevent same-page groups splitting
         const linksByPage = links.reduce((acc, link) => {
-            const pageId = (link.found_on_page_id && String(link.found_on_page_id) !== '0')
-                ? String(link.found_on_page_id)
-                : (link.found_on_url || 'unknown_page');
+            let pageId;
+            if (link.found_on_page_id && String(link.found_on_page_id) !== '0') {
+                pageId = String(link.found_on_page_id);
+            } else {
+                // Normalize: strip trailing slash so "https://x.com" and "https://x.com/" are same group
+                pageId = (link.found_on_url || 'unknown_page').replace(/\/$/, '');
+            }
             if (!acc[pageId]) {
                 acc[pageId] = [];
             }

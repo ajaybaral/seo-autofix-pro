@@ -1040,77 +1040,36 @@ class Link_Crawler
             return;
         }
 
-        // ── Anchor text resolution (priority order) ───────────────────────────
-        \SEOAutoFix_Debug_Logger::log('[MAYBE COLLECT] maybe_collect_url() — url="' . $url . '" key="' . $key_context . '" anchor_ctx=' . ($anchor_ctx !== null ? '"' . substr($anchor_ctx['text'], 0, 60) . '" (source=' . $anchor_ctx['source'] . ',conf=' . $anchor_ctx['confidence'] . ')' : 'NULL'));
+        // ── Anchor text: 3-type classification model ──────────────────────────
+        // type 1 — naked   : plain URL typed directly in content
+        // type 2 — text    : link has real visible text (TEXT_KEYS sibling, high conf)
+        // type 3 — component : image/icon/button/widget — classify by context
 
-        if ($anchor_ctx !== null && !empty($anchor_ctx['text'])) {
-            // Case A: resolved from sibling field (highest quality)
+        if ($force_kind === 'naked') {
+            // Plain URL in content — no anchor element exists
+            $anchor_text   = 'Naked URL';
+            $anchor_source = 'text_regex';
+            $confidence    = 'high';
+            $link_kind     = 'naked';
+        } elseif ($anchor_ctx !== null && !empty($anchor_ctx['text']) && $anchor_ctx['confidence'] === 'high') {
+            // Real visible text found via canonical TEXT_KEYS (title, text, label, alt …)
             $anchor_text   = $anchor_ctx['text'];
-            $anchor_source = $anchor_ctx['source'];     // 'field'
-            $confidence    = $anchor_ctx['confidence']; // 'high' or 'medium'
-            \SEOAutoFix_Debug_Logger::log('[MAYBE COLLECT] ✅ Using anchor_ctx text: "' . substr($anchor_text, 0, 80) . '"');
+            $anchor_source = 'field';
+            $confidence    = 'high';
+            $link_kind     = 'structured';
         } else {
-            // Fallback — try to derive a meaningful label from the URL itself.
-            // For media URLs (images, videos, documents) extract the filename and
-            // humanize it, e.g. "product-photo-2024.jpg" → "Image: Product Photo 2024".
-            // This prevents path-segment leaks (e.g. "library") from appearing as
-            // anchor text when builder data siblings contain folder/slug strings.
-            $media_extensions = array(
-                'jpg','jpeg','png','gif','webp','svg','avif','ico','bmp','tiff','tif',
-                'mp4','webm','ogv','mov','avi',
-                'mp3','wav','ogg','m4a',
-                'pdf','doc','docx','xls','xlsx','ppt','pptx','zip','rar','7z',
-            );
-            $path_info = pathinfo(parse_url($url, PHP_URL_PATH));
-            $file_ext  = isset($path_info['extension']) ? strtolower($path_info['extension']) : '';
-
-            \SEOAutoFix_Debug_Logger::log('[MAYBE COLLECT] No anchor_ctx — detected file_ext="' . $file_ext . '" from url path');
-
-            if ($file_ext !== '' && in_array($file_ext, $media_extensions, true)) {
-                // Humanize: replace hyphens/underscores with spaces, title-case
-                $raw_name    = isset($path_info['filename']) ? $path_info['filename'] : '';
-                $human_name  = ucwords(str_replace(array('-', '_'), ' ', $raw_name));
-
-                // Prefix based on type
-                $image_exts = array('jpg','jpeg','png','gif','webp','svg','avif','ico','bmp','tiff','tif');
-                $video_exts = array('mp4','webm','ogv','mov','avi');
-                $audio_exts = array('mp3','wav','ogg','m4a');
-                if (in_array($file_ext, $image_exts, true)) {
-                    $prefix = 'Image';
-                } elseif (in_array($file_ext, $video_exts, true)) {
-                    $prefix = 'Video';
-                } elseif (in_array($file_ext, $audio_exts, true)) {
-                    $prefix = 'Audio';
-                } else {
-                    $prefix = 'File';
-                }
-
-                $anchor_text   = $human_name !== '' ? $prefix . ': ' . $human_name : '[' . $prefix . ']';
-                $anchor_source = 'derived';
-                $confidence    = 'medium';
-                \SEOAutoFix_Debug_Logger::log('[MAYBE COLLECT] ✅ FIX3 FILENAME FALLBACK applied: "' . $anchor_text . '"');
-            } else {
-                // Non-media URL with no anchor context: use key name as hint
-                $anchor_text   = '[' . $key_context . ']';
-                $anchor_source = 'derived';
-                $confidence    = 'low';
-                \SEOAutoFix_Debug_Logger::log('[MAYBE COLLECT] ℹ️ Non-media fallback: "' . $anchor_text . '"');
-            }
+            // Component link — classify by key context and URL type
+            $anchor_text   = self::classify_component_label($url, $key_context);
+            $anchor_source = 'derived';
+            $confidence    = 'medium';
+            $link_kind     = 'component';
         }
 
-        // ── Link kind classification ──────────────────────────────────────────
-        if ($force_kind !== null) {
+        // Allow caller to override link_kind (e.g. force_kind='media' for img src)
+        if ($force_kind !== null && $force_kind !== 'naked') {
             $link_kind     = $force_kind;
             $anchor_source = $force_source ?? $anchor_source;
             $confidence    = $force_conf   ?? $confidence;
-        } elseif ($this->is_naked_url($url, $anchor_text)) {
-            $link_kind     = 'naked';
-            // For naked links, the URL itself is the visible text
-            $anchor_text   = $url;
-            $anchor_source = ($anchor_source === 'derived') ? 'text_regex' : $anchor_source;
-            $confidence    = 'high';
-        } else {
-            $link_kind = 'structured';
         }
 
         $links[] = array(
@@ -1137,27 +1096,21 @@ class Link_Crawler
      * Resolve human-readable anchor text from sibling fields in the same
      * context array where a link key was found.
      *
-     * Two-pass strategy:
-     *   Pass 1 — check canonical TEXT_KEYS list (high confidence)
-     *   Pass 2 — check any non-URL, non-link-key string value (medium confidence)
-     *
-     * Example: given array ["title" => "Poor combustion", "link" => {"url": "..."}]
-     *          when $link_key = "link", returns {text:"Poor combustion", source:"field", confidence:"high"}
+     * Single-pass: only canonical TEXT_KEYS are trusted (high confidence).
+     * Pass 2 ("any string sibling") has been removed — it was the source
+     * of metadata leakage like source="library" appearing as anchor text.
      *
      * @param array  $context  The array being traversed when the link key was found
      * @param string $link_key The key name that triggered link detection
-     * @return array|null {text, source, confidence} or null if no text field found
+     * @return array|null {text, source, confidence:'high'} or null
      */
     private function resolve_anchor_from_context(array $context, $link_key)
     {
-        \SEOAutoFix_Debug_Logger::log('[ANCHOR RESOLVE] resolve_anchor_from_context() called — link_key="' . $link_key . '" context_keys=[' . implode(',', array_keys($context)) . ']');
-
-        // Pass 1: check canonical text keys (priority order from $TEXT_KEYS)
+        // Only check canonical text keys — these map to real visible text
         foreach (self::$TEXT_KEYS as $tk) {
             if (isset($context[$tk]) && is_string($context[$tk])) {
                 $candidate = trim(strip_tags(html_entity_decode($context[$tk], ENT_QUOTES | ENT_HTML5, 'UTF-8')));
                 if (!empty($candidate)) {
-                    \SEOAutoFix_Debug_Logger::log('[ANCHOR RESOLVE] ✅ Pass 1 HIT — key="' . $tk . '" value="' . substr($candidate, 0, 80) . '" (confidence=high)');
                     return array(
                         'text'       => substr($candidate, 0, 255),
                         'source'     => 'field',
@@ -1167,40 +1120,63 @@ class Link_Crawler
             }
         }
 
-        \SEOAutoFix_Debug_Logger::log('[ANCHOR RESOLVE] ⚠️ Pass 1 MISS — no TEXT_KEY sibling found');
+        return null;
+    }
 
-        // Pass 2: any non-URL string value that is not itself a link key
-        foreach ($context as $k => $v) {
-            if ($k === $link_key) {
-                continue;
-            }
-            if (in_array((string) $k, self::$LINK_KEYS, true)) {
-                continue;
-            }
-            if (!is_string($v)) {
-                continue;
-            }
-            $v = trim($v);
-            if (empty($v) || strlen($v) < 2) {
-                continue;
-            }
-            // Skip values that look like URLs or raw IDs
-            if (preg_match('/^https?:\/\//i', $v) || is_numeric($v)) {
-                continue;
-            }
-            $candidate = trim(strip_tags(html_entity_decode($v, ENT_QUOTES | ENT_HTML5, 'UTF-8')));
-            if (!empty($candidate)) {
-                \SEOAutoFix_Debug_Logger::log('[ANCHOR RESOLVE] ⚠️ Pass 2 HIT — key="' . $k . '" value="' . substr($candidate, 0, 80) . '" (confidence=medium) ← THIS MAY BE WRONG FOR IMAGES');
-                return array(
-                    'text'       => substr($candidate, 0, 255),
-                    'source'     => 'field',
-                    'confidence' => 'medium',
-                );
-            }
+    /**
+     * Classify a component link's display label based on key context and URL.
+     *
+     * For component links (where no human-readable text sibling was found in
+     * TEXT_KEYS), we look at the key name and URL extension to produce a
+     * short, consistent label like "Image", "Icon", "Button", or "Widget".
+     *
+     * @param string $url         The URL of the link
+     * @param string $key_context The Elementor/Gutenberg field key that held the URL
+     * @return string             Display label, e.g. "Image", "Icon", "Button", "Widget"
+     */
+    private static function classify_component_label($url, $key_context)
+    {
+        // Inspect URL extension first
+        $ext = strtolower(pathinfo(parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION));
+        $image_exts = array('jpg','jpeg','png','gif','webp','svg','avif','ico','bmp','tiff','tif');
+        $video_exts = array('mp4','webm','ogv','mov','avi');
+        $audio_exts = array('mp3','wav','ogg','m4a');
+        $doc_exts   = array('pdf','doc','docx','xls','xlsx','ppt','pptx','zip','rar','7z');
+
+        if (in_array($ext, $image_exts, true)) {
+            return 'Image';
+        }
+        if (in_array($ext, $video_exts, true)) {
+            return 'Video';
+        }
+        if (in_array($ext, $audio_exts, true)) {
+            return 'Audio';
+        }
+        if (in_array($ext, $doc_exts, true)) {
+            return 'File';
         }
 
-        \SEOAutoFix_Debug_Logger::log('[ANCHOR RESOLVE] ℹ️ Pass 2 MISS — returning null (will use filename fallback for media URLs)');
-        return null;
+        // Key context hints
+        $key_lower = strtolower(str_replace(array('-', '.'), '_', $key_context));
+        if (strpos($key_lower, 'icon') !== false) {
+            return 'Icon';
+        }
+        if (strpos($key_lower, 'button') !== false || strpos($key_lower, 'btn') !== false) {
+            return 'Button';
+        }
+        if (strpos($key_lower, 'image') !== false || strpos($key_lower, 'img') !== false
+            || strpos($key_lower, 'photo') !== false || strpos($key_lower, 'thumb') !== false) {
+            return 'Image';
+        }
+        if (strpos($key_lower, 'logo') !== false) {
+            return 'Image';
+        }
+        if (strpos($key_lower, 'background') !== false || strpos($key_lower, 'bg') !== false) {
+            return 'Image';
+        }
+
+        // Default for unrecognised component fields
+        return 'Widget';
     }
 
     /**
@@ -1903,28 +1879,24 @@ class Link_Crawler
                 continue;
             }
 
-            // ── Classify ──────────────────────────────────────────────────────
-            // Case D: img-only content → media
+            // ── 3-type classification ─────────────────────────────────────────
             $is_img_only = (empty($inner_text) && preg_match('/<img\s/i', $inner_html));
+
             if ($is_img_only) {
-                // Try alt text from first img
-                preg_match('/<img[^>]*alt=["\']([^"\']*)["\'][^>]*>/i', $inner_html, $alt_m);
-                $alt_text    = !empty($alt_m[1]) ? trim($alt_m[1]) : '';
-                $anchor_text = $alt_text ?: '[Image Link]';
-                $link_kind   = 'media';
-                $confidence  = $alt_text ? 'medium' : 'low';
-            }
-            // Case B-naked: inner text equals URL → naked
-            elseif (!empty($inner_text) && $this->is_naked_url($href, $inner_text)) {
-                $anchor_text = $href;
+                // Component link: anchor wraps an image element
+                $anchor_text = 'Image';
+                $link_kind   = 'component';
+                $confidence  = 'high';
+            } elseif (!empty($inner_text) && $this->is_naked_url($href, $inner_text)) {
+                // Naked link: visible text IS the URL
+                $anchor_text = 'Naked URL';
                 $link_kind   = 'naked';
                 $confidence  = 'high';
-            }
-            // Case B-structured: real anchor text
-            else {
-                $anchor_text = $inner_text ?: '[No text]';
-                $link_kind   = empty($inner_text) ? 'naked' : 'structured';
-                $confidence  = empty($inner_text) ? 'low' : 'high';
+            } else {
+                // Text link: real human-readable anchor text
+                $anchor_text = $inner_text !== '' ? $inner_text : 'Naked URL';
+                $link_kind   = $inner_text !== '' ? 'structured' : 'naked';
+                $confidence  = $inner_text !== '' ? 'high' : 'low';
             }
 
             $links[] = array(
@@ -1933,7 +1905,7 @@ class Link_Crawler
                 'found_on_page_id'     => $page_id,
                 'found_on_page_title'  => $page_title,
                 'location'             => 'content',
-                'anchor_text'          => $anchor_text,
+                'anchor_text'          => substr($anchor_text, 0, 255),
                 'builder'              => $builder,
                 'dynamic_source'       => false,
                 'link_kind'            => $link_kind,
@@ -1962,10 +1934,10 @@ class Link_Crawler
                 'found_on_page_id'     => $page_id,
                 'found_on_page_title'  => $page_title,
                 'location'             => 'content',
-                'anchor_text'          => '[Image]',
+                'anchor_text'          => 'Image',
                 'builder'              => $builder,
                 'dynamic_source'       => false,
-                'link_kind'            => 'media',
+                'link_kind'            => 'component',
                 'anchor_source'        => 'html',
                 'confidence'           => 'high',
             );
@@ -1975,7 +1947,7 @@ class Link_Crawler
         // Catches URLs typed directly in content, NOT inside <a> or <img> tags.
         // Strip existing HTML tags first so we only search visible text.
         $plain_text = strip_tags($html);
-        preg_match_all('/https?:\/\/[^\s"\'<>\[\]{}\\\\]+/i', $plain_text, $bare_matches);
+        preg_match_all('/https?:\/\/[^\s"\'\'<>\[\]{}\\\\]+/i', $plain_text, $bare_matches);
         foreach ($bare_matches[0] as $bare_url) {
             $bare_url = rtrim($bare_url, '.,;:!?)');
             if (!filter_var($bare_url, FILTER_VALIDATE_URL)) {
@@ -1987,7 +1959,7 @@ class Link_Crawler
                 'found_on_page_id'     => $page_id,
                 'found_on_page_title'  => $page_title,
                 'location'             => 'content',
-                'anchor_text'          => $bare_url,
+                'anchor_text'          => 'Naked URL',
                 'builder'              => $builder,
                 'dynamic_source'       => false,
                 'link_kind'            => 'naked',
