@@ -1643,12 +1643,169 @@ class SEOAutoFix_Broken_Url_Management
             }
         }
 
-        \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] ✅ Created ' . $snapshot_count . ' snapshots');
-        \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] Created ' . $snapshot_count . ' snapshots');
+        // ===================================================================
+        // FIX: Also snapshot Elementor header/footer templates for page_id=0
+        // These are elementor_library posts used as site-wide header/footer.
+        // The original query (found_on_page_id > 0) missed them entirely.
+        // ===================================================================
+        $header_footer_urls = $wpdb->get_col($wpdb->prepare(
+            "SELECT DISTINCT broken_url FROM {$table_results} WHERE scan_id = %s AND found_on_page_id = 0",
+            $scan_id
+        ));
+
+        if (!empty($header_footer_urls)) {
+            \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] Found ' . count($header_footer_urls) . ' unique broken URLs in header/footer entries (page_id=0)');
+
+            // Find all Elementor library templates (header/footer templates)
+            $templates = get_posts(array(
+                'post_type'      => 'elementor_library',
+                'posts_per_page' => -1,
+                'post_status'    => 'publish'
+            ));
+
+            foreach ($templates as $template) {
+                $elementor_data = get_post_meta($template->ID, '_elementor_data', true);
+                if (empty($elementor_data)) {
+                    continue;
+                }
+
+                // Check if any broken header/footer URL appears in this template
+                $relevant = false;
+                foreach ($header_footer_urls as $hf_url) {
+                    if (stripos($elementor_data, $hf_url) !== false) {
+                        $relevant = true;
+                        break;
+                    }
+                }
+                if (!$relevant) {
+                    continue;
+                }
+
+                // Prevent duplicate snapshot for this template
+                $existing = $wpdb->get_var($wpdb->prepare(
+                    "SELECT id FROM {$table_snapshot} WHERE scan_id = %s AND page_id = %d",
+                    $scan_id,
+                    $template->ID
+                ));
+                if ($existing) {
+                    \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] Template snapshot already exists for ID ' . $template->ID . ' (' . $template->post_title . ')');
+                    continue;
+                }
+
+                // Store content in same Elementor JSON format as regular pages
+                $snap_content = json_encode(array(
+                    'is_elementor'   => true,
+                    'post_content'   => $template->post_content,
+                    'elementor_data' => $elementor_data
+                ));
+
+                $inserted = $wpdb->insert(
+                    $table_snapshot,
+                    array(
+                        'scan_id'          => $scan_id,
+                        'page_id'          => $template->ID,
+                        'original_content' => $snap_content
+                    ),
+                    array('%s', '%d', '%s')
+                );
+
+                if ($inserted) {
+                    $snapshot_count++;
+                    \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] ✅ Snapshotted Elementor header/footer template: ' . $template->post_title . ' (ID: ' . $template->ID . ')');
+                } else {
+                    \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] ❌ Failed to snapshot template ID ' . $template->ID . ': ' . $wpdb->last_error);
+                }
+            }
+        } else {
+            \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] No header/footer (page_id=0) entries in this scan — skipping template snapshot');
+        }
+
+        \SEOAutoFix_Debug_Logger::log('[SKU] [SNAPSHOT] ✅ Created ' . $snapshot_count . ' snapshots (including templates)');
+        \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] Created ' . $snapshot_count . ' snapshots (including templates)');
+
+        // ===================================================================
+        // Detect UNSNAPSHOTTED links: scan entries whose page_id has NO row
+        // in the snapshot table.  These links cannot be undone — warn the user.
+        // ===================================================================
+        $unsnapshotted_links = array();
+
+        // Collect every distinct page_id (> 0) that was scanned
+        $scanned_page_ids = $wpdb->get_col($wpdb->prepare(
+            "SELECT DISTINCT found_on_page_id FROM {$table_results}
+             WHERE scan_id = %s AND found_on_page_id > 0",
+            $scan_id
+        ));
+
+        // Collect every page_id that WAS snapshotted
+        $snapshotted_ids = $wpdb->get_col($wpdb->prepare(
+            "SELECT DISTINCT page_id FROM {$table_snapshot} WHERE scan_id = %s",
+            $scan_id
+        ));
+        $snapshotted_ids = array_map('intval', $snapshotted_ids);
+
+        // Find page_ids with at least one broken link that have no snapshot
+        $missing_page_ids = array_diff(array_map('intval', $scanned_page_ids), $snapshotted_ids);
+
+        if (!empty($missing_page_ids)) {
+            foreach ($missing_page_ids as $missing_id) {
+                // Get the broken links on this page that cannot be undone
+                $links = $wpdb->get_results($wpdb->prepare(
+                    "SELECT broken_url, anchor_text, location FROM {$table_results}
+                     WHERE scan_id = %s AND found_on_page_id = %d",
+                    $scan_id,
+                    $missing_id
+                ), ARRAY_A);
+
+                foreach ($links as $link) {
+                    $unsnapshotted_links[] = array(
+                        'page_id'     => $missing_id,
+                        'page_title'  => get_the_title($missing_id) ?: 'Page #' . $missing_id,
+                        'broken_url'  => $link['broken_url'],
+                        'anchor_text' => $link['anchor_text'],
+                        'location'    => $link['location']
+                    );
+                }
+            }
+            \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] ⚠️ ' . count($unsnapshotted_links) . ' links across ' . count($missing_page_ids) . ' pages could NOT be snapshotted (builder plugin data?)');
+        }
+
+        // Also detect any header/footer (page_id=0) links still not covered
+        $hf_unsnapped = $wpdb->get_results($wpdb->prepare(
+            "SELECT DISTINCT r.broken_url, r.anchor_text, r.location
+             FROM {$table_results} r
+             WHERE r.scan_id = %s AND r.found_on_page_id = 0",
+            $scan_id
+        ), ARRAY_A);
+
+        foreach ($hf_unsnapped as $hf_link) {
+            // Check if any template snapshot was saved for this URL
+            $covered = false;
+            foreach ($snapshotted_ids as $snapped_id) {
+                $snap_content_raw = $wpdb->get_var($wpdb->prepare(
+                    "SELECT original_content FROM {$table_snapshot} WHERE scan_id = %s AND page_id = %d",
+                    $scan_id, $snapped_id
+                ));
+                if ($snap_content_raw && stripos($snap_content_raw, $hf_link['broken_url']) !== false) {
+                    $covered = true;
+                    break;
+                }
+            }
+            if (!$covered) {
+                $unsnapshotted_links[] = array(
+                    'page_id'     => 0,
+                    'page_title'  => 'Header / Footer',
+                    'broken_url'  => $hf_link['broken_url'],
+                    'anchor_text' => $hf_link['anchor_text'],
+                    'location'    => $hf_link['location']
+                );
+                \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] ⚠️ Header/footer link not covered by any template snapshot: ' . $hf_link['broken_url']);
+            }
+        }
 
         wp_send_json_success(array(
-            'message' => sprintf(__('Snapshot created for %d pages', 'seo-autofix-pro'), $snapshot_count),
-            'snapshot_count' => $snapshot_count
+            'message'             => sprintf(__('Snapshot created for %d pages/templates', 'seo-autofix-pro'), $snapshot_count),
+            'snapshot_count'      => $snapshot_count,
+            'unsnapshotted_links' => $unsnapshotted_links
         ));
     }
 
@@ -1845,6 +2002,19 @@ class SEOAutoFix_Broken_Url_Management
             }
 
             \SEOAutoFix_Debug_Logger::log('[UNDO] Inserted ' . count($verified_page_ids) . ' undo activity log entries');
+        }
+
+        // ===================================================================
+        // FIX: Also reset header/footer rows (found_on_page_id = 0)
+        // These belong to Elementor templates that were restored above.
+        // The old code never reset these rows, leaving them as "deleted" forever.
+        // ===================================================================
+        if ($restored_count > 0) {
+            $hf_updated = $wpdb->query($wpdb->prepare(
+                "UPDATE {$table_scan_results} SET is_fixed = 0, is_deleted = 0 WHERE scan_id = %s AND found_on_page_id = 0",
+                $scan_id
+            ));
+            \SEOAutoFix_Debug_Logger::log('[UNDO] ✅ Reset ' . $hf_updated . ' header/footer entries (page_id=0) to unfixed/undeleted');
         }
 
         // Build response

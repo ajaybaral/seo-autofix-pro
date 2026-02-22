@@ -5460,7 +5460,60 @@
                 console.log('[SKU] [SNAPSHOT] Response:', response);
 
                 if (response.success) {
-                    console.log('[SKU] [SNAPSHOT] ✅ Snapshot created successfully:', response.data.snapshot_count, 'pages');
+                    const snapshotCount = response.data.snapshot_count;
+                    const unsnapshottedLinks = response.data.unsnapshotted_links || [];
+                    console.log('[SKU] [SNAPSHOT] ✅ Snapshot created successfully:', snapshotCount, 'pages');
+
+                    if (unsnapshottedLinks.length > 0) {
+                        // Build list of affected links
+                        let linkRows = '';
+                        unsnapshottedLinks.forEach(function (link) {
+                            const label = link.anchor_text ? link.anchor_text : link.broken_url;
+                            const location = link.location ? ' <em>(' + link.location + ')</em>' : '';
+                            linkRows += '<li><strong>' + escapeHtml(label) + '</strong> on <em>' + escapeHtml(link.page_title) + '</em>' + location + '</li>';
+                        });
+
+                        // Remove any old warning
+                        $('#seoautofix-snapshot-warning').remove();
+
+                        const warningHtml = `
+                            <div id="seoautofix-snapshot-warning" style="
+                                background: #fff8e1;
+                                border-left: 4px solid #f0ad4e;
+                                padding: 14px 18px;
+                                margin: 14px 0;
+                                border-radius: 3px;
+                                box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+                                position: relative;
+                            ">
+                                <button type="button" style="
+                                    position: absolute; top: 10px; right: 12px;
+                                    background: none; border: none; font-size: 18px;
+                                    cursor: pointer; color: #888; line-height: 1;
+                                " title="Dismiss" onclick="$('#seoautofix-snapshot-warning').fadeOut(200, function(){ $(this).remove(); });">✕</button>
+
+                                <p style="margin:0 0 8px; font-weight:600; color:#856404;">
+                                    ⚠️ ${unsnapshottedLinks.length} link(s) cannot be undone
+                                </p>
+                                <p style="margin:0 0 8px; color:#555; font-size:13px;">
+                                    These links are stored inside a <strong>page-builder plugin</strong> in a format
+                                    our plugin cannot snapshot. If you delete them, <strong>Undo will not be able to restore them</strong>.
+                                    Please fix or note these links before taking any action.
+                                </p>
+                                <ul style="margin:0 0 0 18px; padding:0; font-size:13px; color:#444;">
+                                    ${linkRows}
+                                </ul>
+                            </div>`;
+
+                        // Insert just above the results table
+                        if ($('#results-container').length) {
+                            $('#results-container').before(warningHtml);
+                        } else {
+                            $('.seoautofix-broken-links-wrap').prepend(warningHtml);
+                        }
+
+                        console.warn('[SKU] [SNAPSHOT] ⚠️ ' + unsnapshottedLinks.length + ' links could not be snapshotted:', unsnapshottedLinks);
+                    }
                 } else {
                     console.error('[SKU] [SNAPSHOT] ❌ Failed to create snapshot:', response.data.message);
                 }
@@ -5474,6 +5527,19 @@
                 });
             }
         });
+    }
+
+    /**
+     * Escape HTML special characters to prevent XSS in dynamic banner content
+     */
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 
     // ========================================
