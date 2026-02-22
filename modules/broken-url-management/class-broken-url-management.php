@@ -939,11 +939,18 @@ class SEOAutoFix_Broken_Url_Management
 
         // Check 2: For Elementor, also check _elementor_data
         if ($builder === 'elementor' || (defined('SEOAutoFix\\BrokenUrlManagement\\Builder_Detector::ELEMENTOR') && $builder === Builder_Detector::ELEMENTOR)) {
+            // Force fresh DB read — no object cache
+            wp_cache_delete($post_id, 'post_meta');
             $raw = get_post_meta($post_id, '_elementor_data', true);
+            \SEOAutoFix_Debug_Logger::log('[VERIFY_DELETE_ENTRY] _elementor_data length=' . strlen((string)$raw));
             if (!empty($raw) && stripos($raw, $broken_url) !== false) {
-                \SEOAutoFix_Debug_Logger::log('[VERIFY_DELETE_ENTRY] ❌ URL still exists in _elementor_data');
+                // Show exactly where it still appears
+                $pos = stripos($raw, $broken_url);
+                \SEOAutoFix_Debug_Logger::log('[VERIFY_DELETE_ENTRY] ❌ URL still exists in _elementor_data at position=' . $pos);
+                \SEOAutoFix_Debug_Logger::log('[VERIFY_DELETE_ENTRY] Context (pos-100 to pos+100): ' . substr($raw, max(0, $pos - 100), 250));
                 return false;
             }
+            \SEOAutoFix_Debug_Logger::log('[VERIFY_DELETE_ENTRY] ✅ URL not found in _elementor_data');
         }
 
         \SEOAutoFix_Debug_Logger::log('[VERIFY_DELETE_ENTRY] ✅ Deletion verified — anchor and URL absent');

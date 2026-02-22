@@ -680,24 +680,49 @@ class Builder_Replacement_Engine
     private function remove_elementor($post_id, $target_url)
     {
         $total = 0;
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] remove_elementor() START — post_id=' . $post_id . ' target_url=' . $target_url);
 
         // _elementor_data
         $raw = get_post_meta($post_id, '_elementor_data', true);
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] _elementor_data length=' . strlen((string)$raw) . ' | contains target URL: ' . (stripos((string)$raw, $target_url) !== false ? '✅ YES' : '❌ NO'));
+
         if (!empty($raw)) {
             $decoded = json_decode($raw, true);
+            \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] json_decode error=' . json_last_error_msg());
             if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
                 $count   = 0;
                 $decoded = $this->recursive_remove_link($decoded, $target_url, $count);
+                \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] recursive_remove_link cleared count=' . $count);
                 if ($count > 0) {
-                    update_post_meta($post_id, '_elementor_data', wp_slash(wp_json_encode($decoded)));
+                    $encoded = wp_json_encode($decoded);
+                    $still_has = stripos($encoded, $target_url) !== false;
+                    \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] After removal — encoded JSON still contains URL: ' . ($still_has ? '⚠️ YES (URL survives in JSON!)' : '✅ NO'));
+                    if ($still_has) {
+                        // Find where it still appears in the JSON (for diagnosis)
+                        $pos = stripos($encoded, $target_url);
+                        \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] URL found at JSON position=' . $pos . ' | context: ' . substr($encoded, max(0, $pos - 80), 200));
+                    }
+                    update_post_meta($post_id, '_elementor_data', wp_slash($encoded));
                     $total += $count;
-                    \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] Removed ' . $count . ' link(s) from _elementor_data');
+                    \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] Saved _elementor_data. Verifying postmeta now...');
+                    // Verify save persisted
+                    wp_cache_delete($post_id, 'post_meta');
+                    $verify_raw = get_post_meta($post_id, '_elementor_data', true);
+                    \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] Post-save DB check — URL still in meta: ' . (stripos((string)$verify_raw, $target_url) !== false ? '❌ YES (save failed or URL persists)' : '✅ NO (gone)'));
+                } else {
+                    \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] ⚠️ recursive_remove_link returned count=0 — URL not matched by any handler');
+                    // Diagnostic: search for where URL appears in the JSON manually
+                    $pos = stripos($raw, $target_url);
+                    if ($pos !== false) {
+                        \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] Raw JSON URL context (pos=' . $pos . '): ' . substr($raw, max(0, $pos - 80), 200));
+                    }
                 }
             }
         }
 
         // _elementor_page_settings
         $ps_raw = get_post_meta($post_id, '_elementor_page_settings', true);
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] _elementor_page_settings contains URL: ' . (stripos((string)$ps_raw, $target_url) !== false ? '✅ YES' : '❌ NO'));
         if (!empty($ps_raw) && is_string($ps_raw)) {
             $ps = json_decode($ps_raw, true);
             if (json_last_error() === JSON_ERROR_NONE && is_array($ps)) {
@@ -711,8 +736,11 @@ class Builder_Replacement_Engine
         }
 
         // post_content
-        $total += $this->remove_anchors_in_post_content($post_id, $target_url);
+        $content_removed = $this->remove_anchors_in_post_content($post_id, $target_url);
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] post_content anchor removal count=' . $content_removed);
+        $total += $content_removed;
 
+        \SEOAutoFix_Debug_Logger::log('[BUILDER:ELEMENTOR] remove_elementor() END — total=' . $total);
         return $total;
     }
 
@@ -956,11 +984,24 @@ class Builder_Replacement_Engine
         if (is_array($data)) {
             // ── Link-field key detection ──────────────────────────────────
             foreach (self::$LINK_KEYS as $lk) {
-                if (isset($data[$lk]) && is_string($data[$lk])) {
-                    if (self::normalize_url($data[$lk]) === self::normalize_url($old_url)) {
+                if (!isset($data[$lk])) {
+                    continue;
+                }
+                $field_value = $data[$lk];
+                if (is_string($field_value)) {
+                    if (self::normalize_url($field_value) === self::normalize_url($old_url)) {
                         $data[$lk] = $new_url;
                         $count++;
-                        \SEOAutoFix_Debug_Logger::log('[RECURSIVE] Replaced link-field key "' . $lk . '" → ' . $new_url);
+                        \SEOAutoFix_Debug_Logger::log('[RECURSIVE] Replaced string link-field key "' . $lk . '" → ' . $new_url);
+                    }
+                } elseif (is_array($field_value)) {
+                    // Elementor link-object pattern: {"url": "...", "is_external": "", ...}
+                    if (isset($field_value['url']) && is_string($field_value['url'])
+                        && self::normalize_url($field_value['url']) === self::normalize_url($old_url)
+                    ) {
+                        $data[$lk]['url'] = $new_url;
+                        $count++;
+                        \SEOAutoFix_Debug_Logger::log('[RECURSIVE] Replaced Elementor link-object "' . $lk . '.url" → ' . $new_url);
                     }
                 }
             }
@@ -1010,11 +1051,27 @@ class Builder_Replacement_Engine
         if (is_array($data)) {
             // ── Link-field key detection (normalized comparison) ──────────
             foreach (self::$LINK_KEYS as $lk) {
-                if (isset($data[$lk]) && is_string($data[$lk])) {
-                    if (self::normalize_url($data[$lk]) === self::normalize_url($target_url)) {
+                if (!isset($data[$lk])) {
+                    continue;
+                }
+                $field_value = $data[$lk];
+
+                if (is_string($field_value)) {
+                    // Plain string URL value (e.g. "url": "https://broken.com")
+                    if (self::normalize_url($field_value) === self::normalize_url($target_url)) {
                         $data[$lk] = '';
                         $count++;
-                        \SEOAutoFix_Debug_Logger::log('[RECURSIVE_REMOVE] Cleared link-field "' . $lk . '"');
+                        \SEOAutoFix_Debug_Logger::log('[RECURSIVE_REMOVE] Cleared string link-field "' . $lk . '" value="' . $field_value . '"');
+                    }
+                } elseif (is_array($field_value)) {
+                    // Elementor link-object pattern: {"url": "...", "is_external": "", ...}
+                    // The crawler's deep_extract_links uses key_context like "link.url" for this.
+                    if (isset($field_value['url']) && is_string($field_value['url'])
+                        && self::normalize_url($field_value['url']) === self::normalize_url($target_url)
+                    ) {
+                        $data[$lk]['url'] = '';
+                        $count++;
+                        \SEOAutoFix_Debug_Logger::log('[RECURSIVE_REMOVE] Cleared Elementor link-object "' . $lk . '.url" value="' . $field_value['url'] . '"');
                     }
                 }
             }
@@ -1026,10 +1083,29 @@ class Builder_Replacement_Engine
 
         if (is_object($data)) {
             foreach (self::$LINK_KEYS as $lk) {
-                if (isset($data->$lk) && is_string($data->$lk)) {
-                    if (self::normalize_url($data->$lk) === self::normalize_url($target_url)) {
+                if (!isset($data->$lk)) {
+                    continue;
+                }
+                $field_value = $data->$lk;
+                if (is_string($field_value)) {
+                    if (self::normalize_url($field_value) === self::normalize_url($target_url)) {
                         $data->$lk = '';
                         $count++;
+                        \SEOAutoFix_Debug_Logger::log('[RECURSIVE_REMOVE] Cleared object link-field "' . $lk . '"');
+                    }
+                } elseif (is_array($field_value) || is_object($field_value)) {
+                    // Elementor link-object pattern: {"url": "...", "is_external": ""}
+                    $url_val = is_array($field_value) ? ($field_value['url'] ?? null) : ($field_value->url ?? null);
+                    if (!empty($url_val) && is_string($url_val)
+                        && self::normalize_url($url_val) === self::normalize_url($target_url)
+                    ) {
+                        if (is_array($data->$lk)) {
+                            $data->$lk['url'] = '';
+                        } else {
+                            $data->$lk->url = '';
+                        }
+                        $count++;
+                        \SEOAutoFix_Debug_Logger::log('[RECURSIVE_REMOVE] Cleared object Elementor link-object "' . $lk . '.url"');
                     }
                 }
             }
