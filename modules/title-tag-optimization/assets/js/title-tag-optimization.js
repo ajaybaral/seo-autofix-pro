@@ -9,26 +9,21 @@
     'use strict';
 
     /* =========================================================
+     * Constants
+     * ========================================================= */
+    var PAGE_SIZE = 25;
+
+    /* =========================================================
      * Module State
      * ========================================================= */
     var TitleTag = {
-        // All rows from current scan (unfiltered)
-        allRows: [],
-
-        // Currently displayed (filtered) rows
-        visibleRows: [],
-
-        // Active filter
-        activeFilter: 'all',
-
-        // cancelGeneration flag
+        allRows:          [],   // All rows from current scan
+        visibleRows:      [],   // After filter applied
+        activeFilter:     '',   // '' = no filter (show all)
+        currentPage:      1,
         cancelGeneration: false,
-
-        // Applied changes for CSV export: { post_id, post_url, old_title, new_title }
-        appliedChanges: [],
-
-        // Skip list (session-only, no DB)
-        skippedIds: []
+        appliedChanges:   [],   // For CSV export — resets on filter change
+        skippedIds:       []
     };
 
     /* =========================================================
@@ -43,7 +38,7 @@
         $('#titletag-reset-filter-btn').on('click', resetFilter);
         $('#titletag-bulk-generate-btn').on('click', bulkGenerate);
         $('#titletag-bulk-apply-btn').on('click', bulkApply);
-        $('#titletag-cancel-btn').on('click', cancelGeneration);
+        $('#titletag-cancel-btn').on('click', function () { TitleTag.cancelGeneration = true; });
         $('#titletag-export-csv-btn').on('click', exportCSV);
 
         // Filter radio cards
@@ -54,35 +49,28 @@
         });
 
         // Row-level events (delegated)
-        $('#titletag-tbody').on('click', '.titletag-generate-btn', function () {
-            var $row = $(this).closest('tr');
-            generateSingle($row, false);
-        });
-
-        $('#titletag-tbody').on('click', '.titletag-apply-btn', function () {
-            var $row = $(this).closest('tr');
-            applySingle($row);
-        });
-
-        $('#titletag-tbody').on('click', '.titletag-skip-btn', function () {
-            var $row = $(this).closest('tr');
-            skipRow($row);
-        });
-
-        // Char counter on edit
-        $('#titletag-tbody').on('input', '.titletag-suggested-editable', function () {
-            updateCharCounter($(this));
-            var $row = $(this).closest('tr');
-            var hasText = $(this).text().trim().length > 0;
-            $row.find('.titletag-apply-btn').prop('disabled', !hasText);
-        });
+        $('#titletag-tbody')
+            .on('click', '.titletag-generate-btn', function () {
+                generateSingle($(this).closest('tr'), false);
+            })
+            .on('click', '.titletag-apply-btn', function () {
+                applySingle($(this).closest('tr'));
+            })
+            .on('click', '.titletag-skip-btn', function () {
+                skipRow($(this).closest('tr'));
+            })
+            .on('input', '.titletag-suggested-editable', function () {
+                var $row = $(this).closest('tr');
+                updateCharCounter($(this));
+                $row.find('.titletag-apply-btn').prop('disabled', $(this).text().trim().length === 0);
+            });
     }
 
     /* =========================================================
      * Scan
      * ========================================================= */
     function startScan() {
-        $('#titletag-scan-btn').prop('disabled', true).text('Scanning…');
+        $('#titletag-scan-btn').prop('disabled', true).text('Scanning\u2026');
         $('#titletag-empty-state').hide();
         $('#titletag-results').hide();
         $('#titletag-stats').hide();
@@ -90,9 +78,11 @@
         $('#titletag-scan-progress').show();
         setProgress(0);
 
-        TitleTag.allRows = [];
+        TitleTag.allRows        = [];
         TitleTag.appliedChanges = [];
-        TitleTag.skippedIds = [];
+        TitleTag.skippedIds     = [];
+        TitleTag.activeFilter   = '';
+        TitleTag.currentPage    = 1;
 
         fetchScanBatch(0);
     }
@@ -102,33 +92,23 @@
             url: titleTagData.ajaxUrl,
             method: 'POST',
             data: {
-                action:  'titletag_scan',
-                nonce:   titleTagData.nonce,
-                offset:  offset,
+                action:       'titletag_scan',
+                nonce:        titleTagData.nonce,
+                offset:       offset,
                 post_type:    'any',
                 issue_filter: 'all'
             },
             success: function (res) {
                 if (!res.success) {
                     showToast('Scan error: ' + res.data.message, 'error');
-                    scanComplete();
-                    return;
+                    scanComplete(); return;
                 }
-
                 var data = res.data;
                 TitleTag.allRows = TitleTag.allRows.concat(data.results || []);
-
-                if (data.stats && offset === 0) {
-                    renderStats(data.stats);
-                }
-
+                if (data.stats && offset === 0) { renderStats(data.stats); }
                 setProgress(data.hasMore ? 50 : 100);
-
-                if (data.hasMore) {
-                    fetchScanBatch(data.offset);
-                } else {
-                    scanComplete();
-                }
+                if (data.hasMore) { fetchScanBatch(data.offset); }
+                else              { scanComplete(); }
             },
             error: function () {
                 showToast('Scan failed. Check the debug log.', 'error');
@@ -139,18 +119,21 @@
 
     function scanComplete() {
         $('#titletag-scan-progress').hide();
-        $('#titletag-scan-btn').prop('disabled', false).html('<span class="dashicons dashicons-search"></span> Scan Posts & Pages');
+        $('#titletag-scan-btn')
+            .prop('disabled', false)
+            .html('<span class="dashicons dashicons-search"></span> Scan Posts &amp; Pages');
 
         if (TitleTag.allRows.length === 0) {
-            $('#titletag-empty-state').show();
-            return;
+            $('#titletag-empty-state').show(); return;
         }
 
         $('#titletag-stats').show();
         $('#titletag-controls').show();
         $('#titletag-results').show();
-        setFilter(TitleTag.activeFilter);
-        showToast('Scan complete. Found ' + TitleTag.allRows.length + ' posts/pages.');
+
+        // Default: no filter, show all
+        applyFilter('');
+        showToast('Scan complete. ' + TitleTag.allRows.length + ' posts/pages found.');
     }
 
     /* =========================================================
@@ -166,16 +149,23 @@
      * Filter
      * ========================================================= */
     function setFilter(filter) {
-        TitleTag.activeFilter = filter;
-        TitleTag.appliedChanges = []; // reset export on filter change
-        $('#titletag-export-csv-btn').hide();
-
-        // Update active class on cards
+        // Toggle: clicking the already-active filter deselects it
+        if (TitleTag.activeFilter === filter) {
+            resetFilter(); return;
+        }
+        applyFilter(filter);
+        // Mark card active
         $('.titletag-filter-card').removeClass('titletag-filter-active');
         $('.titletag-filter-card[data-filter="' + filter + '"]').addClass('titletag-filter-active');
+    }
 
-        // Filter rows
-        if (filter === 'all') {
+    function applyFilter(filter) {
+        TitleTag.activeFilter   = filter;
+        TitleTag.appliedChanges = [];
+        TitleTag.currentPage    = 1;
+        $('#titletag-export-csv-btn').hide();
+
+        if (filter === '') {
             TitleTag.visibleRows = TitleTag.allRows.slice();
         } else {
             TitleTag.visibleRows = TitleTag.allRows.filter(function (r) {
@@ -183,43 +173,67 @@
             });
         }
 
-        renderTable(TitleTag.visibleRows);
+        renderCurrentPage();
     }
 
     function resetFilter() {
-        setFilter('all');
-        $('input[name="titletag-filter"][value="all"]').prop('checked', true);
+        TitleTag.activeFilter = '';
+        $('input[name="titletag-filter"]').prop('checked', false);
+        $('.titletag-filter-card').removeClass('titletag-filter-active');
+        applyFilter('');
+    }
+
+    /* =========================================================
+     * Pagination helpers
+     * ========================================================= */
+    function totalPages() {
+        return Math.max(1, Math.ceil(TitleTag.visibleRows.length / PAGE_SIZE));
+    }
+
+    function pageRows() {
+        var start = (TitleTag.currentPage - 1) * PAGE_SIZE;
+        return TitleTag.visibleRows.slice(start, start + PAGE_SIZE);
+    }
+
+    function renderCurrentPage() {
+        renderTable(pageRows(), (TitleTag.currentPage - 1) * PAGE_SIZE);
+        renderPagination();
     }
 
     /* =========================================================
      * Table Rendering
      * ========================================================= */
-    function renderTable(rows) {
+    function renderTable(rows, startIdx) {
         var $tbody = $('#titletag-tbody');
         $tbody.empty();
 
-        if (rows.length === 0) {
-            $tbody.append('<tr><td colspan="6" style="text-align:center;padding:30px;color:#646970;">No issues match the selected filter.</td></tr>');
+        if (TitleTag.visibleRows.length === 0) {
+            $tbody.append(
+                '<tr><td colspan="6" style="text-align:center;padding:30px;color:#646970;">' +
+                (TitleTag.activeFilter ? 'No issues match the selected filter.' : 'No posts found.') +
+                '</td></tr>'
+            );
             return;
         }
 
         var tmpl = document.getElementById('titletag-row-template');
 
-        rows.forEach(function (row, idx) {
+        rows.forEach(function (row, i) {
+            var globalIdx = startIdx + i;
             var $tr = $(document.importNode(tmpl.content, true).firstElementChild);
 
-            $tr.attr('data-post-id', row.post_id);
-            $tr.attr('data-issue', row.issue_type);
+            $tr.attr('data-post-id',  row.post_id);
+            $tr.attr('data-issue',    row.issue_type);
             $tr.attr('data-post-url', row.post_url);
             $tr.attr('data-old-title', row.rendered_title);
 
-            $tr.find('.titletag-col-num').text(idx + 1);
+            $tr.find('.titletag-col-num').text(globalIdx + 1);
             $tr.find('.titletag-post-title').text(row.post_title);
             $tr.find('.titletag-post-type-badge').text(row.post_type);
             $tr.find('.titletag-edit-link').attr('href', row.edit_url);
             $tr.find('.titletag-post-url').attr('href', row.post_url).text(shortenUrl(row.post_url));
             $tr.find('.titletag-current-title-text').text(row.rendered_title || '(empty)');
-            $tr.find('.titletag-issue-badge').html(buildIssueBadge(row.issue_type));
+            $tr.find('.titletag-issue-badge-wrap').html(buildIssueBadge(row.issue_type));
             $tr.find('.titletag-char-count').text('0');
 
             $tbody.append($tr);
@@ -228,31 +242,108 @@
 
     function buildIssueBadge(issue_type) {
         var labels = {
-            'missing':   'Missing',
-            'too_short': 'Too Short',
-            'too_long':  'Too Long',
-            'duplicate': 'Duplicate',
-            'ok':        'OK'
+            missing:   'Missing',
+            too_short: 'Too Short',
+            too_long:  'Too Long',
+            duplicate: 'Duplicate',
+            ok:        'OK'
         };
-        return '<span class="titletag-issue-badge titletag-badge-' + issue_type + '">' + (labels[issue_type] || issue_type) + '</span>';
+        return '<span class="titletag-issue-badge titletag-badge-' + issue_type + '">' +
+               (labels[issue_type] || issue_type) + '</span>';
     }
 
     function shortenUrl(url) {
         try {
             var u = new URL(url);
-            return u.pathname.length > 35 ? u.pathname.substring(0, 32) + '…' : u.pathname;
+            var p = u.pathname;
+            return p.length > 40 ? p.substring(0, 37) + '\u2026' : p;
         } catch (e) { return url; }
+    }
+
+    /* =========================================================
+     * Pagination Rendering
+     * ========================================================= */
+    function renderPagination() {
+        var $pag  = $('#titletag-pagination');
+        var $info = $('#titletag-pagination-info');
+        var $ctrl = $('#titletag-pagination-controls');
+        var total = TitleTag.visibleRows.length;
+        var tp    = totalPages();
+        var cp    = TitleTag.currentPage;
+
+        if (total === 0) { $pag.hide(); return; }
+
+        var start = (cp - 1) * PAGE_SIZE + 1;
+        var end   = Math.min(cp * PAGE_SIZE, total);
+        $info.text('Showing ' + start + '\u2013' + end + ' of ' + total);
+
+        $ctrl.empty();
+
+        // Prev
+        var $prev = $('<button class="button">&laquo; Prev</button>');
+        if (cp <= 1) { $prev.prop('disabled', true); }
+        else { $prev.on('click', function () { goToPage(cp - 1); }); }
+        $ctrl.append($prev);
+
+        // Page numbers
+        var pages = buildPageNumbers(cp, tp);
+        pages.forEach(function (p) {
+            if (p === '\u2026') {
+                $ctrl.append('<span class="titletag-pagination-ellipsis">\u2026</span>');
+            } else {
+                var $btn = $('<button class="button">' + p + '</button>');
+                if (p === cp) { $btn.addClass('current-page'); }
+                else {
+                    (function (pg) {
+                        $btn.on('click', function () { goToPage(pg); });
+                    })(p);
+                }
+                $ctrl.append($btn);
+            }
+        });
+
+        // Next
+        var $next = $('<button class="button">Next &raquo;</button>');
+        if (cp >= tp) { $next.prop('disabled', true); }
+        else { $next.on('click', function () { goToPage(cp + 1); }); }
+        $ctrl.append($next);
+
+        if (tp > 1) { $pag.show(); }
+        else        { $pag.hide(); }
+    }
+
+    function buildPageNumbers(current, total) {
+        if (total <= 7) {
+            var arr = [];
+            for (var i = 1; i <= total; i++) { arr.push(i); }
+            return arr;
+        }
+        var pages = [1];
+        if (current > 3)            { pages.push('\u2026'); }
+        for (var p = Math.max(2, current - 1); p <= Math.min(total - 1, current + 1); p++) {
+            pages.push(p);
+        }
+        if (current < total - 2)    { pages.push('\u2026'); }
+        pages.push(total);
+        return pages;
+    }
+
+    function goToPage(page) {
+        TitleTag.currentPage = page;
+        renderCurrentPage();
+        // Scroll to table top
+        $('html, body').animate({ scrollTop: $('#titletag-results').offset().top - 40 }, 200);
     }
 
     /* =========================================================
      * Single Generate
      * ========================================================= */
     function generateSingle($row, isBulk) {
-        var postId = $row.data('post-id');
-        var $editable = $row.find('.titletag-suggested-editable');
+        var postId     = $row.data('post-id');
+        var $editable  = $row.find('.titletag-suggested-editable');
         var $indicator = $row.find('.titletag-generating-indicator');
-        var $genBtn = $row.find('.titletag-generate-btn');
-        var $applyBtn = $row.find('.titletag-apply-btn');
+        var $genBtn    = $row.find('.titletag-generate-btn');
+        var $applyBtn  = $row.find('.titletag-apply-btn');
 
         $editable.hide();
         $indicator.show();
@@ -266,7 +357,7 @@
                 action:  'titletag_generate',
                 nonce:   titleTagData.nonce,
                 post_id: postId,
-                force:   isBulk ? 'false' : 'false'
+                force:   'false'
             }
         }).then(function (res) {
             $indicator.hide();
@@ -274,14 +365,12 @@
             $genBtn.prop('disabled', false);
 
             if (res.success) {
-                var title = res.data.title;
-                $editable.text(title).addClass('has-suggestion');
+                $editable.text(res.data.title).addClass('has-suggestion');
                 updateCharCounter($editable);
                 $applyBtn.prop('disabled', false);
                 setRowStatus($row, '', '');
             } else {
                 setRowStatus($row, 'Error: ' + res.data.message, 'error');
-                $applyBtn.prop('disabled', true);
             }
         }).fail(function () {
             $indicator.hide();
@@ -303,7 +392,7 @@
         if (!newTitle) { showToast('Title cannot be empty.', 'error'); return; }
 
         var $applyBtn = $row.find('.titletag-apply-btn');
-        $applyBtn.prop('disabled', true).text('Applying…');
+        $applyBtn.prop('disabled', true).text('Applying\u2026');
         setRowStatus($row, '', '');
 
         $.ajax({
@@ -317,30 +406,49 @@
             },
             success: function (res) {
                 if (res.success) {
-                    setRowStatus($row, '✅ Applied!', 'success');
-                    $row.addClass('titletag-row-applied');
-                    $applyBtn.text('Applied').prop('disabled', true);
+                    // Show green status for 3 seconds then reset
+                    setRowStatus($row, 'Applied!', 'success');
+                    $applyBtn.text('Applied!').prop('disabled', true);
 
-                    // Record for CSV export
-                    TitleTag.appliedChanges.push({
-                        post_url:  postUrl,
-                        old_title: oldTitle,
-                        new_title: newTitle
-                    });
-                    if (TitleTag.appliedChanges.length > 0) {
-                        $('#titletag-export-csv-btn').show();
-                    }
+                    setTimeout(function () {
+                        // Reset apply button
+                        $applyBtn.text('Apply').prop('disabled', false);
+                        setRowStatus($row, '', '');
 
-                    // Update old title data attr
+                        // Update "Current SEO Title" column to the newly applied title
+                        $row.find('.titletag-current-title-text').text(newTitle);
+
+                        // Update issue badge to OK
+                        var newLen = newTitle.length;
+                        var newIssue = 'ok';
+                        if (newLen === 0)       { newIssue = 'missing'; }
+                        else if (newLen < 30)   { newIssue = 'too_short'; }
+                        else if (newLen > 60)   { newIssue = 'too_long'; }
+                        $row.find('.titletag-issue-badge-wrap').html(buildIssueBadge(newIssue));
+
+                        // Clear suggestion field
+                        $row.find('.titletag-suggested-editable').text('').removeClass('has-suggestion');
+                        $row.find('.titletag-char-count').text('0').removeClass('chars-ok chars-short chars-long');
+                        $applyBtn.prop('disabled', true); // disable until new suggestion generated
+
+                        // Brief green flash then remove
+                        $row.addClass('titletag-row-applied-flash');
+                        setTimeout(function () { $row.removeClass('titletag-row-applied-flash'); }, 800);
+                    }, 3000);
+
+                    // Update old-title attr and record for CSV
                     $row.attr('data-old-title', newTitle);
+                    TitleTag.appliedChanges.push({ post_url: postUrl, old_title: oldTitle, new_title: newTitle });
+                    if (TitleTag.appliedChanges.length > 0) { $('#titletag-export-csv-btn').show(); }
+
                 } else {
-                    setRowStatus($row, '❌ ' + res.data.message, 'error');
-                    $applyBtn.prop('disabled', false).text('Apply');
+                    setRowStatus($row, res.data.message, 'error');
+                    $applyBtn.text('Apply').prop('disabled', false);
                 }
             },
             error: function () {
-                setRowStatus($row, '❌ Request failed.', 'error');
-                $applyBtn.prop('disabled', false).text('Apply');
+                setRowStatus($row, 'Request failed.', 'error');
+                $applyBtn.text('Apply').prop('disabled', false);
             }
         });
     }
@@ -353,13 +461,7 @@
         TitleTag.skippedIds.push(postId);
         $row.addClass('titletag-row-skipped');
         $row.find('.titletag-apply-btn, .titletag-generate-btn, .titletag-skip-btn').prop('disabled', true);
-
-        // Server ping (no DB, just logging)
-        $.post(titleTagData.ajaxUrl, {
-            action:  'titletag_skip',
-            nonce:   titleTagData.nonce,
-            post_id: postId
-        });
+        $.post(titleTagData.ajaxUrl, { action: 'titletag_skip', nonce: titleTagData.nonce, post_id: postId });
     }
 
     /* =========================================================
@@ -367,13 +469,12 @@
      * ========================================================= */
     function bulkGenerate() {
         if (!titleTagData.hasApiKey) {
-            showToast(titleTagData.strings.noApiKey, 'error');
-            return;
+            showToast('OpenAI API key not configured.', 'error'); return;
         }
 
-        var $rows = $('#titletag-tbody .titletag-row:not(.titletag-row-skipped):not(.titletag-row-applied)');
-        var total = $rows.length;
-        if (total === 0) { showToast('No rows to process.', 'error'); return; }
+        var $rows  = $('#titletag-tbody .titletag-row:not(.titletag-row-skipped)');
+        var total  = $rows.length;
+        if (total === 0) { showToast('No rows visible to generate.', 'error'); return; }
 
         TitleTag.cancelGeneration = false;
         $('#titletag-bulk-progress').show();
@@ -384,17 +485,9 @@
         var idx = 0;
 
         function next() {
-            if (TitleTag.cancelGeneration) {
-                finishBulkGenerate(true);
-                return;
-            }
-            if (idx >= rowArray.length) {
-                finishBulkGenerate(false);
-                return;
-            }
-
-            var $row = $(rowArray[idx]);
-            idx++;
+            if (TitleTag.cancelGeneration) { finishBulkGenerate(true); return; }
+            if (idx >= rowArray.length)    { finishBulkGenerate(false); return; }
+            var $row = $(rowArray[idx++]);
             generateSingle($row, true).always(function () {
                 updateBulkProgress(idx, total);
                 next();
@@ -417,14 +510,10 @@
             // Clear all generated suggestions
             $('.titletag-suggested-editable').text('').removeClass('has-suggestion');
             $('.titletag-apply-btn').prop('disabled', true);
-            showToast(titleTagData.strings.cancelled, 'error');
+            showToast('Generation cancelled.', 'error');
         } else {
             showToast('Bulk generation complete!');
         }
-    }
-
-    function cancelGeneration() {
-        TitleTag.cancelGeneration = true;
     }
 
     /* =========================================================
@@ -432,7 +521,7 @@
      * ========================================================= */
     function bulkApply() {
         var changes = [];
-        $('#titletag-tbody .titletag-row:not(.titletag-row-skipped):not(.titletag-row-applied)').each(function () {
+        $('#titletag-tbody .titletag-row:not(.titletag-row-skipped)').each(function () {
             var $row     = $(this);
             var postId   = parseInt($row.data('post-id'), 10);
             var postUrl  = $row.attr('data-post-url') || '';
@@ -444,13 +533,12 @@
         });
 
         if (changes.length === 0) {
-            showToast(titleTagData.strings.noSuggestions, 'error');
-            return;
+            showToast('No suggestions to apply. Use Generate first.', 'error'); return;
         }
 
-        if (!confirm(titleTagData.strings.confirmBulk + ' (' + changes.length + ' posts)')) { return; }
+        if (!confirm('Apply all ' + changes.length + ' suggested titles now?')) { return; }
 
-        $('#titletag-bulk-apply-btn').prop('disabled', true).text('Applying…');
+        $('#titletag-bulk-apply-btn').prop('disabled', true).text('Applying\u2026');
 
         $.ajax({
             url: titleTagData.ajaxUrl,
@@ -461,21 +549,22 @@
                 changes: JSON.stringify(changes.map(function (c) { return { post_id: c.post_id, new_title: c.new_title }; }))
             },
             success: function (res) {
-                $('#titletag-bulk-apply-btn').prop('disabled', false).html('<span class="dashicons dashicons-yes"></span> Bulk Apply Suggestions');
+                $('#titletag-bulk-apply-btn')
+                    .prop('disabled', false)
+                    .html('<span class="dashicons dashicons-yes"></span> Bulk Apply Titles Below');
 
                 if (res.success) {
-                    var summary = res.data;
-                    showToast('Applied: ' + summary.applied + ', Failed: ' + summary.failed);
+                    var s = res.data;
+                    showToast('Applied: ' + s.applied + (s.failed ? ', Failed: ' + s.failed : ''));
 
-                    // Mark rows + accumulate export changes
                     changes.forEach(function (c) {
                         var $row = $('#titletag-tbody .titletag-row[data-post-id="' + c.post_id + '"]');
-                        if ($row.length) {
-                            $row.addClass('titletag-row-applied');
-                            setRowStatus($row, '✅ Applied!', 'success');
-                            $row.find('.titletag-apply-btn').text('Applied').prop('disabled', true);
-                            $row.attr('data-old-title', c.new_title);
-                        }
+                        if (!$row.length) { return; }
+                        $row.find('.titletag-current-title-text').text(c.new_title);
+                        $row.find('.titletag-suggested-editable').text('').removeClass('has-suggestion');
+                        $row.find('.titletag-apply-btn').prop('disabled', true).text('Apply');
+                        $row.find('.titletag-char-count').text('0').removeClass('chars-ok chars-short chars-long');
+                        setRowStatus($row, 'Applied!', 'success');
                         TitleTag.appliedChanges.push({ post_url: c.post_url, old_title: c.old_title, new_title: c.new_title });
                     });
 
@@ -485,7 +574,9 @@
                 }
             },
             error: function () {
-                $('#titletag-bulk-apply-btn').prop('disabled', false).html('<span class="dashicons dashicons-yes"></span> Bulk Apply Suggestions');
+                $('#titletag-bulk-apply-btn')
+                    .prop('disabled', false)
+                    .html('<span class="dashicons dashicons-yes"></span> Bulk Apply Titles Below');
                 showToast('Request failed.', 'error');
             }
         });
@@ -496,11 +587,10 @@
      * ========================================================= */
     function exportCSV() {
         if (TitleTag.appliedChanges.length === 0) {
-            showToast('No applied changes to export.', 'error');
-            return;
+            showToast('No applied changes to export.', 'error'); return;
         }
 
-        $('#titletag-export-csv-btn').prop('disabled', true).text('Exporting…');
+        $('#titletag-export-csv-btn').prop('disabled', true).text('Exporting\u2026');
 
         $.ajax({
             url: titleTagData.ajaxUrl,
@@ -511,17 +601,21 @@
                 changes: JSON.stringify(TitleTag.appliedChanges)
             },
             success: function (res) {
-                $('#titletag-export-csv-btn').prop('disabled', false).html('<span class="dashicons dashicons-download"></span> Export Applied Changes (CSV)');
+                $('#titletag-export-csv-btn')
+                    .prop('disabled', false)
+                    .html('<span class="dashicons dashicons-download"></span> Export Changes in CSV');
                 if (res.success) {
                     window.location.href = res.data.download_url;
-                    showToast('CSV export ready!');
+                    showToast('CSV ready — downloading.');
                 } else {
                     showToast('Export error: ' + res.data.message, 'error');
                 }
             },
             error: function () {
-                $('#titletag-export-csv-btn').prop('disabled', false).html('<span class="dashicons dashicons-download"></span> Export Applied Changes (CSV)');
-                showToast('Export request failed.', 'error');
+                $('#titletag-export-csv-btn')
+                    .prop('disabled', false)
+                    .html('<span class="dashicons dashicons-download"></span> Export Changes in CSV');
+                showToast('Export failed.', 'error');
             }
         });
     }
@@ -530,19 +624,19 @@
      * Helpers
      * ========================================================= */
     function updateCharCounter($editable) {
-        var len = $editable.text().trim().length;
+        var len      = $editable.text().trim().length;
         var $counter = $editable.closest('td').find('.titletag-char-count');
         $counter.text(len).removeClass('chars-ok chars-short chars-long');
-        if (len === 0)       { return; }
-        if (len < 30)        { $counter.addClass('chars-short'); }
-        else if (len > 60)   { $counter.addClass('chars-long'); }
-        else                 { $counter.addClass('chars-ok'); }
+        if      (len === 0) { /* no colour */ }
+        else if (len < 30)  { $counter.addClass('chars-short'); }
+        else if (len > 60)  { $counter.addClass('chars-long'); }
+        else                { $counter.addClass('chars-ok'); }
     }
 
     function setRowStatus($row, msg, type) {
-        var $status = $row.find('.titletag-action-status');
-        $status.removeClass('success error').text(msg);
-        if (type) { $status.addClass(type); }
+        var $s = $row.find('.titletag-action-status');
+        $s.removeClass('success error').text(msg);
+        if (type) { $s.addClass(type); }
     }
 
     function setProgress(pct) {
@@ -551,14 +645,14 @@
     }
 
     function showToast(msg, type) {
-        var $toast = $('<div class="titletag-toast"><span class="titletag-toast-message"></span></div>');
-        $toast.find('.titletag-toast-message').text(msg);
-        if (type === 'error') { $toast.addClass('toast-error'); }
-        $('body').append($toast);
-        setTimeout(function () { $toast.addClass('show'); }, 50);
+        var $t = $('<div class="titletag-toast"><span class="titletag-toast-message"></span></div>');
+        $t.find('.titletag-toast-message').text(msg);
+        if (type === 'error') { $t.addClass('toast-error'); }
+        $('body').append($t);
+        setTimeout(function () { $t.addClass('show'); }, 50);
         setTimeout(function () {
-            $toast.removeClass('show');
-            setTimeout(function () { $toast.remove(); }, 400);
+            $t.removeClass('show');
+            setTimeout(function () { $t.remove(); }, 400);
         }, 3500);
     }
 
