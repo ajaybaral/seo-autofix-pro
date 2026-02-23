@@ -1,0 +1,326 @@
+/**
+ * Title Tag Optimization Module — Admin Styles
+ * Isolated CSS. Do not import from Image SEO or Broken URL modules.
+ */
+
+/* Hide WP footer on our page */
+#wpfooter { display: none !important; }
+
+.titletag-admin { max-width: 1400px; }
+
+/* ===== Header ===== */
+.titletag-header {
+    margin: 20px 0;
+    display: flex;
+    gap: 15px;
+    align-items: center;
+}
+.titletag-header .button .dashicons {
+    margin-top: 4px;
+    margin-right: 5px;
+}
+
+/* ===== Stats Cards ===== */
+.titletag-stats {
+    display: flex;
+    gap: 15px;
+    margin: 25px 0;
+}
+.titletag-stat-card {
+    flex: 1;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    padding: 18px 16px;
+    text-align: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,.05);
+}
+.titletag-stat-card.titletag-stat-warning {
+    border-color: #dba617;
+    background: linear-gradient(135deg, #fff9e6 0%, #fff 100%);
+}
+.titletag-stat-number {
+    font-size: 28px;
+    font-weight: 700;
+    color: #1d2327;
+    line-height: 1;
+    margin-bottom: 4px;
+}
+.titletag-stat-warning .titletag-stat-number { color: #dba617; }
+.titletag-stat-label {
+    font-size: 11px;
+    color: #646970;
+    text-transform: uppercase;
+    letter-spacing: .6px;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+/* ===== Controls Panel ===== */
+.titletag-controls {
+    margin: 20px 0;
+    padding: 20px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+/* Filter section */
+.titletag-filter-section { margin-bottom: 20px; }
+.titletag-filter-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+.titletag-filter-header h3 { margin: 0; }
+.titletag-filter-cards {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.titletag-filter-card {
+    flex: 1;
+    min-width: 150px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 14px;
+    border: 2px solid #ddd;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all .2s;
+    user-select: none;
+}
+.titletag-filter-card input[type="radio"] { display: none; }
+.titletag-filter-card:hover {
+    border-color: #2271b1;
+    background: #f0f6fc;
+}
+.titletag-filter-card.titletag-filter-active {
+    border-color: #2271b1;
+    background: #2271b1;
+    color: #fff;
+}
+.titletag-filter-icon { font-size: 16px; }
+
+/* Bulk bar */
+.titletag-bulk-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 20px;
+    border-top: 1px solid #e0e0e0;
+    gap: 10px;
+}
+.titletag-bulk-left, .titletag-bulk-right {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+.titletag-btn-cancel {
+    background: #dc3232 !important;
+    color: #fff !important;
+    border-color: #b32d2e !important;
+    padding: 4px 12px !important;
+}
+.titletag-btn-cancel:hover {
+    background: #b32d2e !important;
+}
+
+/* Bulk progress */
+#titletag-bulk-progress {
+    margin-top: 20px;
+    padding: 15px;
+    background: #f0f6fc;
+    border: 1px solid #0073aa;
+    border-radius: 4px;
+}
+.titletag-bulk-progress-inner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+.titletag-bulk-progress-bar-track {
+    width: 100%;
+    height: 20px;
+    background: #ddd;
+    border-radius: 10px;
+    overflow: hidden;
+}
+.titletag-bulk-progress-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #0073aa, #00a0d2);
+    transition: width .3s ease;
+}
+
+/* ===== Scan Progress Bar ===== */
+#titletag-scan-progress { margin: 20px 0; }
+.titletag-progress-bar {
+    width: 100%;
+    height: 30px;
+    background: #f0f0f1;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.titletag-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #2271b1, #135e96);
+    transition: width .3s ease;
+    min-width: 1px;
+}
+.titletag-progress-text {
+    margin-top: 8px;
+    text-align: center;
+    color: #646970;
+}
+
+/* ===== Results Table ===== */
+.titletag-results { margin-top: 20px; }
+.titletag-table { table-layout: fixed; }
+.titletag-table th, .titletag-table td { vertical-align: top; }
+
+.titletag-row { transition: background-color .2s; }
+.titletag-row.titletag-row-skipped { opacity: .4; }
+
+/* Columns */
+.titletag-col-num { width: 40px; color: #646970; }
+.titletag-col-url { word-break: break-all; }
+.titletag-col-url a { color: #2271b1; font-size: 12px; }
+.titletag-col-actions { width: 160px; }
+
+.titletag-post-title { font-weight: 600; font-size: 13px; color: #1d2327; margin-bottom: 4px; }
+.titletag-post-meta  { font-size: 11px; color: #646970; }
+.titletag-edit-link  { color: #2271b1; }
+
+.titletag-post-type-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: #f0f0f1;
+    font-size: 10px;
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: .4px;
+}
+
+/* Issue badge */
+.titletag-issue-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-top: 5px;
+}
+.titletag-badge-missing   { background: #b32d2e; color: #fff; }
+.titletag-badge-too_short { background: #dba617; color: #fff; }
+.titletag-badge-too_long  { background: #e96b31; color: #fff; }
+.titletag-badge-duplicate { background: #7b5ea7; color: #fff; }
+.titletag-badge-ok        { background: #00a32a; color: #fff; }
+
+/* Char counter */
+.titletag-char-counter { font-size: 11px; color: #646970; margin-top: 4px; }
+.titletag-char-count { font-weight: 600; }
+.titletag-char-count.chars-ok     { color: #00a32a; }
+.titletag-char-count.chars-short  { color: #dba617; }
+.titletag-char-count.chars-long   { color: #b32d2e; }
+
+/* Editable field */
+.titletag-suggested-editable {
+    padding: 8px;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    min-height: 40px;
+    font-size: 13px;
+    cursor: text;
+    outline: none;
+}
+.titletag-suggested-editable:focus {
+    border-color: #2271b1;
+    box-shadow: 0 0 0 1px #2271b1;
+}
+.titletag-suggested-editable.has-suggestion {
+    border-color: #2271b1;
+    background: #f0f6fc;
+}
+
+/* Generating indicator */
+.titletag-generating-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #646970;
+    font-size: 13px;
+    margin-top: 6px;
+}
+
+/* Action buttons */
+.titletag-col-actions .button {
+    width: 100%;
+    margin-bottom: 5px;
+    display: block !important;
+}
+.titletag-action-status {
+    padding: 5px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    text-align: center;
+    margin-top: 4px;
+}
+.titletag-action-status.success { background: #d5f5e3; color: #00a32a; }
+.titletag-action-status.error   { background: #fef7f7; color: #b32d2e; }
+
+/* Applied row highlight */
+.titletag-row-applied {
+    background-color: #f0f9f4 !important;
+    border-left: 3px solid #00a32a !important;
+}
+
+/* ===== Empty State ===== */
+.titletag-empty-state {
+    text-align: center;
+    padding: 60px 20px;
+}
+.titletag-empty-icon .dashicons {
+    font-size: 80px;
+    width: 80px;
+    height: 80px;
+    color: #c3c4c7;
+}
+.titletag-empty-state h2 { margin: 20px 0 10px; color: #1d2327; }
+.titletag-empty-state p  { color: #646970; font-size: 14px; }
+
+/* ===== Toast ===== */
+.titletag-toast {
+    position: fixed;
+    top: 32px;
+    right: 20px;
+    background: #fff;
+    border-left: 4px solid #00a32a;
+    box-shadow: 0 4px 12px rgba(0,0,0,.15);
+    padding: 14px 20px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 999999;
+    min-width: 280px;
+    opacity: 0;
+    transform: translateX(400px);
+    transition: all .3s ease;
+}
+.titletag-toast.show { opacity: 1; transform: translateX(0); }
+.titletag-toast.toast-error { border-left-color: #dc3232; }
+.titletag-toast-message { font-size: 13px; color: #1d2327; font-weight: 500; }
+
+/* ===== Responsive ===== */
+@media (max-width: 782px) {
+    .titletag-stats { flex-direction: column; }
+    .titletag-filter-cards { flex-direction: column; }
+    .titletag-bulk-bar { flex-direction: column; align-items: flex-start; }
+    .titletag-toast { right: 10px; left: 10px; min-width: auto; }
+}
