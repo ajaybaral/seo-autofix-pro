@@ -326,10 +326,21 @@
 .titletag-action-status.success { background: #d5f5e3; color: #00a32a; }
 .titletag-action-status.error   { background: #fef7f7; color: #b32d2e; }
 
-/* Applied row — temporary green flash */
-.titletag-row-applied-flash {
+/* Applied row — green BG for 3.5s */
+.titletag-row-green {
     background-color: #f0f9f4 !important;
-    transition: background-color .5s ease;
+    transition: background-color 0.6s ease;
+}
+.titletag-row-green td {
+    border-color: #c3f0d5 !important;
+}
+
+/* Apply button — green 'Applied' state */
+.titletag-apply-btn-applied {
+    background: #00a32a !important;
+    border-color: #007a1f !important;
+    color: #fff !important;
+    font-weight: 600;
 }
 
 /* ===== Pagination ===== */

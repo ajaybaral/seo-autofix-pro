@@ -178,7 +178,8 @@
 
     function resetFilter() {
         TitleTag.activeFilter = '';
-        $('input[name="titletag-filter"]').prop('checked', false);
+        // Force-uncheck via native DOM to avoid browser caching issues
+        $('input[name="titletag-filter"]').each(function () { this.checked = false; });
         $('.titletag-filter-card').removeClass('titletag-filter-active');
         applyFilter('');
     }
@@ -406,40 +407,38 @@
             },
             success: function (res) {
                 if (res.success) {
-                    // Show green status for 3 seconds then reset
-                    setRowStatus($row, 'Applied!', 'success');
-                    $applyBtn.text('Applied!').prop('disabled', true);
+                    // Immediately: green row BG + green 'Applied' button (no status box)
+                    $row.addClass('titletag-row-green');
+                    $applyBtn.addClass('titletag-apply-btn-applied').text('Applied').prop('disabled', true);
 
-                    setTimeout(function () {
-                        // Reset apply button
-                        $applyBtn.text('Apply').prop('disabled', false);
-                        setRowStatus($row, '', '');
-
-                        // Update "Current SEO Title" column to the newly applied title
-                        $row.find('.titletag-current-title-text').text(newTitle);
-
-                        // Update issue badge to OK
-                        var newLen = newTitle.length;
-                        var newIssue = 'ok';
-                        if (newLen === 0)       { newIssue = 'missing'; }
-                        else if (newLen < 30)   { newIssue = 'too_short'; }
-                        else if (newLen > 60)   { newIssue = 'too_long'; }
-                        $row.find('.titletag-issue-badge-wrap').html(buildIssueBadge(newIssue));
-
-                        // Clear suggestion field
-                        $row.find('.titletag-suggested-editable').text('').removeClass('has-suggestion');
-                        $row.find('.titletag-char-count').text('0').removeClass('chars-ok chars-short chars-long');
-                        $applyBtn.prop('disabled', true); // disable until new suggestion generated
-
-                        // Brief green flash then remove
-                        $row.addClass('titletag-row-applied-flash');
-                        setTimeout(function () { $row.removeClass('titletag-row-applied-flash'); }, 800);
-                    }, 3000);
-
-                    // Update old-title attr and record for CSV
+                    // Record for CSV
                     $row.attr('data-old-title', newTitle);
                     TitleTag.appliedChanges.push({ post_url: postUrl, old_title: oldTitle, new_title: newTitle });
                     if (TitleTag.appliedChanges.length > 0) { $('#titletag-export-csv-btn').show(); }
+
+                    // After 3.5s: update current title + badge, clear suggestion, reset button
+                    setTimeout(function () {
+                        // Update 'Current SEO Title' column
+                        $row.find('.titletag-current-title-text').text(newTitle);
+
+                        // Update issue badge based on new title length
+                        var newLen   = newTitle.length;
+                        var newIssue = newLen === 0 ? 'missing'
+                                     : newLen < 30  ? 'too_short'
+                                     : newLen > 60  ? 'too_long'
+                                     : 'ok';
+                        $row.find('.titletag-issue-badge-wrap').html(buildIssueBadge(newIssue));
+
+                        // Clear AI suggestion field
+                        $row.find('.titletag-suggested-editable').text('').removeClass('has-suggestion');
+                        $row.find('.titletag-char-count').text('0').removeClass('chars-ok chars-short chars-long');
+
+                        // Revert button to 'Apply' + disabled (until next Generate)
+                        $applyBtn.removeClass('titletag-apply-btn-applied').text('Apply').prop('disabled', true);
+
+                        // Fade out green BG
+                        $row.removeClass('titletag-row-green');
+                    }, 3500);
 
                 } else {
                     setRowStatus($row, res.data.message, 'error');
@@ -560,11 +559,13 @@
                     changes.forEach(function (c) {
                         var $row = $('#titletag-tbody .titletag-row[data-post-id="' + c.post_id + '"]');
                         if (!$row.length) { return; }
+                        // Green row flash for bulk too
+                        $row.addClass('titletag-row-green');
                         $row.find('.titletag-current-title-text').text(c.new_title);
                         $row.find('.titletag-suggested-editable').text('').removeClass('has-suggestion');
-                        $row.find('.titletag-apply-btn').prop('disabled', true).text('Apply');
                         $row.find('.titletag-char-count').text('0').removeClass('chars-ok chars-short chars-long');
-                        setRowStatus($row, 'Applied!', 'success');
+                        $row.find('.titletag-apply-btn').prop('disabled', true).text('Apply');
+                        setTimeout(function () { $row.removeClass('titletag-row-green'); }, 3500);
                         TitleTag.appliedChanges.push({ post_url: c.post_url, old_title: c.old_title, new_title: c.new_title });
                     });
 
