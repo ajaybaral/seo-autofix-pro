@@ -17,13 +17,13 @@
      * Module State
      * ========================================================= */
     var TitleTag = {
-        allRows:          [],   // All rows from current scan
-        visibleRows:      [],   // After filter applied
-        activeFilter:     '',   // '' = no filter (show all)
-        currentPage:      1,
+        allRows: [],   // All rows from current scan
+        visibleRows: [],   // After filter applied
+        activeFilter: '',   // '' = no filter (show all)
+        currentPage: 1,
         cancelGeneration: false,
-        appliedChanges:   [],   // For CSV export — resets on filter change
-        skippedIds:       []
+        appliedChanges: [],   // For CSV export — resets on filter change
+        skippedIds: []
     };
 
     /* =========================================================
@@ -78,11 +78,11 @@
         $('#titletag-scan-progress').show();
         setProgress(0);
 
-        TitleTag.allRows        = [];
+        TitleTag.allRows = [];
         TitleTag.appliedChanges = [];
-        TitleTag.skippedIds     = [];
-        TitleTag.activeFilter   = '';
-        TitleTag.currentPage    = 1;
+        TitleTag.skippedIds = [];
+        TitleTag.activeFilter = '';
+        TitleTag.currentPage = 1;
 
         fetchScanBatch(0);
     }
@@ -92,10 +92,10 @@
             url: titleTagData.ajaxUrl,
             method: 'POST',
             data: {
-                action:       'titletag_scan',
-                nonce:        titleTagData.nonce,
-                offset:       offset,
-                post_type:    'any',
+                action: 'titletag_scan',
+                nonce: titleTagData.nonce,
+                offset: offset,
+                post_type: 'any',
                 issue_filter: 'all'
             },
             success: function (res) {
@@ -108,7 +108,7 @@
                 if (data.stats && offset === 0) { renderStats(data.stats); }
                 setProgress(data.hasMore ? 50 : 100);
                 if (data.hasMore) { fetchScanBatch(data.offset); }
-                else              { scanComplete(); }
+                else { scanComplete(); }
             },
             error: function () {
                 showToast('Scan failed. Check the debug log.', 'error');
@@ -160,9 +160,9 @@
     }
 
     function applyFilter(filter) {
-        TitleTag.activeFilter   = filter;
+        TitleTag.activeFilter = filter;
         TitleTag.appliedChanges = [];
-        TitleTag.currentPage    = 1;
+        TitleTag.currentPage = 1;
         $('#titletag-export-csv-btn').hide();
 
         if (filter === '') {
@@ -223,8 +223,8 @@
             var globalIdx = startIdx + i;
             var $tr = $(document.importNode(tmpl.content, true).firstElementChild);
 
-            $tr.attr('data-post-id',  row.post_id);
-            $tr.attr('data-issue',    row.issue_type);
+            $tr.attr('data-post-id', row.post_id);
+            $tr.attr('data-issue', row.issue_type);
             $tr.attr('data-post-url', row.post_url);
             $tr.attr('data-old-title', row.rendered_title);
 
@@ -243,14 +243,14 @@
 
     function buildIssueBadge(issue_type) {
         var labels = {
-            missing:   'Missing',
+            missing: 'Missing',
             too_short: 'Too Short',
-            too_long:  'Too Long',
+            too_long: 'Too Long',
             duplicate: 'Duplicate',
-            ok:        'OK'
+            ok: 'OK'
         };
         return '<span class="titletag-issue-badge titletag-badge-' + issue_type + '">' +
-               (labels[issue_type] || issue_type) + '</span>';
+            (labels[issue_type] || issue_type) + '</span>';
     }
 
     function shortenUrl(url) {
@@ -265,17 +265,17 @@
      * Pagination Rendering
      * ========================================================= */
     function renderPagination() {
-        var $pag  = $('#titletag-pagination');
+        var $pag = $('#titletag-pagination');
         var $info = $('#titletag-pagination-info');
         var $ctrl = $('#titletag-pagination-controls');
         var total = TitleTag.visibleRows.length;
-        var tp    = totalPages();
-        var cp    = TitleTag.currentPage;
+        var tp = totalPages();
+        var cp = TitleTag.currentPage;
 
         if (total === 0) { $pag.hide(); return; }
 
         var start = (cp - 1) * PAGE_SIZE + 1;
-        var end   = Math.min(cp * PAGE_SIZE, total);
+        var end = Math.min(cp * PAGE_SIZE, total);
         $info.text('Showing ' + start + '\u2013' + end + ' of ' + total);
 
         $ctrl.empty();
@@ -310,7 +310,7 @@
         $ctrl.append($next);
 
         if (tp > 1) { $pag.show(); }
-        else        { $pag.hide(); }
+        else { $pag.hide(); }
     }
 
     function buildPageNumbers(current, total) {
@@ -320,11 +320,11 @@
             return arr;
         }
         var pages = [1];
-        if (current > 3)            { pages.push('\u2026'); }
+        if (current > 3) { pages.push('\u2026'); }
         for (var p = Math.max(2, current - 1); p <= Math.min(total - 1, current + 1); p++) {
             pages.push(p);
         }
-        if (current < total - 2)    { pages.push('\u2026'); }
+        if (current < total - 2) { pages.push('\u2026'); }
         pages.push(total);
         return pages;
     }
@@ -340,11 +340,11 @@
      * Single Generate
      * ========================================================= */
     function generateSingle($row, isBulk) {
-        var postId     = $row.data('post-id');
-        var $editable  = $row.find('.titletag-suggested-editable');
+        var postId = $row.data('post-id');
+        var $editable = $row.find('.titletag-suggested-editable');
         var $indicator = $row.find('.titletag-generating-indicator');
-        var $genBtn    = $row.find('.titletag-generate-btn');
-        var $applyBtn  = $row.find('.titletag-apply-btn');
+        var $genBtn = $row.find('.titletag-generate-btn');
+        var $applyBtn = $row.find('.titletag-apply-btn');
 
         $editable.hide();
         $indicator.show();
@@ -355,10 +355,10 @@
             url: titleTagData.ajaxUrl,
             method: 'POST',
             data: {
-                action:  'titletag_generate',
-                nonce:   titleTagData.nonce,
+                action: 'titletag_generate',
+                nonce: titleTagData.nonce,
                 post_id: postId,
-                force:   'false'
+                force: 'false'
             }
         }).then(function (res) {
             $indicator.hide();
@@ -385,8 +385,8 @@
      * Apply Single
      * ========================================================= */
     function applySingle($row) {
-        var postId   = parseInt($row.data('post-id'), 10);
-        var postUrl  = $row.attr('data-post-url') || '';
+        var postId = parseInt($row.data('post-id'), 10);
+        var postUrl = $row.attr('data-post-url') || '';
         var oldTitle = $row.attr('data-old-title') || '';
         var newTitle = $row.find('.titletag-suggested-editable').text().trim();
 
@@ -400,9 +400,9 @@
             url: titleTagData.ajaxUrl,
             method: 'POST',
             data: {
-                action:    'titletag_apply',
-                nonce:     titleTagData.nonce,
-                post_id:   postId,
+                action: 'titletag_apply',
+                nonce: titleTagData.nonce,
+                post_id: postId,
                 new_title: newTitle
             },
             success: function (res) {
@@ -422,11 +422,11 @@
                         $row.find('.titletag-current-title-text').text(newTitle);
 
                         // Update issue badge based on new title length
-                        var newLen   = newTitle.length;
+                        var newLen = newTitle.length;
                         var newIssue = newLen === 0 ? 'missing'
-                                     : newLen < 30  ? 'too_short'
-                                     : newLen > 60  ? 'too_long'
-                                     : 'ok';
+                            : newLen < 30 ? 'too_short'
+                                : newLen > 60 ? 'too_long'
+                                    : 'ok';
                         $row.find('.titletag-issue-badge-wrap').html(buildIssueBadge(newIssue));
 
                         // Clear AI suggestion field
@@ -453,14 +453,46 @@
     }
 
     /* =========================================================
-     * Skip
+     * Skip (frontend-only — removes row from session)
      * ========================================================= */
     function skipRow($row) {
         var postId = parseInt($row.data('post-id'), 10);
         TitleTag.skippedIds.push(postId);
-        $row.addClass('titletag-row-skipped');
-        $row.find('.titletag-apply-btn, .titletag-generate-btn, .titletag-skip-btn').prop('disabled', true);
-        $.post(titleTagData.ajaxUrl, { action: 'titletag_skip', nonce: titleTagData.nonce, post_id: postId });
+
+        // Determine the skipped row's issue type for stat adjustment
+        var skippedIssue = $row.attr('data-issue') || '';
+
+        // Remove from data arrays
+        TitleTag.allRows = TitleTag.allRows.filter(function (r) {
+            return r.post_id !== postId;
+        });
+        TitleTag.visibleRows = TitleTag.visibleRows.filter(function (r) {
+            return r.post_id !== postId;
+        });
+
+        // Update stats counters
+        var total = parseInt($('#stat-total').text(), 10) || 0;
+        var withTitles = parseInt($('#stat-with-titles').text(), 10) || 0;
+        var withoutTitles = parseInt($('#stat-without-titles').text(), 10) || 0;
+
+        total = Math.max(0, total - 1);
+        if (skippedIssue === 'missing') {
+            withoutTitles = Math.max(0, withoutTitles - 1);
+        } else {
+            withTitles = Math.max(0, withTitles - 1);
+        }
+
+        $('#stat-total').text(total);
+        $('#stat-with-titles').text(withTitles);
+        $('#stat-without-titles').text(withoutTitles);
+
+        // Fix current page if it now exceeds total pages
+        if (TitleTag.currentPage > totalPages()) {
+            TitleTag.currentPage = Math.max(1, totalPages());
+        }
+
+        // Re-render table and pagination
+        renderCurrentPage();
     }
 
     /* =========================================================
@@ -471,8 +503,8 @@
             showToast('OpenAI API key not configured.', 'error'); return;
         }
 
-        var $rows  = $('#titletag-tbody .titletag-row:not(.titletag-row-skipped)');
-        var total  = $rows.length;
+        var $rows = $('#titletag-tbody .titletag-row:not(.titletag-row-skipped)');
+        var total = $rows.length;
         if (total === 0) { showToast('No rows visible to generate.', 'error'); return; }
 
         TitleTag.cancelGeneration = false;
@@ -485,7 +517,7 @@
 
         function next() {
             if (TitleTag.cancelGeneration) { finishBulkGenerate(true); return; }
-            if (idx >= rowArray.length)    { finishBulkGenerate(false); return; }
+            if (idx >= rowArray.length) { finishBulkGenerate(false); return; }
             var $row = $(rowArray[idx++]);
             generateSingle($row, true).always(function () {
                 updateBulkProgress(idx, total);
@@ -521,9 +553,9 @@
     function bulkApply() {
         var changes = [];
         $('#titletag-tbody .titletag-row:not(.titletag-row-skipped)').each(function () {
-            var $row     = $(this);
-            var postId   = parseInt($row.data('post-id'), 10);
-            var postUrl  = $row.attr('data-post-url') || '';
+            var $row = $(this);
+            var postId = parseInt($row.data('post-id'), 10);
+            var postUrl = $row.attr('data-post-url') || '';
             var oldTitle = $row.attr('data-old-title') || '';
             var newTitle = $row.find('.titletag-suggested-editable').text().trim();
             if (postId && newTitle) {
@@ -543,8 +575,8 @@
             url: titleTagData.ajaxUrl,
             method: 'POST',
             data: {
-                action:  'titletag_bulk_apply',
-                nonce:   titleTagData.nonce,
+                action: 'titletag_bulk_apply',
+                nonce: titleTagData.nonce,
                 changes: JSON.stringify(changes.map(function (c) { return { post_id: c.post_id, new_title: c.new_title }; }))
             },
             success: function (res) {
@@ -597,8 +629,8 @@
             url: titleTagData.ajaxUrl,
             method: 'POST',
             data: {
-                action:  'titletag_export_csv',
-                nonce:   titleTagData.nonce,
+                action: 'titletag_export_csv',
+                nonce: titleTagData.nonce,
                 changes: JSON.stringify(TitleTag.appliedChanges)
             },
             success: function (res) {
@@ -625,13 +657,13 @@
      * Helpers
      * ========================================================= */
     function updateCharCounter($editable) {
-        var len      = $editable.text().trim().length;
+        var len = $editable.text().trim().length;
         var $counter = $editable.closest('td').find('.titletag-char-count');
         $counter.text(len).removeClass('chars-ok chars-short chars-long');
-        if      (len === 0) { /* no colour */ }
-        else if (len < 30)  { $counter.addClass('chars-short'); }
-        else if (len > 60)  { $counter.addClass('chars-long'); }
-        else                { $counter.addClass('chars-ok'); }
+        if (len === 0) { /* no colour */ }
+        else if (len < 30) { $counter.addClass('chars-short'); }
+        else if (len > 60) { $counter.addClass('chars-long'); }
+        else { $counter.addClass('chars-ok'); }
     }
 
     function setRowStatus($row, msg, type) {
