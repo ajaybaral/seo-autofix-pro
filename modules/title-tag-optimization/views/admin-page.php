@@ -126,6 +126,10 @@ if (!defined('ABSPATH')) {
                 </button>
             </div>
             <div class="titletag-bulk-right">
+                <button id="titletag-undo-btn" class="button" style="padding:8px 20px;" disabled>
+                    <span class="dashicons dashicons-undo"></span>
+                    <?php _e('Undo', 'seo-autofix-pro'); ?>
+                </button>
                 <button id="titletag-export-csv-btn" class="button" style="display:none; padding:8px 20px;">
                     <span class="dashicons dashicons-download"></span>
                     <?php _e('Export Changes in CSV', 'seo-autofix-pro'); ?>

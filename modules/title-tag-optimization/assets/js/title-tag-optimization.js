@@ -26,7 +26,8 @@
         cancelGeneration: false,
         appliedChanges: [],     // For CSV export — resets on filter change
         skippedIds: [],
-        lockedUrls: []          // URLs locked from bulk actions
+        lockedUrls: [],         // URLs locked from bulk actions
+        scanSnapshot: []        // Deep copy of allRows at scan completion (for undo)
     };
 
     /* =========================================================
@@ -43,6 +44,7 @@
         $('#titletag-bulk-apply-btn').on('click', bulkApply);
         $('#titletag-cancel-btn').on('click', function () { TitleTag.cancelGeneration = true; });
         $('#titletag-export-csv-btn').on('click', exportCSV);
+        $('#titletag-undo-btn').on('click', undoChanges);
 
         // Post type dropdown
         $('#titletag-posttype-filter').on('change', function () {
@@ -149,6 +151,11 @@
         $('#titletag-results').show();
 
         // Initialize with current post type filter and no issue filter
+        // Take snapshot for undo
+        TitleTag.scanSnapshot = JSON.parse(JSON.stringify(TitleTag.allRows));
+        TitleTag.appliedChanges = [];
+        updateUndoState();
+
         TitleTag.postTypeFilter = $('#titletag-posttype-filter').val() || 'all';
         applyPostTypeFilter(TitleTag.postTypeFilter);
         showToast('Scan complete. ' + TitleTag.allRows.length + ' posts/pages found.');
@@ -578,8 +585,8 @@
 
                     // Record for CSV
                     $row.attr('data-old-title', newTitle);
-                    TitleTag.appliedChanges.push({ post_url: postUrl, old_title: oldTitle, new_title: newTitle });
-                    if (TitleTag.appliedChanges.length > 0) { $('#titletag-export-csv-btn').show(); }
+                    TitleTag.appliedChanges.push({ post_id: postId, post_url: postUrl, old_title: oldTitle, new_title: newTitle });
+                    updateUndoState();
 
                     // After 3.5s: update current title + badge, clear suggestion, reset button
                     setTimeout(function () {
@@ -769,10 +776,10 @@
                         $row.find('.titletag-char-count').text('0').removeClass('chars-ok chars-short chars-long');
                         $row.find('.titletag-apply-btn').prop('disabled', true).text('Apply');
                         setTimeout(function () { $row.removeClass('titletag-row-green'); }, 3500);
-                        TitleTag.appliedChanges.push({ post_url: c.post_url, old_title: c.old_title, new_title: c.new_title });
+                        TitleTag.appliedChanges.push({ post_id: c.post_id, post_url: c.post_url, old_title: c.old_title, new_title: c.new_title });
                     });
 
-                    if (TitleTag.appliedChanges.length > 0) { $('#titletag-export-csv-btn').show(); }
+                    updateUndoState();
                 } else {
                     showToast('Bulk apply error: ' + res.data.message, 'error');
                 }
@@ -820,6 +827,69 @@
                     .prop('disabled', false)
                     .html('<span class="dashicons dashicons-download"></span> Export Changes in CSV');
                 showToast('Export failed.', 'error');
+            }
+        });
+    }
+
+    /* =========================================================
+     * Undo
+     * ========================================================= */
+    function updateUndoState() {
+        var hasChanges = TitleTag.appliedChanges.length > 0;
+        $('#titletag-undo-btn').prop('disabled', !hasChanges);
+        if (hasChanges) {
+            $('#titletag-export-csv-btn').show();
+        } else {
+            $('#titletag-export-csv-btn').hide();
+        }
+    }
+
+    function undoChanges() {
+        if (TitleTag.appliedChanges.length === 0) { return; }
+        if (!confirm('Undo all ' + TitleTag.appliedChanges.length + ' applied change(s)? This will revert titles in the database to their original values.')) { return; }
+
+        var $btn = $('#titletag-undo-btn');
+        $btn.prop('disabled', true).html('<span class="dashicons dashicons-undo"></span> Undoing\u2026');
+
+        // Deduplicate: if same post_id was changed multiple times, only revert to the FIRST old_title
+        var revertMap = {};
+        TitleTag.appliedChanges.forEach(function (c) {
+            if (!revertMap[c.post_id]) {
+                revertMap[c.post_id] = c.old_title; // earliest old_title = original
+            }
+        });
+        var revertPayload = Object.keys(revertMap).map(function (pid) {
+            return { post_id: parseInt(pid, 10), new_title: revertMap[pid] };
+        });
+
+        $.ajax({
+            url: titleTagData.ajaxUrl,
+            method: 'POST',
+            data: {
+                action: 'titletag_bulk_apply',
+                nonce: titleTagData.nonce,
+                changes: JSON.stringify(revertPayload)
+            },
+            success: function (res) {
+                $btn.html('<span class="dashicons dashicons-undo"></span> Undo');
+
+                if (res.success) {
+                    // Restore from snapshot
+                    TitleTag.allRows = JSON.parse(JSON.stringify(TitleTag.scanSnapshot));
+                    TitleTag.appliedChanges = [];
+                    updateUndoState();
+
+                    // Re-apply filters and re-render
+                    applyPostTypeFilter(TitleTag.postTypeFilter);
+                    showToast('All changes undone. Titles reverted to scan results.');
+                } else {
+                    showToast('Undo failed: ' + res.data.message, 'error');
+                    $btn.prop('disabled', false);
+                }
+            },
+            error: function () {
+                $btn.prop('disabled', false).html('<span class="dashicons dashicons-undo"></span> Undo');
+                showToast('Undo request failed.', 'error');
             }
         });
     }
