@@ -25,7 +25,8 @@
         currentPage: 1,
         cancelGeneration: false,
         appliedChanges: [],     // For CSV export — resets on filter change
-        skippedIds: []
+        skippedIds: [],
+        lockedUrls: []          // URLs locked from bulk actions
     };
 
     /* =========================================================
@@ -46,6 +47,14 @@
         // Post type dropdown
         $('#titletag-posttype-filter').on('change', function () {
             applyPostTypeFilter($(this).val());
+        });
+
+        // Lock modal
+        $('#titletag-lock-btn').on('click', openLockModal);
+        $('.titletag-lock-modal-close, .titletag-lock-modal-overlay').on('click', closeLockModal);
+        $('#titletag-lock-done-btn').on('click', processLockUrls);
+        $('#titletag-lock-clear-btn').on('click', function () {
+            $('#titletag-lock-urls-input').val('');
         });
 
         // Filter radio cards — ignore clicks on the <input> itself to prevent double-fire
@@ -230,8 +239,99 @@
     }
 
     /* =========================================================
-     * Pagination helpers
+     * Lock Rows
      * ========================================================= */
+    function normalizeUrl(url) {
+        return url.replace(/^https?:\/\//, '').replace(/\/+$/, '').toLowerCase();
+    }
+
+    function isRowLocked(postUrl) {
+        if (!TitleTag.lockedUrls.length) { return false; }
+        var norm = normalizeUrl(postUrl);
+        return TitleTag.lockedUrls.some(function (u) {
+            return normalizeUrl(u) === norm;
+        });
+    }
+
+    function getSiteDomain() {
+        try {
+            return new URL(titleTagData.ajaxUrl).hostname.toLowerCase();
+        } catch (e) { return ''; }
+    }
+
+    function openLockModal() {
+        // Populate textarea with currently locked URLs
+        $('#titletag-lock-urls-input').val(TitleTag.lockedUrls.join('\n'));
+        $('#titletag-lock-modal').show();
+    }
+
+    function closeLockModal() {
+        $('#titletag-lock-modal').hide();
+    }
+
+    function processLockUrls() {
+        var raw = $('#titletag-lock-urls-input').val();
+        var lines = raw.split('\n').map(function (l) { return l.trim(); }).filter(function (l) { return l.length > 0; });
+        var hadLockedBefore = TitleTag.lockedUrls.length > 0;
+
+        // Build a lookup map of all known post URLs (normalised)
+        var knownMap = {};
+        TitleTag.allRows.forEach(function (r) {
+            knownMap[normalizeUrl(r.post_url)] = r.post_url; // normalised → original
+        });
+
+        var siteDomain = getSiteDomain();
+        var validUrls = [];
+        var notFound = [];
+        var external = [];
+
+        lines.forEach(function (url) {
+            // Check if external domain
+            try {
+                var parsed = new URL(url);
+                if (siteDomain && parsed.hostname.toLowerCase() !== siteDomain) {
+                    external.push(url);
+                    return;
+                }
+            } catch (e) {
+                // Not a valid URL — treat as relative or malformed, try matching anyway
+            }
+
+            var norm = normalizeUrl(url);
+            if (knownMap[norm]) {
+                validUrls.push(knownMap[norm]); // Store the original URL
+            } else {
+                notFound.push(url);
+            }
+        });
+
+        // Show alert for invalid URLs
+        var msgs = [];
+        if (external.length) {
+            msgs.push('External URLs (not your domain):\n• ' + external.join('\n• '));
+        }
+        if (notFound.length) {
+            msgs.push('URLs not found in scan results:\n• ' + notFound.join('\n• '));
+        }
+        if (msgs.length) {
+            alert('Some URLs could not be locked:\n\n' + msgs.join('\n\n'));
+        }
+
+        // Update locked URLs and re-render
+        TitleTag.lockedUrls = validUrls;
+        closeLockModal();
+        renderCurrentPage();
+
+        if (validUrls.length > 0) {
+            showToast(validUrls.length + ' row(s) locked.');
+        } else if (hadLockedBefore && validUrls.length === 0) {
+            showToast('All rows unlocked.');
+        }
+    }
+
+    /* =========================================================
+     * Pagination helpers
+     * =========================================================*/
     function totalPages() {
         return Math.max(1, Math.ceil(TitleTag.visibleRows.length / PAGE_SIZE));
     }
@@ -283,6 +383,17 @@
             var currentTitleLen = (row.rendered_title || '').length;
             $tr.find('.titletag-current-char-count').text(currentTitleLen + ' chars');
             $tr.find('.titletag-char-count').text('0');
+
+            // Lock styling
+            if (isRowLocked(row.post_url)) {
+                $tr.addClass('titletag-row-locked');
+                $tr.find('.titletag-generate-btn').prop('disabled', true);
+                $tr.find('.titletag-action-status').html(
+                    '<span class="titletag-lock-badge">' +
+                    '<span class="dashicons dashicons-lock"></span> Locked' +
+                    '</span>'
+                );
+            }
 
             $tbody.append($tr);
         });
@@ -561,7 +672,7 @@
             showToast('OpenAI API key not configured.', 'error'); return;
         }
 
-        var $rows = $('#titletag-tbody .titletag-row:not(.titletag-row-skipped)');
+        var $rows = $('#titletag-tbody .titletag-row:not(.titletag-row-skipped):not(.titletag-row-locked)');
         var total = $rows.length;
         if (total === 0) { showToast('No rows visible to generate.', 'error'); return; }
 
@@ -612,7 +723,7 @@
      * ========================================================= */
     function bulkApply() {
         var changes = [];
-        $('#titletag-tbody .titletag-row:not(.titletag-row-skipped)').each(function () {
+        $('#titletag-tbody .titletag-row:not(.titletag-row-skipped):not(.titletag-row-locked)').each(function () {
             var $row = $(this);
             var postId = parseInt($row.data('post-id'), 10);
             var postUrl = $row.attr('data-post-url') || '';

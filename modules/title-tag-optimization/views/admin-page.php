@@ -120,6 +120,10 @@ if (!defined('ABSPATH')) {
                     <span class="dashicons dashicons-superhero"></span>
                     <?php _e('Generate AI Suggested Titles for Below', 'seo-autofix-pro'); ?>
                 </button>
+                <button id="titletag-lock-btn" class="button" style="padding:8px 20px;">
+                    <span class="dashicons dashicons-lock"></span>
+                    <?php _e('Lock Rows', 'seo-autofix-pro'); ?>
+                </button>
             </div>
             <div class="titletag-bulk-right">
                 <button id="titletag-export-csv-btn" class="button" style="display:none; padding:8px 20px;">
@@ -231,5 +235,36 @@ if (!defined('ABSPATH')) {
             </td>
         </tr>
     </template>
+
+    <!-- Lock Rows Modal -->
+    <div id="titletag-lock-modal" class="titletag-lock-modal" style="display:none;">
+        <div class="titletag-lock-modal-overlay"></div>
+        <div class="titletag-lock-modal-content">
+            <div class="titletag-lock-modal-header">
+                <h2>
+                    <span class="dashicons dashicons-lock" style="margin-right:6px;"></span>
+                    <?php _e('Lock Rows by URL', 'seo-autofix-pro'); ?>
+                </h2>
+                <button class="titletag-lock-modal-close">&times;</button>
+            </div>
+            <div class="titletag-lock-modal-body">
+                <p style="color:#666; font-size:13px; margin:0 0 12px;">
+                    <?php _e('Enter page URLs to lock (one per line). Locked rows are excluded from bulk Generate & Apply actions.', 'seo-autofix-pro'); ?>
+                </p>
+                <textarea id="titletag-lock-urls-input" rows="10"
+                    placeholder="<?php _e('Paste URLs here, one per line', 'seo-autofix-pro'); ?>"></textarea>
+            </div>
+            <div class="titletag-lock-modal-footer">
+                <button id="titletag-lock-clear-btn" class="button">
+                    <span class="dashicons dashicons-dismiss"></span>
+                    <?php _e('Clear All', 'seo-autofix-pro'); ?>
+                </button>
+                <button id="titletag-lock-done-btn" class="button button-primary">
+                    <span class="dashicons dashicons-yes-alt"></span>
+                    <?php _e('Done', 'seo-autofix-pro'); ?>
+                </button>
+            </div>
+        </div>
+    </div>
 
 </div><!-- .titletag-admin -->
