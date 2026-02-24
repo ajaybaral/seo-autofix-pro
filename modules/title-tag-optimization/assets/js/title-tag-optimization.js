@@ -41,8 +41,9 @@
         $('#titletag-cancel-btn').on('click', function () { TitleTag.cancelGeneration = true; });
         $('#titletag-export-csv-btn').on('click', exportCSV);
 
-        // Filter radio cards
-        $(document).on('click', '.titletag-filter-card', function () {
+        // Filter radio cards — ignore clicks on the <input> itself to prevent double-fire
+        $(document).on('click', '.titletag-filter-card', function (e) {
+            if ($(e.target).is('input')) { return; }
             var val = $(this).data('filter');
             setFilter(val);
             $(this).find('input[type="radio"]').prop('checked', true);
