@@ -722,7 +722,7 @@ class SEOAutoFix_Broken_Url_Management
             if ($post_id) {
                 $lock_key = 'seoautofix_lock_' . $post_id;
                 $lock_value = get_transient($lock_key);
-                \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] Lock check for post ' . $post_id . ': ' . ($lock_value ? '🔒 LOCKED (set ' . (time() - (int)$lock_value) . 's ago)' : '🔓 FREE'));
+                \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] Lock check for post ' . $post_id . ': ' . ($lock_value ? ' LOCKED (set ' . (time() - (int) $lock_value) . 's ago)' : '🔓 FREE'));
 
                 if ($lock_value) {
                     \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ❌ BLOCKED BY LOCK — returning lock-conflict error for ID=' . $id);
@@ -824,18 +824,18 @@ class SEOAutoFix_Broken_Url_Management
                 \SEOAutoFix_Debug_Logger::log('[AJAX_DELETE] ❌ FAILURE: verification failed after ' . $attempts . ' attempt(s) for ID=' . $id . ' | manual_required=' . (!empty($last_engine_result['manual_required']) ? 'YES' : 'NO') . ' | last_reason=' . ($last_engine_result['reason'] ?? 'N/A'));
 
                 $response = [
-                    'operation'       => 'delete',
-                    'verified'        => false,
-                    'attempts'        => $attempts,
-                    'builder_used'    => $builder_type,
-                    'table_updated'   => false,
+                    'operation' => 'delete',
+                    'verified' => false,
+                    'attempts' => $attempts,
+                    'builder_used' => $builder_type,
+                    'table_updated' => false,
                 ];
 
                 // Check if builder engine flagged manual_required on last attempt
                 if (!empty($last_engine_result['manual_required'])) {
-                    $response['message']         = __('This link appears to be dynamically injected or hardcoded. Please modify manually.', 'seo-autofix-pro');
+                    $response['message'] = __('This link appears to be dynamically injected or hardcoded. Please modify manually.', 'seo-autofix-pro');
                     $response['manual_required'] = true;
-                    $response['reason']          = $last_engine_result['reason'] ?? '';
+                    $response['reason'] = $last_engine_result['reason'] ?? '';
                 } else {
                     $response['message'] = sprintf(
                         __('Failed to remove link — verification failed after %d attempt(s). Content may not have been modified.', 'seo-autofix-pro'),
@@ -957,7 +957,7 @@ class SEOAutoFix_Broken_Url_Management
             // Force fresh DB read — no object cache
             wp_cache_delete($post_id, 'post_meta');
             $raw = get_post_meta($post_id, '_elementor_data', true);
-            \SEOAutoFix_Debug_Logger::log('[VERIFY_DELETE_ENTRY] _elementor_data length=' . strlen((string)$raw));
+            \SEOAutoFix_Debug_Logger::log('[VERIFY_DELETE_ENTRY] _elementor_data length=' . strlen((string) $raw));
             if (!empty($raw) && stripos($raw, $broken_url) !== false) {
                 // Show exactly where it still appears
                 $pos = stripos($raw, $broken_url);
@@ -1658,9 +1658,9 @@ class SEOAutoFix_Broken_Url_Management
 
             // Find all Elementor library templates (header/footer templates)
             $templates = get_posts(array(
-                'post_type'      => 'elementor_library',
+                'post_type' => 'elementor_library',
                 'posts_per_page' => -1,
-                'post_status'    => 'publish'
+                'post_status' => 'publish'
             ));
 
             foreach ($templates as $template) {
@@ -1694,16 +1694,16 @@ class SEOAutoFix_Broken_Url_Management
 
                 // Store content in same Elementor JSON format as regular pages
                 $snap_content = json_encode(array(
-                    'is_elementor'   => true,
-                    'post_content'   => $template->post_content,
+                    'is_elementor' => true,
+                    'post_content' => $template->post_content,
                     'elementor_data' => $elementor_data
                 ));
 
                 $inserted = $wpdb->insert(
                     $table_snapshot,
                     array(
-                        'scan_id'          => $scan_id,
-                        'page_id'          => $template->ID,
+                        'scan_id' => $scan_id,
+                        'page_id' => $template->ID,
                         'original_content' => $snap_content
                     ),
                     array('%s', '%d', '%s')
@@ -1758,11 +1758,11 @@ class SEOAutoFix_Broken_Url_Management
 
                 foreach ($links as $link) {
                     $unsnapshotted_links[] = array(
-                        'page_id'     => $missing_id,
-                        'page_title'  => get_the_title($missing_id) ?: 'Page #' . $missing_id,
-                        'broken_url'  => $link['broken_url'],
+                        'page_id' => $missing_id,
+                        'page_title' => get_the_title($missing_id) ?: 'Page #' . $missing_id,
+                        'broken_url' => $link['broken_url'],
                         'anchor_text' => $link['anchor_text'],
-                        'location'    => $link['location']
+                        'location' => $link['location']
                     );
                 }
             }
@@ -1783,7 +1783,8 @@ class SEOAutoFix_Broken_Url_Management
             foreach ($snapshotted_ids as $snapped_id) {
                 $snap_content_raw = $wpdb->get_var($wpdb->prepare(
                     "SELECT original_content FROM {$table_snapshot} WHERE scan_id = %s AND page_id = %d",
-                    $scan_id, $snapped_id
+                    $scan_id,
+                    $snapped_id
                 ));
                 if ($snap_content_raw && stripos($snap_content_raw, $hf_link['broken_url']) !== false) {
                     $covered = true;
@@ -1792,19 +1793,19 @@ class SEOAutoFix_Broken_Url_Management
             }
             if (!$covered) {
                 $unsnapshotted_links[] = array(
-                    'page_id'     => 0,
-                    'page_title'  => 'Header / Footer',
-                    'broken_url'  => $hf_link['broken_url'],
+                    'page_id' => 0,
+                    'page_title' => 'Header / Footer',
+                    'broken_url' => $hf_link['broken_url'],
                     'anchor_text' => $hf_link['anchor_text'],
-                    'location'    => $hf_link['location']
+                    'location' => $hf_link['location']
                 );
                 \SEOAutoFix_Debug_Logger::log('[SNAPSHOT] ⚠️ Header/footer link not covered by any template snapshot: ' . $hf_link['broken_url']);
             }
         }
 
         wp_send_json_success(array(
-            'message'             => sprintf(__('Snapshot created for %d pages/templates', 'seo-autofix-pro'), $snapshot_count),
-            'snapshot_count'      => $snapshot_count,
+            'message' => sprintf(__('Snapshot created for %d pages/templates', 'seo-autofix-pro'), $snapshot_count),
+            'snapshot_count' => $snapshot_count,
             'unsnapshotted_links' => $unsnapshotted_links
         ));
     }
@@ -2265,8 +2266,8 @@ class SEOAutoFix_Broken_Url_Management
         }
 
         $pages_json = isset($_POST['pages']) ? wp_unslash($_POST['pages']) : '[]';
-        $pages      = json_decode($pages_json, true);
-        $scan_id    = isset($_POST['scan_id']) ? sanitize_text_field($_POST['scan_id']) : '';
+        $pages = json_decode($pages_json, true);
+        $scan_id = isset($_POST['scan_id']) ? sanitize_text_field($_POST['scan_id']) : '';
 
         if (!is_array($pages)) {
             wp_send_json_error(array('message' => 'Invalid pages data'));
@@ -2274,14 +2275,14 @@ class SEOAutoFix_Broken_Url_Management
 
         \SEOAutoFix_Debug_Logger::log('[EXTRACT_STORAGE] Called for ' . count($pages) . ' pages, scan_id: ' . $scan_id);
 
-        $crawler    = new Link_Crawler();
-        $site_url   = home_url('/');
-        $all_links  = array();
+        $crawler = new Link_Crawler();
+        $site_url = home_url('/');
+        $all_links = array();
 
         // ── Per-page extraction ─────────────────────────────────────────────
         foreach ($pages as $page_data) {
-            $page_id    = isset($page_data['page_id'])    ? intval($page_data['page_id'])              : 0;
-            $page_url   = isset($page_data['url'])        ? esc_url_raw($page_data['url'])             : '';
+            $page_id = isset($page_data['page_id']) ? intval($page_data['page_id']) : 0;
+            $page_url = isset($page_data['url']) ? esc_url_raw($page_data['url']) : '';
             $page_title = isset($page_data['page_title']) ? sanitize_text_field($page_data['page_title']) : '';
 
             if (empty($page_url)) {
@@ -2306,7 +2307,7 @@ class SEOAutoFix_Broken_Url_Management
                 $all_links = array_merge($all_links, $nav_links);
                 \SEOAutoFix_Debug_Logger::log('[EXTRACT_STORAGE] Nav menus added: ' . count($nav_links) . ' links');
 
-                $hf_links  = $crawler->extract_links_from_hf_templates();
+                $hf_links = $crawler->extract_links_from_hf_templates();
                 $all_links = array_merge($all_links, $hf_links);
                 \SEOAutoFix_Debug_Logger::log('[EXTRACT_STORAGE] HF templates added: ' . count($hf_links) . ' links');
 
@@ -2315,19 +2316,19 @@ class SEOAutoFix_Broken_Url_Management
         }
 
         // ── Normalise & deduplicate by (url , location) ─────────────────────
-        $seen      = array();
+        $seen = array();
         $deduplicated = array();
         foreach ($all_links as $link) {
             // Ensure required keys exist
             $link = array_merge(array(
-                'url'                  => '',
-                'found_on_url'         => $site_url,
-                'found_on_page_id'     => 0,
-                'found_on_page_title'  => '',
-                'location'             => 'content',
-                'anchor_text'          => '',
-                'builder'              => 'classic',
-                'dynamic_source'       => false,
+                'url' => '',
+                'found_on_url' => $site_url,
+                'found_on_page_id' => 0,
+                'found_on_page_title' => '',
+                'location' => 'content',
+                'anchor_text' => '',
+                'builder' => 'classic',
+                'dynamic_source' => false,
             ), $link);
 
             $url = trim($link['url']);
