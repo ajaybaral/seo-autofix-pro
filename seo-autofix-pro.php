@@ -20,11 +20,23 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('SEOAUTOFIX_VERSION', '1.0.0');
 define('SEOAUTOFIX_PLUGIN_FILE', __FILE__);
 define('SEOAUTOFIX_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('SEOAUTOFIX_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('SEOAUTOFIX_PLUGIN_BASENAME', plugin_basename(__FILE__));
+
+// Read version from plugin header — single source of truth.
+if (!function_exists('get_plugin_data')) {
+    require_once ABSPATH . 'wp-admin/includes/plugin.php';
+}
+$_seoautofix_data = get_plugin_data(__FILE__, false, false);
+define('SEOAUTOFIX_VERSION', $_seoautofix_data['Version'] ?? '1.4.8');
+unset($_seoautofix_data);
+
+// Asset version = file modification time of the main plugin file.
+// This changes automatically every time a new zip is uploaded/extracted,
+// ensuring browsers always fetch the latest JS/CSS.
+define('SEOAUTOFIX_ASSET_VERSION', filemtime(__FILE__) . '-' . SEOAUTOFIX_VERSION);
 
 /**
  * Main Plugin Class
@@ -84,10 +96,9 @@ class SEO_AutoFix_Pro
      */
     public function init()
     {
-        // Prevent caching during development/debug mode
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            $this->disable_caching();
-        }
+        // Always prevent browser caching of our plugin admin pages and assets.
+        // This is the primary defence against stale JS/CSS after a plugin update.
+        $this->disable_caching();
 
         // Load text domain for translations
         load_plugin_textdomain('seo-autofix-pro', false, dirname(SEOAUTOFIX_PLUGIN_BASENAME) . '/languages');
@@ -136,39 +147,59 @@ class SEO_AutoFix_Pro
     }
 
     /**
-     * Disable caching for plugin assets and admin pages during development
+     * Disable caching for plugin assets and admin pages.
+     * Runs unconditionally so a freshly uploaded plugin is always served.
      */
     private function disable_caching()
     {
-        // Send no-cache headers for plugin admin pages
+        // Send no-cache HTTP headers for every plugin admin page.
         add_action('admin_init', function () {
-            // Only for our plugin pages
-            if (isset($_GET['page']) && strpos($_GET['page'], 'seo-autofix') === 0) {
+            if (isset($_GET['page']) && strpos($_GET['page'], 'seoautofix') !== false) {
                 nocache_headers();
                 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
                 header('Cache-Control: post-check=0, pre-check=0', false);
                 header('Pragma: no-cache');
-                header('Expires: 0');
+                header('Expires: Thu, 01 Jan 1970 00:00:00 GMT');
             }
-        });
+        }, 1);
 
-        // Add version parameter to all plugin scripts and styles to bust cache
+        // Replace the ?ver= query string on every plugin script/style with the
+        // file's actual mtime so the browser fetches a fresh copy after each upload.
         add_filter('script_loader_src', array($this, 'add_cache_buster'), 10, 2);
         add_filter('style_loader_src', array($this, 'add_cache_buster'), 10, 2);
     }
 
     /**
-     * Add cache buster parameter to plugin assets
+     * Replace wp_enqueue version strings with per-file mtime for plugin assets.
+     * filemtime() gives a unique string any time the file on disk changes,
+     * which happens automatically when a new zip is extracted.
      */
     public function add_cache_buster($src, $handle)
     {
-        // Only add cache buster to our plugin files
-        if (strpos($src, 'seo-autofix-pro') !== false) {
-            // Add timestamp as version parameter to force browser reload
-            $separator = (strpos($src, '?') !== false) ? '&' : '?';
-            return $src . $separator . 'ver=' . time();
+        if (strpos($src, 'seo-autofix-pro') === false) {
+            return $src;
         }
-        return $src;
+
+        // Derive the filesystem path from the URL so we can stat the file.
+        $plugin_url  = untrailingslashit(SEOAUTOFIX_PLUGIN_URL);
+        $plugin_path = untrailingslashit(SEOAUTOFIX_PLUGIN_DIR);
+
+        // Strip existing ?ver=... query string first.
+        $src_no_qs = preg_replace('/[?&]ver=[^&]*/', '', $src);
+
+        // Build filesystem path.
+        $file_path = str_replace($plugin_url, $plugin_path, strtok($src_no_qs, '?'));
+        $file_path = wp_normalize_path($file_path);
+
+        if (file_exists($file_path)) {
+            $mtime = filemtime($file_path);
+        } else {
+            // Fallback: use the activation-time token stored in the DB.
+            $mtime = get_option('seoautofix_asset_version', SEOAUTOFIX_ASSET_VERSION);
+        }
+
+        $separator = (strpos($src_no_qs, '?') !== false) ? '&' : '?';
+        return $src_no_qs . $separator . 'ver=' . $mtime;
     }
     
     /**
@@ -262,10 +293,31 @@ class SEO_AutoFix_Pro
     public function activate()
     {
         // Clear all stale debug logs on (re)activation so the plugin always
-        // starts fresh — no old January (or other session) entries will remain.
+        // starts fresh — no old session entries will remain.
         if (class_exists('SEOAutoFix_Debug_Logger')) {
             \SEOAutoFix_Debug_Logger::clear_all();
         }
+
+        // ------------------------------------------------------------------
+        // CACHE BUSTING: store a fresh, unique asset-version token.
+        // Every (re)activation writes a new value, so every enqueue call
+        // will pick up the new version string and the browser is forced to
+        // discard its cached JS/CSS files.
+        // ------------------------------------------------------------------
+        $asset_version = SEOAUTOFIX_VERSION . '.' . filemtime(__FILE__) . '.' . time();
+        update_option('seoautofix_asset_version', $asset_version, false);
+
+        // Clear any WordPress object/transient caches that might hold old
+        // script handles or admin page output.
+        wp_cache_flush();
+
+        // Delete all plugin-related transients.
+        global $wpdb;
+        $wpdb->query(
+            "DELETE FROM {$wpdb->options}
+             WHERE option_name LIKE '_transient_seoautofix_%'
+                OR option_name LIKE '_transient_timeout_seoautofix_%'"
+        );
 
         // Set plugin activation flag
         update_option('seoautofix_activated', true);
