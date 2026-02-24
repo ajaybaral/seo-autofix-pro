@@ -208,8 +208,17 @@
 .titletag-table th,
 .titletag-table td { vertical-align: top; padding: 10px 12px; }
 
-.titletag-row { transition: background-color .2s; }
-.titletag-row.titletag-row-skipped { opacity: .4; }
+.titletag-row { transition: background-color .3s ease, opacity .4s ease, max-height .4s ease; }
+.titletag-row.titletag-row-being-skipped {
+    background-color: #e5e7eb !important;
+}
+.titletag-row.titletag-row-fade-out {
+    opacity: 0;
+    max-height: 0;
+    overflow: hidden;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+}
 
 /* Column widths */
 .titletag-col-num  { width: 36px; color: #646970; font-size: 12px; }

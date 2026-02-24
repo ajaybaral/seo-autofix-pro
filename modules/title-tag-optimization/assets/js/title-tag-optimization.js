@@ -455,7 +455,7 @@
     }
 
     /* =========================================================
-     * Skip (frontend-only — removes row from session)
+     * Skip (frontend-only — removes row from session with animation)
      * ========================================================= */
     function skipRow($row) {
         var postId = parseInt($row.data('post-id'), 10);
@@ -464,37 +464,51 @@
         // Determine the skipped row's issue type for stat adjustment
         var skippedIssue = $row.attr('data-issue') || '';
 
-        // Remove from data arrays
-        TitleTag.allRows = TitleTag.allRows.filter(function (r) {
-            return r.post_id !== postId;
-        });
-        TitleTag.visibleRows = TitleTag.visibleRows.filter(function (r) {
-            return r.post_id !== postId;
-        });
+        // Disable buttons immediately
+        $row.find('.titletag-apply-btn, .titletag-generate-btn, .titletag-skip-btn').prop('disabled', true);
 
-        // Update stats counters
-        var total = parseInt($('#stat-total').text(), 10) || 0;
-        var withTitles = parseInt($('#stat-with-titles').text(), 10) || 0;
-        var withoutTitles = parseInt($('#stat-without-titles').text(), 10) || 0;
+        // Step 1: Turn row grey
+        $row.addClass('titletag-row-being-skipped');
 
-        total = Math.max(0, total - 1);
-        if (skippedIssue === 'missing') {
-            withoutTitles = Math.max(0, withoutTitles - 1);
-        } else {
-            withTitles = Math.max(0, withTitles - 1);
-        }
+        // Step 2: After grey shows, fade out
+        setTimeout(function () {
+            $row.addClass('titletag-row-fade-out');
 
-        $('#stat-total').text(total);
-        $('#stat-with-titles').text(withTitles);
-        $('#stat-without-titles').text(withoutTitles);
+            // Step 3: After fade-out completes, remove from data and re-render
+            setTimeout(function () {
+                // Remove from data arrays
+                TitleTag.allRows = TitleTag.allRows.filter(function (r) {
+                    return r.post_id !== postId;
+                });
+                TitleTag.visibleRows = TitleTag.visibleRows.filter(function (r) {
+                    return r.post_id !== postId;
+                });
 
-        // Fix current page if it now exceeds total pages
-        if (TitleTag.currentPage > totalPages()) {
-            TitleTag.currentPage = Math.max(1, totalPages());
-        }
+                // Update stats counters
+                var total = parseInt($('#stat-total').text(), 10) || 0;
+                var withTitles = parseInt($('#stat-with-titles').text(), 10) || 0;
+                var withoutTitles = parseInt($('#stat-without-titles').text(), 10) || 0;
 
-        // Re-render table and pagination
-        renderCurrentPage();
+                total = Math.max(0, total - 1);
+                if (skippedIssue === 'missing') {
+                    withoutTitles = Math.max(0, withoutTitles - 1);
+                } else {
+                    withTitles = Math.max(0, withTitles - 1);
+                }
+
+                $('#stat-total').text(total);
+                $('#stat-with-titles').text(withTitles);
+                $('#stat-without-titles').text(withoutTitles);
+
+                // Fix current page if it now exceeds total pages
+                if (TitleTag.currentPage > totalPages()) {
+                    TitleTag.currentPage = Math.max(1, totalPages());
+                }
+
+                // Re-render table and pagination
+                renderCurrentPage();
+            }, 400);
+        }, 300);
     }
 
     /* =========================================================
@@ -540,8 +554,9 @@
         $('#titletag-bulk-progress').hide();
         $('#titletag-bulk-generate-btn').prop('disabled', false);
         if (cancelled) {
-            // Clear all generated suggestions
+            // Clear all generated suggestions and reset char counters
             $('.titletag-suggested-editable').text('').removeClass('has-suggestion');
+            $('.titletag-char-count').text('0').removeClass('chars-ok chars-short chars-long');
             $('.titletag-apply-btn').prop('disabled', true);
             showToast('Generation cancelled.', 'error');
         } else {
