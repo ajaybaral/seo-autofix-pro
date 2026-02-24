@@ -75,13 +75,27 @@ class Title_Scanner
      * Classify a title string.
      * $seen_map is passed by reference to track duplicates across the batch.
      */
-    public function classify(string $title, array &$seen_map): string
+    public function classify(string $title, array &$seen_map, array $frequency_map = array()): string
     {
         $trimmed = trim($title);
         if ('' === $trimmed) {
             return self::ISSUE_MISSING;
         }
 
+        $norm = preg_replace('/\s+/', ' ', strtolower($trimmed));
+
+        // Priority 1: Duplicate (More critical than length)
+        // Check pre-calculated frequency if available, else fallback to seen_map
+        if (!empty($frequency_map)) {
+            if (($frequency_map[$norm] ?? 0) > 1) {
+                return self::ISSUE_DUPLICATE;
+            }
+        } elseif (isset($seen_map[$norm])) {
+            return self::ISSUE_DUPLICATE;
+        }
+        $seen_map[$norm] = true;
+
+        // Priority 2: Length
         $len = mb_strlen($trimmed);
         if ($len < self::MIN_LEN) {
             return self::ISSUE_SHORT;
@@ -89,13 +103,6 @@ class Title_Scanner
         if ($len > self::MAX_LEN) {
             return self::ISSUE_LONG;
         }
-
-        // Duplicate: normalise (trim + lowercase + collapse spaces)
-        $norm = preg_replace('/\s+/', ' ', strtolower($trimmed));
-        if (isset($seen_map[$norm])) {
-            return self::ISSUE_DUPLICATE;
-        }
-        $seen_map[$norm] = true;
 
         return self::ISSUE_OK;
     }
@@ -125,12 +132,31 @@ class Title_Scanner
         ));
 
         $seen_map = array();
+        $frequency_map = array();
+        $pre_scan = array();
         $results = array();
 
+        // Pass 1: Gather titles and calculate frequencies
         foreach ($query->posts as $post) {
             $seo_title = $this->get_seo_title($post->ID);
             $rendered_title = ('' !== trim($seo_title)) ? $seo_title : $post->post_title;
-            $issue = $this->classify($rendered_title, $seen_map);
+            $norm = preg_replace('/\s+/', ' ', strtolower(trim($rendered_title)));
+
+            $pre_scan[$post->ID] = array(
+                'seo_title' => $seo_title,
+                'rendered_title' => $rendered_title,
+                'norm' => $norm,
+            );
+
+            if ('' !== $norm) {
+                $frequency_map[$norm] = ($frequency_map[$norm] ?? 0) + 1;
+            }
+        }
+
+        // Pass 2: Classify and filter
+        foreach ($query->posts as $post) {
+            $data = $pre_scan[$post->ID];
+            $issue = $this->classify($data['rendered_title'], $seen_map, $frequency_map);
 
             if ('all' !== $issue_filter && $issue !== $issue_filter) {
                 continue;
@@ -142,9 +168,9 @@ class Title_Scanner
                 'post_title' => $post->post_title,
                 'post_url' => get_permalink($post->ID),
                 'edit_url' => get_edit_post_link($post->ID, 'raw'),
-                'current_seo_title' => $seo_title,
-                'rendered_title' => $rendered_title,
-                'char_count' => mb_strlen($rendered_title),
+                'current_seo_title' => $data['seo_title'],
+                'rendered_title' => $data['rendered_title'],
+                'char_count' => mb_strlen($data['rendered_title']),
                 'issue_type' => $issue,
                 'seo_plugin' => $this->detect_seo_plugin(),
             );
