@@ -21,9 +21,9 @@ class Title_AI_Generator
     const MAX_CHARS = 60;
 
     /**
-     * Generate an AI title suggestion.
+     * Generate an AI title suggestion with primary keyword.
      *
-     * @return array{ title: string }
+     * @return array{ title: string, keyword: string }
      */
     public function generate(int $post_id): array
     {
@@ -49,15 +49,18 @@ class Title_AI_Generator
 
         $system = "You are a senior SEO strategist and professional copywriter.
 
-            Generate ONE high-quality, Google-compliant title tag for a webpage.
+            Your task:
+            1. Identify the single most important PRIMARY KEYWORD for this webpage based on its content.
+            2. Generate ONE high-quality, Google-compliant title tag that incorporates the primary keyword naturally.
 
-            Strict Requirements:
+            Strict Requirements for the title:
             - Length must be between " . self::MIN_CHARS . " and " . self::MAX_CHARS . " characters.
             - Clearly reflect the actual page content.
             - Follow Google Helpful Content guidelines.
             - Reflect E-E-A-T principles (Experience, Expertise, Authoritativeness, Trustworthiness).
             - Use natural, human-written language.
             - Be specific and descriptive, not vague.
+            - The primary keyword must appear naturally in the title.
             - Do NOT use clickbait, hype, exaggerated claims, or misleading wording.
             - Do NOT use keyword stuffing.
             - Do NOT create repetitive or templated title structures across different pages.
@@ -66,12 +69,12 @@ class Title_AI_Generator
 
             If the content is unclear, generate a neutral, accurate descriptive title.
 
-            Return ONLY the final title text.
-            No quotes.
-            No explanations.
-            No extra text.";
+            IMPORTANT: Return your response as a JSON object in this exact format:
+            {\"title\": \"Your Generated Title Here\", \"keyword\": \"primary keyword\"}
 
-        $user = "Page URL: {$current_url}\nCurrent Title: {$current_title}\nContent Preview (first 300 words):\n{$snippet}\n\nGenerate the SEO title:";
+            No extra text outside the JSON. No markdown. No code blocks.";
+
+        $user = "Page URL: {$current_url}\nCurrent Title: {$current_title}\nContent Preview (first 300 words):\n{$snippet}\n\nGenerate the SEO title with primary keyword:";
 
         \SEOAutoFix_Debug_Logger::log("[TITLETG AI] Calling OpenAI for post_id={$post_id}", 'title-tag');
 
@@ -87,7 +90,7 @@ class Title_AI_Generator
                     array('role' => 'system', 'content' => $system),
                     array('role' => 'user', 'content' => $user),
                 ),
-                'max_tokens' => 40,
+                'max_tokens' => 80,
                 'temperature' => 0.6,
             )),
         ));
@@ -108,12 +111,25 @@ class Title_AI_Generator
             throw new \Exception('OpenAI returned empty content.');
         }
 
-        $title = trim($body['choices'][0]['message']['content']);
-        $title = trim($title, '"\'„"«»');
-        $title = trim($title);
+        $raw = trim($body['choices'][0]['message']['content']);
 
-        \SEOAutoFix_Debug_Logger::log("[TITLETAG AI] Generated: \"{$title}\"", 'title-tag');
+        // Parse JSON response from AI
+        $parsed = json_decode($raw, true);
 
-        return array('title' => $title);
+        if (is_array($parsed) && !empty($parsed['title'])) {
+            $title = trim($parsed['title']);
+            $title = trim($title, '"\'„"«»');
+            $keyword = isset($parsed['keyword']) ? trim($parsed['keyword']) : '';
+        } else {
+            // Fallback: treat as plain text title if JSON parsing fails
+            $title = trim($raw, '"\'„"«»');
+            $title = trim($title);
+            $keyword = '';
+            \SEOAutoFix_Debug_Logger::log("[TITLETAG AI] JSON parse failed, using raw text fallback", 'title-tag');
+        }
+
+        \SEOAutoFix_Debug_Logger::log("[TITLETAG AI] Generated: \"{$title}\" | Keyword: \"{$keyword}\"", 'title-tag');
+
+        return array('title' => $title, 'keyword' => $keyword);
     }
 }

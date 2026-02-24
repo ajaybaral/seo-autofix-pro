@@ -17,12 +17,14 @@
      * Module State
      * ========================================================= */
     var TitleTag = {
-        allRows: [],   // All rows from current scan
-        visibleRows: [],   // After filter applied
-        activeFilter: '',   // '' = no filter (show all)
+        allRows: [],            // All rows from current scan
+        typeFilteredRows: [],   // After post type filter
+        visibleRows: [],        // After issue filter applied
+        activeFilter: '',       // '' = no filter (show all)
+        postTypeFilter: 'all',  // 'all', 'post', or 'page'
         currentPage: 1,
         cancelGeneration: false,
-        appliedChanges: [],   // For CSV export — resets on filter change
+        appliedChanges: [],     // For CSV export — resets on filter change
         skippedIds: []
     };
 
@@ -40,6 +42,11 @@
         $('#titletag-bulk-apply-btn').on('click', bulkApply);
         $('#titletag-cancel-btn').on('click', function () { TitleTag.cancelGeneration = true; });
         $('#titletag-export-csv-btn').on('click', exportCSV);
+
+        // Post type dropdown
+        $('#titletag-posttype-filter').on('change', function () {
+            applyPostTypeFilter($(this).val());
+        });
 
         // Filter radio cards — ignore clicks on the <input> itself to prevent double-fire
         $(document).on('click', '.titletag-filter-card', function (e) {
@@ -132,8 +139,9 @@
         $('#titletag-controls').show();
         $('#titletag-results').show();
 
-        // Default: no filter, show all
-        applyFilter('');
+        // Initialize with current post type filter and no issue filter
+        TitleTag.postTypeFilter = $('#titletag-posttype-filter').val() || 'all';
+        applyPostTypeFilter(TitleTag.postTypeFilter);
         showToast('Scan complete. ' + TitleTag.allRows.length + ' posts/pages found.');
     }
 
@@ -147,7 +155,43 @@
     }
 
     /* =========================================================
-     * Filter
+     * Post Type Filter (dimension filter)
+     * ========================================================= */
+    function applyPostTypeFilter(postType) {
+        TitleTag.postTypeFilter = postType;
+
+        // Filter allRows by post type
+        if (postType === 'all') {
+            TitleTag.typeFilteredRows = TitleTag.allRows.slice();
+        } else {
+            TitleTag.typeFilteredRows = TitleTag.allRows.filter(function (r) {
+                return r.post_type === postType;
+            });
+        }
+
+        // Recalculate stats from typeFilteredRows
+        recalcStats();
+
+        // Reset issue filter and re-apply
+        resetFilter();
+    }
+
+    function recalcStats() {
+        var rows = TitleTag.typeFilteredRows;
+        var total = rows.length;
+        var missing = 0;
+
+        rows.forEach(function (r) {
+            if (r.issue_type === 'missing') { missing++; }
+        });
+
+        $('#stat-total').text(total);
+        $('#stat-without-titles').text(missing);
+        $('#stat-with-titles').text(total - missing);
+    }
+
+    /* =========================================================
+     * Issue Filter
      * ========================================================= */
     function setFilter(filter) {
         // Toggle: clicking the already-active filter deselects it
@@ -167,9 +211,9 @@
         $('#titletag-export-csv-btn').hide();
 
         if (filter === '') {
-            TitleTag.visibleRows = TitleTag.allRows.slice();
+            TitleTag.visibleRows = TitleTag.typeFilteredRows.slice();
         } else {
-            TitleTag.visibleRows = TitleTag.allRows.filter(function (r) {
+            TitleTag.visibleRows = TitleTag.typeFilteredRows.filter(function (r) {
                 return r.issue_type === filter;
             });
         }
@@ -372,6 +416,13 @@
                 $editable.text(res.data.title).addClass('has-suggestion');
                 updateCharCounter($editable);
                 $applyBtn.prop('disabled', false);
+                // Show primary keyword if returned
+                var $kwEl = $row.find('.titletag-primary-keyword');
+                if (res.data.keyword) {
+                    $kwEl.text('Primary Keyword: ' + res.data.keyword).show();
+                } else {
+                    $kwEl.text('').hide();
+                }
                 setRowStatus($row, '', '');
             } else {
                 setRowStatus($row, 'Error: ' + res.data.message, 'error');
@@ -432,9 +483,10 @@
                                     : 'ok';
                         $row.find('.titletag-issue-badge-wrap').html(buildIssueBadge(newIssue));
 
-                        // Clear AI suggestion field
+                        // Clear AI suggestion field and keyword
                         $row.find('.titletag-suggested-editable').text('').removeClass('has-suggestion');
                         $row.find('.titletag-char-count').text('0').removeClass('chars-ok chars-short chars-long');
+                        $row.find('.titletag-primary-keyword').text('').hide();
 
                         // Revert button to 'Apply' + disabled (until next Generate)
                         $applyBtn.removeClass('titletag-apply-btn-applied').text('Apply').prop('disabled', true);
@@ -463,7 +515,6 @@
         TitleTag.skippedIds.push(postId);
 
         // Determine the skipped row's issue type for stat adjustment
-        var skippedIssue = $row.attr('data-issue') || '';
 
         // Disable buttons immediately
         $row.find('.titletag-apply-btn, .titletag-generate-btn, .titletag-skip-btn').prop('disabled', true);
@@ -481,25 +532,15 @@
                 TitleTag.allRows = TitleTag.allRows.filter(function (r) {
                     return r.post_id !== postId;
                 });
+                TitleTag.typeFilteredRows = TitleTag.typeFilteredRows.filter(function (r) {
+                    return r.post_id !== postId;
+                });
                 TitleTag.visibleRows = TitleTag.visibleRows.filter(function (r) {
                     return r.post_id !== postId;
                 });
 
-                // Update stats counters
-                var total = parseInt($('#stat-total').text(), 10) || 0;
-                var withTitles = parseInt($('#stat-with-titles').text(), 10) || 0;
-                var withoutTitles = parseInt($('#stat-without-titles').text(), 10) || 0;
-
-                total = Math.max(0, total - 1);
-                if (skippedIssue === 'missing') {
-                    withoutTitles = Math.max(0, withoutTitles - 1);
-                } else {
-                    withTitles = Math.max(0, withTitles - 1);
-                }
-
-                $('#stat-total').text(total);
-                $('#stat-with-titles').text(withTitles);
-                $('#stat-without-titles').text(withoutTitles);
+                // Recalculate stats from current type-filtered rows
+                recalcStats();
 
                 // Fix current page if it now exceeds total pages
                 if (TitleTag.currentPage > totalPages()) {
@@ -555,9 +596,10 @@
         $('#titletag-bulk-progress').hide();
         $('#titletag-bulk-generate-btn').prop('disabled', false);
         if (cancelled) {
-            // Clear all generated suggestions and reset char counters
+            // Clear all generated suggestions, char counters, and keywords
             $('.titletag-suggested-editable').text('').removeClass('has-suggestion');
             $('.titletag-char-count').text('0').removeClass('chars-ok chars-short chars-long');
+            $('.titletag-primary-keyword').text('').hide();
             $('.titletag-apply-btn').prop('disabled', true);
             showToast('Generation cancelled.', 'error');
         } else {

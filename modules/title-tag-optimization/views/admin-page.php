@@ -44,6 +44,11 @@ if (!defined('ABSPATH')) {
             <span class="dashicons dashicons-search"></span>
             <?php _e('Scan Posts & Pages', 'seo-autofix-pro'); ?>
         </button>
+        <select id="titletag-posttype-filter" class="titletag-posttype-select">
+            <option value="all"><?php _e('All (Posts & Pages)', 'seo-autofix-pro'); ?></option>
+            <option value="post"><?php _e('Posts Only', 'seo-autofix-pro'); ?></option>
+            <option value="page"><?php _e('Pages Only', 'seo-autofix-pro'); ?></option>
+        </select>
     </div>
 
     <!-- Scan Progress Bar -->
@@ -205,6 +210,7 @@ if (!defined('ABSPATH')) {
                 <div class="titletag-suggested-editable" contenteditable="true"></div>
                 <div class="titletag-char-counter"><span class="titletag-char-count">0</span>
                     <?php _e('chars', 'seo-autofix-pro'); ?></div>
+                <div class="titletag-primary-keyword" style="display:none;"></div>
                 <div class="titletag-generating-indicator" style="display:none;">
                     <span class="spinner is-active"></span>
                     <?php _e('Generating…', 'seo-autofix-pro'); ?>
