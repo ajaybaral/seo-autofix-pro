@@ -66,9 +66,49 @@ class Title_Scanner
             case 'aioseo':
                 return (string) get_post_meta($post_id, '_aioseo_title', true);
             default:
-                $post = get_post($post_id);
-                return $post ? (string) $post->post_title : '';
+                return $this->get_native_document_title($post_id);
         }
+    }
+
+    /**
+     * Get the actual rendered HTML <title> tag value for a post when no SEO
+     * plugin is active. Temporarily fakes a singular query context so that
+     * wp_get_document_title() returns the same string the theme would output.
+     */
+    private function get_native_document_title(int $post_id): string
+    {
+        $post_obj = get_post($post_id);
+        if (!$post_obj) {
+            return '';
+        }
+
+        // Save original global state
+        global $wp_query, $post;
+        $original_wp_query = $wp_query;
+        $original_post     = $post;
+
+        // Build a minimal fake query that looks like a singular post request
+        $fake_query = new \WP_Query();
+        $fake_query->is_singular       = true;
+        $fake_query->is_single         = ('post' === $post_obj->post_type);
+        $fake_query->is_page           = ('page' === $post_obj->post_type);
+        $fake_query->queried_object    = $post_obj;
+        $fake_query->queried_object_id = $post_obj->ID;
+
+        $wp_query = $fake_query;
+        $post     = $post_obj;
+        setup_postdata($post_obj);
+
+        $title = wp_get_document_title();
+
+        // Restore original global state
+        $wp_query = $original_wp_query;
+        $post     = $original_post;
+        if ($original_post) {
+            setup_postdata($original_post);
+        }
+
+        return $title;
     }
 
     /**

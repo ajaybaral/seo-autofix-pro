@@ -120,10 +120,10 @@ if (!defined('ABSPATH')) {
                     <span class="dashicons dashicons-superhero"></span>
                     <?php _e('Generate AI Suggested Titles for Below', 'seo-autofix-pro'); ?>
                 </button>
-                <button id="titletag-lock-btn" class="button" style="padding:8px 20px;">
+                <!-- <button id="titletag-lock-btn" class="button" style="padding:8px 20px;">
                     <span class="dashicons dashicons-lock"></span>
                     <?php _e('Lock Rows', 'seo-autofix-pro'); ?>
-                </button>
+                </button> -->
             </div>
             <div class="titletag-bulk-right">
                 <button id="titletag-undo-btn" class="button" style="padding:8px 20px;" disabled>
