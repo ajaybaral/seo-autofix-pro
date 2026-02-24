@@ -235,6 +235,8 @@
             $tr.find('.titletag-post-url').attr('href', row.post_url).text(shortenUrl(row.post_url));
             $tr.find('.titletag-current-title-text').text(row.rendered_title || '(empty)');
             $tr.find('.titletag-issue-badge-wrap').html(buildIssueBadge(row.issue_type));
+            var currentTitleLen = (row.rendered_title || '').length;
+            $tr.find('.titletag-current-char-count').text(currentTitleLen + ' chars');
             $tr.find('.titletag-char-count').text('0');
 
             $tbody.append($tr);
