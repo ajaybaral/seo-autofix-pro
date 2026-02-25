@@ -321,7 +321,7 @@ class Title_Scanner
             $results[] = array(
                 'post_id' => (int) $post->ID,
                 'post_type' => $post->post_type,
-                'post_title' => $post->post_title,
+                'post_title' => html_entity_decode((string) $post->post_title, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
                 'post_url' => get_permalink($post->ID),
                 'edit_url' => get_edit_post_link($post->ID, 'raw'),
                 'current_seo_title' => $data['seo_title'],

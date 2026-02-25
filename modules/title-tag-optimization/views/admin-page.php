@@ -165,7 +165,7 @@ if (!defined('ABSPATH')) {
             <thead>
                 <tr>
                     <th class="titletag-col-num">#</th>
-                    <th class="titletag-col-title"><?php _e('Page Title', 'seo-autofix-pro'); ?></th>
+                    <th class="titletag-col-title"><?php _e('Page Name', 'seo-autofix-pro'); ?></th>
                     <th class="titletag-col-url"><?php _e('Page URL', 'seo-autofix-pro'); ?></th>
                     <th class="titletag-col-current"><?php _e('Current SEO Title', 'seo-autofix-pro'); ?></th>
                     <th class="titletag-col-suggested"><?php _e('AI Suggested Title', 'seo-autofix-pro'); ?></th>
