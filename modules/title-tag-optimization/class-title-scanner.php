@@ -95,7 +95,8 @@ class Title_Scanner
             $wpdb->prepare("SELECT title FROM `{$table}` WHERE post_id = %d", $post_id)
         );
 
-        $raw = ($row && !empty($row->title)) ? $row->title : '';
+        // Decode HTML entities — AIOSEO sometimes stores titles with encoded characters.
+        $raw = ($row && !empty($row->title)) ? html_entity_decode((string) $row->title, ENT_QUOTES | ENT_HTML5, 'UTF-8') : '';
 
         // 2. If the post has no individual override, read the global default format.
         if ('' === $raw) {
@@ -128,38 +129,43 @@ class Title_Scanner
     private function resolve_aioseo_tags(string $raw, \WP_Post $post): string
     {
         $site_title = get_bloginfo('name');
-        $tagline    = get_bloginfo('description');
-        $sep        = '-';
+        $tagline = get_bloginfo('description');
+        $sep = '-';
 
         // Attempt to read the separator from AIOSEO options.
+        // AIOSEO stores separators as HTML entities (e.g. &#8211;) — decode them.
         $aioseo_opts = get_option('aioseo_options', '');
         if ($aioseo_opts) {
             $opts = is_string($aioseo_opts) ? json_decode($aioseo_opts, true) : $aioseo_opts;
             if (!empty($opts['searchAppearance']['global']['separator'])) {
-                $sep = $opts['searchAppearance']['global']['separator'];
+                $sep = html_entity_decode(
+                    (string) $opts['searchAppearance']['global']['separator'],
+                    ENT_QUOTES | ENT_HTML5,
+                    'UTF-8'
+                );
             }
         }
 
         $replacements = array(
             // Post-level
-            '#post_title'         => $post->post_title,
-            '#page_title'         => $post->post_title,
-            '#title'              => $post->post_title,
+            '#post_title' => $post->post_title,
+            '#page_title' => $post->post_title,
+            '#title' => $post->post_title,
             // Site-level
-            '#site_title'         => $site_title,
-            '#blog_name'          => $site_title,
-            '#site_description'   => $tagline,
-            '#tagline'            => $tagline,
+            '#site_title' => $site_title,
+            '#blog_name' => $site_title,
+            '#site_description' => $tagline,
+            '#tagline' => $tagline,
             // Separator
-            '#separator_sa'       => $sep,
+            '#separator_sa' => $sep,
             // Date helpers
-            '#current_year'       => date('Y'),
-            '#current_month'      => date('F'),
-            '#current_day'        => date('j'),
+            '#current_year' => date('Y'),
+            '#current_month' => date('F'),
+            '#current_day' => date('j'),
             // Post author
             '#post_author_first_name' => get_the_author_meta('first_name', $post->post_author),
-            '#post_author_last_name'  => get_the_author_meta('last_name',  $post->post_author),
-            '#author_name'            => get_the_author_meta('display_name', $post->post_author),
+            '#post_author_last_name' => get_the_author_meta('last_name', $post->post_author),
+            '#author_name' => get_the_author_meta('display_name', $post->post_author),
         );
 
         $title = str_ireplace(
@@ -170,6 +176,9 @@ class Title_Scanner
 
         // Strip any remaining unresolved tags (#something).
         $title = preg_replace('/#\w+/', '', $title);
+
+        // Decode any HTML entities that AIOSEO may have embedded in the stored title.
+        $title = html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 
         return trim(preg_replace('/\s{2,}/', ' ', $title));
     }
@@ -189,30 +198,33 @@ class Title_Scanner
         // Save original global state
         global $wp_query, $post;
         $original_wp_query = $wp_query;
-        $original_post     = $post;
+        $original_post = $post;
 
         // Build a minimal fake query that looks like a singular post request
         $fake_query = new \WP_Query();
-        $fake_query->is_singular       = true;
-        $fake_query->is_single         = ('post' === $post_obj->post_type);
-        $fake_query->is_page           = ('page' === $post_obj->post_type);
-        $fake_query->queried_object    = $post_obj;
+        $fake_query->is_singular = true;
+        $fake_query->is_single = ('post' === $post_obj->post_type);
+        $fake_query->is_page = ('page' === $post_obj->post_type);
+        $fake_query->queried_object = $post_obj;
         $fake_query->queried_object_id = $post_obj->ID;
 
         $wp_query = $fake_query;
-        $post     = $post_obj;
+        $post = $post_obj;
         setup_postdata($post_obj);
 
         $title = wp_get_document_title();
 
         // Restore original global state
         $wp_query = $original_wp_query;
-        $post     = $original_post;
+        $post = $original_post;
         if ($original_post) {
             setup_postdata($original_post);
         }
 
-        return $title;
+        // wp_get_document_title() runs through wptexturize() which converts
+        // plain hyphens ( - ) into HTML entities like &#8211; (en dash).
+        // Decode them back so we store and display clean plain text.
+        return html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     }
 
     /**
