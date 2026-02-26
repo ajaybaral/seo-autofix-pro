@@ -184,9 +184,15 @@ class Title_Scanner
     }
 
     /**
-     * Get the actual rendered HTML <title> tag value for a post when no SEO
-     * plugin is active. Temporarily fakes a singular query context so that
-     * wp_get_document_title() returns the same string the theme would output.
+     * Get the stored post_title for a post in native WordPress mode (no SEO plugin).
+     *
+     * We return post_title directly — NOT wp_get_document_title() — because:
+     *  1. wp_get_document_title() returns "Post Title – Site Name" (site name included).
+     *     If that full string is later applied back, the title becomes doubled.
+     *  2. post_title IS the "SEO title" we are managing; WordPress appends the site
+     *     name automatically via its document_title_parts filter.
+     *  3. Avoids manipulating $wp_query / $post globals inside an AJAX request,
+     *     which can leave the global state inconsistent if anything throws.
      */
     private function get_native_document_title(int $post_id): string
     {
@@ -195,36 +201,13 @@ class Title_Scanner
             return '';
         }
 
-        // Save original global state
-        global $wp_query, $post;
-        $original_wp_query = $wp_query;
-        $original_post = $post;
-
-        // Build a minimal fake query that looks like a singular post request
-        $fake_query = new \WP_Query();
-        $fake_query->is_singular = true;
-        $fake_query->is_single = ('post' === $post_obj->post_type);
-        $fake_query->is_page = ('page' === $post_obj->post_type);
-        $fake_query->queried_object = $post_obj;
-        $fake_query->queried_object_id = $post_obj->ID;
-
-        $wp_query = $fake_query;
-        $post = $post_obj;
-        setup_postdata($post_obj);
-
-        $title = wp_get_document_title();
-
-        // Restore original global state
-        $wp_query = $original_wp_query;
-        $post = $original_post;
-        if ($original_post) {
-            setup_postdata($original_post);
-        }
-
-        // wp_get_document_title() runs through wptexturize() which converts
-        // plain hyphens ( - ) into HTML entities like &#8211; (en dash).
-        // Decode them back so we store and display clean plain text.
-        return html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        // Decode any HTML entities WordPress may have stored via wptexturize
+        // (e.g. &#8211; → –) so the admin panel displays clean plain text.
+        return html_entity_decode(
+            (string) $post_obj->post_title,
+            ENT_QUOTES | ENT_HTML5,
+            'UTF-8'
+        );
     }
 
     /**

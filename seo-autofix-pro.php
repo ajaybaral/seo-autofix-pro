@@ -100,14 +100,35 @@ class SEO_AutoFix_Pro
         // This is the primary defence against stale JS/CSS after a plugin update.
         $this->disable_caching();
 
-        // WordPress's wptexturize() converts plain hyphens ( - ) to HTML entities
-        // like &#8211; (en dash) in the <title> tag when no SEO plugin is active.
-        // Hook into 'wp_get_document_title' — the filter applied at the very end of
-        // wp_get_document_title() — and decode entities so the browser always sees
-        // clean plain text (e.g. "Post Title - Site Name", not "Post Title &#8211; Site Name").
+        // WordPress's wptexturize() runs INSIDE wp_get_document_title() and converts
+        // plain hyphens ( - ) in post_title to &#8211; in the rendered <title> tag.
+        // There is no filter AFTER that conversion, so the only way to prevent it is
+        // to short-circuit via 'pre_get_document_title' and assemble the title ourselves
+        // for singular posts — without calling wptexturize() at all.
+        // Non-singular pages (archives, search, 404) fall through to WP default behaviour.
         if ( ! is_admin() ) {
-            add_filter( 'wp_get_document_title', function ( $title ) {
-                return html_entity_decode( $title, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+            add_filter( 'pre_get_document_title', function ( $title ) {
+                if ( ! is_singular() ) {
+                    return $title; // let WordPress handle non-singular pages normally
+                }
+
+                $post = get_queried_object();
+                if ( ! $post || ! isset( $post->post_title ) ) {
+                    return $title;
+                }
+
+                // Decode any entities that may already be stored in post_title.
+                $post_title = html_entity_decode(
+                    (string) $post->post_title,
+                    ENT_QUOTES | ENT_HTML5,
+                    'UTF-8'
+                );
+
+                // Replicate WordPress's default separator and site-name suffix.
+                $sep       = apply_filters( 'document_title_separator', '-' );
+                $site_name = get_bloginfo( 'name', 'display' );
+
+                return $post_title . " {$sep} " . $site_name;
             }, 99 );
         }
 
