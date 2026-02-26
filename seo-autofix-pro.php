@@ -100,16 +100,7 @@ class SEO_AutoFix_Pro
         // This is the primary defence against stale JS/CSS after a plugin update.
         $this->disable_caching();
 
-        // On the frontend, WordPress's wptexturize() filter converts plain hyphens
-        // ( - ) to HTML entities like &#8211; in the <title> tag when no SEO plugin
-        // (Yoast, AIOSEO, Rank Math) is active to override the native title pipeline.
-        // We hook into 'document_title' — the very last filter before output — and
-        // decode entities so the browser always sees clean plain text.
-        if ( ! is_admin() ) {
-            add_filter( 'document_title', function ( $title ) {
-                return html_entity_decode( $title, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-            }, 99 );
-        }
+
 
         // Load text domain for translations
         load_plugin_textdomain('seo-autofix-pro', false, dirname(SEOAUTOFIX_PLUGIN_BASENAME) . '/languages');
