@@ -204,20 +204,38 @@ class Title_Apply_Engine
      */
     private function strip_site_name_suffix(string $title): string
     {
-        $site_name = get_bloginfo('name');
+        $site_name = trim(get_bloginfo('name'));
 
         if ('' === $site_name || '' === trim($title)) {
             return $title;
         }
 
-        // Build a pattern that matches any common separator + the site name at the end.
-        // Separators: |  /  -  – (en dash)  — (em dash)  · (middle dot)
-        $escaped = preg_quote($site_name, '/');
-        $pattern = '/[\s]*[|\\/\-\x{2013}\x{2014}\xB7][\s]*' . $escaped . '[\s]*$/iu';
+        // All separator characters WordPress (and common SEO plugins) place between
+        // the post title and the site name. Include the entity-decoded en dash (–)
+        // and em dash (—) which wptexturize() may have written.
+        $separators = array( '|', '/', '-', '–', '—', '·' );
 
-        $stripped = preg_replace($pattern, '', $title);
+        $lower_title     = mb_strtolower($title,     'UTF-8');
+        $lower_site_name = mb_strtolower($site_name, 'UTF-8');
 
-        // Only use the stripped version if it is non-empty.
-        return ('' !== trim((string) $stripped)) ? trim((string) $stripped) : trim($title);
+        foreach ($separators as $sep) {
+            // Build the suffix we are looking for, e.g. " – Natascha Jacobs"
+            $suffix = $sep . $lower_site_name;            // no spaces
+            $suffix_spaced = $sep . ' ' . $lower_site_name; // with one space
+
+            foreach (array($suffix_spaced, $suffix) as $candidate) {
+                $candidate = mb_strtolower(trim($candidate), 'UTF-8');
+                $len = mb_strlen($candidate, 'UTF-8');
+
+                if (mb_substr($lower_title, -$len, null, 'UTF-8') === $candidate) {
+                    $stripped = trim(mb_substr($title, 0, mb_strlen($title, 'UTF-8') - $len, 'UTF-8'));
+                    if ('' !== $stripped) {
+                        return $stripped;
+                    }
+                }
+            }
+        }
+
+        return $title; // nothing matched — return as-is
     }
 }

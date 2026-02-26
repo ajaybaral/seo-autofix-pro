@@ -100,6 +100,16 @@ class SEO_AutoFix_Pro
         // This is the primary defence against stale JS/CSS after a plugin update.
         $this->disable_caching();
 
+        // WordPress's wptexturize() converts plain hyphens ( - ) to HTML entities
+        // like &#8211; (en dash) in the <title> tag when no SEO plugin is active.
+        // Hook into 'wp_get_document_title' — the filter applied at the very end of
+        // wp_get_document_title() — and decode entities so the browser always sees
+        // clean plain text (e.g. "Post Title - Site Name", not "Post Title &#8211; Site Name").
+        if ( ! is_admin() ) {
+            add_filter( 'wp_get_document_title', function ( $title ) {
+                return html_entity_decode( $title, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+            }, 99 );
+        }
 
 
         // Load text domain for translations
