@@ -100,31 +100,36 @@ class SEO_AutoFix_Pro
         // This is the primary defence against stale JS/CSS after a plugin update.
         $this->disable_caching();
 
-        // WordPress's wptexturize() runs INSIDE wp_get_document_title() and converts
-        // plain hyphens ( - ) in post_title to &#8211; in the rendered <title> tag.
-        // There is no filter AFTER that conversion, so the only way to prevent it is
-        // to short-circuit via 'pre_get_document_title' and assemble the title ourselves
-        // for singular posts — without calling wptexturize() at all.
-        // Non-singular pages (archives, search, 404) fall through to WP default behaviour.
+        // For native WordPress (no SEO plugin), hook pre_get_document_title to:
+        //  1. Return our _seoautofix_title meta EXACTLY as stored, no site name appended.
+        //     This is identical to how Yoast returns _yoast_wpseo_title.
+        //  2. For posts with no custom meta, assemble a clean "post_title - site name"
+        //     without wptexturize() so hyphens stay as plain - not &#8211;.
+        //  Only runs on the frontend (not admin / AJAX).
         if ( ! is_admin() ) {
             add_filter( 'pre_get_document_title', function ( $title ) {
                 if ( ! is_singular() ) {
-                    return $title; // let WordPress handle non-singular pages normally
+                    return $title; // archives, search, 404 — let WP handle normally
                 }
 
                 $post = get_queried_object();
-                if ( ! $post || ! isset( $post->post_title ) ) {
+                if ( ! $post || ! isset( $post->ID ) ) {
                     return $title;
                 }
 
-                // Decode any entities that may already be stored in post_title.
+                // Return our custom SEO title exactly as applied — no site name added.
+                $custom = get_post_meta( $post->ID, '_seoautofix_title', true );
+                if ( '' !== (string) $custom ) {
+                    return html_entity_decode( (string) $custom, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+                }
+
+                // No custom title yet — build a clean "Post Title - Site Name" without
+                // wptexturize() so the separator stays a plain hyphen, not &#8211;.
                 $post_title = html_entity_decode(
                     (string) $post->post_title,
                     ENT_QUOTES | ENT_HTML5,
                     'UTF-8'
                 );
-
-                // Replicate WordPress's default separator and site-name suffix.
                 $sep       = apply_filters( 'document_title_separator', '-' );
                 $site_name = get_bloginfo( 'name', 'display' );
 

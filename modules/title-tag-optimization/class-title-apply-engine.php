@@ -105,60 +105,31 @@ class Title_Apply_Engine
                 clean_post_cache($post_id);
                 break;
 
-            default: // native — update post_title directly
-                global $wpdb;
-                $old_title = $post->post_title;
+            default: // native — store in our own SEO title meta (mirrors Yoast's approach)
+                // The old approach wrote to post_title, then WordPress's document_title_parts
+                // filter appended " - Site Name", doubling the site name on every apply.
+                //
+                // NEW APPROACH (mirrors how Yoast SEO works):
+                //  • Store the exact title the admin typed in _seoautofix_title post meta.
+                //  • pre_get_document_title in seo-autofix-pro.php reads this meta and
+                //    returns it as-is — no site name appended, no wptexturize() run on it.
+                //  • post_title is NEVER touched; the slug is therefore never affected.
 
-                // Strip the site name suffix if the user included it in their new title.
-                // When no SEO plugin is active, WordPress builds "<title>Post Title | Site Name</title>"
-                // automatically. We only store the "Post Title" part in post_title.
-                // If the user applied "New Title | My Site", we save "New Title" so it
-                // doesn't become "New Title | My Site | My Site" in the rendered page.
+                // Read old value from our meta (fall back to post_title for initial apply).
+                $old_title = (string) get_post_meta($post_id, '_seoautofix_title', true);
+                if ('' === $old_title) {
+                    $old_title = $post->post_title;
+                }
+
+                // Strip the site name suffix in case the user pasted or the AI generated
+                // a title that already ends with " - SiteName".
                 $new_title = $this->strip_site_name_suffix($new_title);
 
-                // Step 1: Use wp_update_post() to fire the save_post hook and all
-                // cache-clearing hooks that themes and caching plugins listen to.
-                // Without this, some page-caching layers never learn the title changed.
-                // wp_slash() prevents WordPress from double-escaping the value.
-                $update_result = wp_update_post(
-                    array(
-                        'ID'         => $post_id,
-                        'post_title' => wp_slash($new_title),
-                    ),
-                    true // return WP_Error on failure
-                );
+                // Write the clean title to our dedicated meta key.
+                update_post_meta($post_id, '_seoautofix_title', $new_title);
 
-                if (is_wp_error($update_result)) {
-                    \SEOAutoFix_Debug_Logger::log(
-                        "[TITLETAG APPLY native] wp_update_post failed: " . $update_result->get_error_message(),
-                        'title-tag'
-                    );
-                    throw new \Exception('Failed to update post title: ' . $update_result->get_error_message());
-                }
-
-                // Step 2: wp_update_post() internally runs wptexturize() which can convert
-                // plain hyphens (-) into en-dashes (&#8211;). Write the exact title string
-                // again via $wpdb so the DB stores precisely what the user typed.
-                $wpdb->update(
-                    $wpdb->posts,
-                    array('post_title' => $new_title),
-                    array('ID' => $post_id),
-                    array('%s'),
-                    array('%d')
-                );
-
-                if ($wpdb->last_error) {
-                    \SEOAutoFix_Debug_Logger::log(
-                        "[TITLETAG APPLY native] wpdb->update error: " . $wpdb->last_error,
-                        'title-tag'
-                    );
-                    throw new \Exception('Database error updating post title: ' . $wpdb->last_error);
-                }
-
-                // Clear all WordPress object caches for this post so the next
-                // frontend request sees the fresh title.
+                // Flush caches so the next frontend request hits the DB.
                 clean_post_cache($post_id);
-                wp_cache_delete($post_id, 'posts');
                 wp_cache_delete($post_id, 'post_meta');
                 break;
         }

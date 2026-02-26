@@ -201,8 +201,15 @@ class Title_Scanner
             return '';
         }
 
-        // Decode any HTML entities WordPress may have stored via wptexturize
-        // (e.g. &#8211; → –) so the admin panel displays clean plain text.
+        // Check for a custom title set by our plugin's Apply action.
+        // This is the same pattern Yoast uses (_yoast_wpseo_title meta).
+        $custom = get_post_meta($post_id, '_seoautofix_title', true);
+        if ('' !== (string) $custom) {
+            return html_entity_decode((string) $custom, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        }
+
+        // No custom title applied yet — fall back to the raw post_title.
+        // (WordPress will append the site name on the frontend automatically.)
         return html_entity_decode(
             (string) $post_obj->post_title,
             ENT_QUOTES | ENT_HTML5,
