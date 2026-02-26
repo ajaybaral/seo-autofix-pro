@@ -105,12 +105,40 @@ class Title_Apply_Engine
                 clean_post_cache($post_id);
                 break;
 
-            default: // native — update post_title only, bypass wptexturize()
+            default: // native — update post_title directly
                 global $wpdb;
                 $old_title = $post->post_title;
-                // Do NOT use wp_update_post() here — it runs wptexturize() internally,
-                // which converts plain hyphens ( - ) into &#8211; before saving to the DB.
-                // We write directly to the posts table so the title is stored exactly as-is.
+
+                // Strip the site name suffix if the user included it in their new title.
+                // When no SEO plugin is active, WordPress builds "<title>Post Title | Site Name</title>"
+                // automatically. We only store the "Post Title" part in post_title.
+                // If the user applied "New Title | My Site", we save "New Title" so it
+                // doesn't become "New Title | My Site | My Site" in the rendered page.
+                $new_title = $this->strip_site_name_suffix($new_title);
+
+                // Step 1: Use wp_update_post() to fire the save_post hook and all
+                // cache-clearing hooks that themes and caching plugins listen to.
+                // Without this, some page-caching layers never learn the title changed.
+                // wp_slash() prevents WordPress from double-escaping the value.
+                $update_result = wp_update_post(
+                    array(
+                        'ID'         => $post_id,
+                        'post_title' => wp_slash($new_title),
+                    ),
+                    true // return WP_Error on failure
+                );
+
+                if (is_wp_error($update_result)) {
+                    \SEOAutoFix_Debug_Logger::log(
+                        "[TITLETAG APPLY native] wp_update_post failed: " . $update_result->get_error_message(),
+                        'title-tag'
+                    );
+                    throw new \Exception('Failed to update post title: ' . $update_result->get_error_message());
+                }
+
+                // Step 2: wp_update_post() internally runs wptexturize() which can convert
+                // plain hyphens (-) into en-dashes (&#8211;). Write the exact title string
+                // again via $wpdb so the DB stores precisely what the user typed.
                 $wpdb->update(
                     $wpdb->posts,
                     array('post_title' => $new_title),
@@ -118,7 +146,20 @@ class Title_Apply_Engine
                     array('%s'),
                     array('%d')
                 );
+
+                if ($wpdb->last_error) {
+                    \SEOAutoFix_Debug_Logger::log(
+                        "[TITLETAG APPLY native] wpdb->update error: " . $wpdb->last_error,
+                        'title-tag'
+                    );
+                    throw new \Exception('Database error updating post title: ' . $wpdb->last_error);
+                }
+
+                // Clear all WordPress object caches for this post so the next
+                // frontend request sees the fresh title.
                 clean_post_cache($post_id);
+                wp_cache_delete($post_id, 'posts');
+                wp_cache_delete($post_id, 'post_meta');
                 break;
         }
 
@@ -148,5 +189,35 @@ class Title_Apply_Engine
             'new_title' => $new_title,
             'plugin' => $plugin,
         );
+    }
+
+    /**
+     * Strip the site name (and its separator) from the end of a title string.
+     *
+     * When no SEO plugin is active WordPress automatically appends the blog name
+     * to every page title: "Post Title | Site Name". If the admin copies or
+     * generates a title that already includes " | Site Name", we must remove
+     * that suffix before storing in post_title — otherwise the theme will render
+     * "Post Title | Site Name | Site Name" in the <title> tag.
+     *
+     * Handles these separator chars: | / - – —  (plus surrounding whitespace).
+     */
+    private function strip_site_name_suffix(string $title): string
+    {
+        $site_name = get_bloginfo('name');
+
+        if ('' === $site_name || '' === trim($title)) {
+            return $title;
+        }
+
+        // Build a pattern that matches any common separator + the site name at the end.
+        // Separators: |  /  -  – (en dash)  — (em dash)  · (middle dot)
+        $escaped = preg_quote($site_name, '/');
+        $pattern = '/[\s]*[|\\/\-\x{2013}\x{2014}\xB7][\s]*' . $escaped . '[\s]*$/iu';
+
+        $stripped = preg_replace($pattern, '', $title);
+
+        // Only use the stripped version if it is non-empty.
+        return ('' !== trim((string) $stripped)) ? trim((string) $stripped) : trim($title);
     }
 }
