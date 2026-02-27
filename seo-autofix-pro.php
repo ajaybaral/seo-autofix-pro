@@ -145,16 +145,16 @@ class SEO_AutoFix_Pro
                     return $decoded;
                 }
 
-                // No custom title yet: return clean "Post Title - Site Name" (no wptexturize).
+                // No custom title yet — return just the clean post_title.
+                // Do NOT append site name. WordPress may add it naturally depending
+                // on the theme, but our plugin should never introduce it.
                 $post_title = html_entity_decode( (string) $post->post_title, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-                $sep        = apply_filters( 'document_title_separator', '-' );
-                $site_name  = get_bloginfo( 'name', 'display' );
-                $assembled  = $post_title . " {$sep} " . $site_name;
                 \SEOAutoFix_Debug_Logger::log(
-                    "[TITLETAG FRONTEND] No custom meta — assembling: '{$assembled}'",
+                    "[TITLETAG FRONTEND] No custom meta — returning post_title only: '{$post_title}'",
                     'title-tag'
                 );
-                return $assembled;
+                return $post_title;
+
             }, 99 );
 
             // APPROACH 2: wp_title filter — fallback for older themes that use
