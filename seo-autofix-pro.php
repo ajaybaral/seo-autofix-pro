@@ -106,35 +106,100 @@ class SEO_AutoFix_Pro
         //  2. For posts with no custom meta, assemble a clean "post_title - site name"
         //     without wptexturize() so hyphens stay as plain - not &#8211;.
         //  Only runs on the frontend (not admin / AJAX).
+        // ── Native WordPress title override ──────────────────────────────────
+        // Only run on true frontend pages (not admin, not AJAX).
         if ( ! is_admin() ) {
+
+            // APPROACH 1: pre_get_document_title — works for themes that declare
+            //             add_theme_support('title-tag') (WordPress 4.1+).
             add_filter( 'pre_get_document_title', function ( $title ) {
                 if ( ! is_singular() ) {
-                    return $title; // archives, search, 404 — let WP handle normally
+                    \SEOAutoFix_Debug_Logger::log(
+                        '[TITLETAG FRONTEND] pre_get_document_title fired — NOT singular, skipping.',
+                        'title-tag'
+                    );
+                    return $title;
                 }
 
                 $post = get_queried_object();
                 if ( ! $post || ! isset( $post->ID ) ) {
+                    \SEOAutoFix_Debug_Logger::log(
+                        '[TITLETAG FRONTEND] pre_get_document_title fired — no queried object.',
+                        'title-tag'
+                    );
                     return $title;
                 }
 
-                // Return our custom SEO title exactly as applied — no site name added.
                 $custom = get_post_meta( $post->ID, '_seoautofix_title', true );
+                \SEOAutoFix_Debug_Logger::log(
+                    "[TITLETAG FRONTEND] pre_get_document_title fired — post_id={$post->ID} meta='" . $custom . "' post_title='" . $post->post_title . "'",
+                    'title-tag'
+                );
+
+                if ( '' !== (string) $custom ) {
+                    $decoded = html_entity_decode( (string) $custom, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+                    \SEOAutoFix_Debug_Logger::log(
+                        "[TITLETAG FRONTEND] Returning custom meta title: '{$decoded}'",
+                        'title-tag'
+                    );
+                    return $decoded;
+                }
+
+                // No custom title yet: return clean "Post Title - Site Name" (no wptexturize).
+                $post_title = html_entity_decode( (string) $post->post_title, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+                $sep        = apply_filters( 'document_title_separator', '-' );
+                $site_name  = get_bloginfo( 'name', 'display' );
+                $assembled  = $post_title . " {$sep} " . $site_name;
+                \SEOAutoFix_Debug_Logger::log(
+                    "[TITLETAG FRONTEND] No custom meta — assembling: '{$assembled}'",
+                    'title-tag'
+                );
+                return $assembled;
+            }, 99 );
+
+            // APPROACH 2: wp_title filter — fallback for older themes that use
+            //             wp_title() directly in their header.php instead of
+            //             add_theme_support('title-tag').
+            add_filter( 'wp_title', function ( $title, $sep ) {
+                if ( ! is_singular() ) {
+                    return $title;
+                }
+                $post = get_queried_object();
+                if ( ! $post || ! isset( $post->ID ) ) {
+                    return $title;
+                }
+                $custom = get_post_meta( $post->ID, '_seoautofix_title', true );
+                \SEOAutoFix_Debug_Logger::log(
+                    "[TITLETAG FRONTEND] wp_title filter fired — post_id={$post->ID} meta='" . $custom . "'",
+                    'title-tag'
+                );
                 if ( '' !== (string) $custom ) {
                     return html_entity_decode( (string) $custom, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
                 }
+                return $title;
+            }, 99, 2 );
 
-                // No custom title yet — build a clean "Post Title - Site Name" without
-                // wptexturize() so the separator stays a plain hyphen, not &#8211;.
-                $post_title = html_entity_decode(
-                    (string) $post->post_title,
-                    ENT_QUOTES | ENT_HTML5,
-                    'UTF-8'
-                );
-                $sep       = apply_filters( 'document_title_separator', '-' );
-                $site_name = get_bloginfo( 'name', 'display' );
-
-                return $post_title . " {$sep} " . $site_name;
-            }, 99 );
+            // APPROACH 3: wp_head debug comment — visible in view-source.
+            // Shows exactly what our plugin sees for the current page so we can
+            // diagnose whether the filter fired and whether the meta was found.
+            add_action( 'wp_head', function () {
+                if ( ! is_singular() ) {
+                    return;
+                }
+                $post = get_queried_object();
+                if ( ! $post || ! isset( $post->ID ) ) {
+                    echo "\n<!-- SEOAutoFix Debug: wp_head fired but no queried object -->\n";
+                    return;
+                }
+                $custom     = get_post_meta( $post->ID, '_seoautofix_title', true );
+                $post_title = $post->post_title;
+                $theme_sup  = current_theme_supports( 'title-tag' ) ? 'YES' : 'NO';
+                echo "\n<!-- SEOAutoFix Debug | post_id=" . esc_html( $post->ID )
+                    . " | _seoautofix_title=" . esc_html( $custom ?: '(empty)' )
+                    . " | post_title=" . esc_html( $post_title )
+                    . " | theme_supports_title_tag=" . esc_html( $theme_sup )
+                    . " -->\n";
+            }, 1 );
         }
 
 

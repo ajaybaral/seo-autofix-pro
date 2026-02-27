@@ -106,27 +106,38 @@ class Title_Apply_Engine
                 break;
 
             default: // native — store in our own SEO title meta (mirrors Yoast's approach)
-                // The old approach wrote to post_title, then WordPress's document_title_parts
-                // filter appended " - Site Name", doubling the site name on every apply.
-                //
-                // NEW APPROACH (mirrors how Yoast SEO works):
-                //  • Store the exact title the admin typed in _seoautofix_title post meta.
-                //  • pre_get_document_title in seo-autofix-pro.php reads this meta and
-                //    returns it as-is — no site name appended, no wptexturize() run on it.
-                //  • post_title is NEVER touched; the slug is therefore never affected.
-
                 // Read old value from our meta (fall back to post_title for initial apply).
                 $old_title = (string) get_post_meta($post_id, '_seoautofix_title', true);
                 if ('' === $old_title) {
                     $old_title = $post->post_title;
                 }
 
-                // Strip the site name suffix in case the user pasted or the AI generated
-                // a title that already ends with " - SiteName".
+                \SEOAutoFix_Debug_Logger::log(
+                    "[TITLETAG APPLY native] post_id={$post_id} received_title=\"{$new_title}\" old_title=\"{$old_title}\"",
+                    'title-tag'
+                );
+
+                // Strip site name suffix if present (e.g. "Title - SiteName" → "Title").
+                $before_strip = $new_title;
                 $new_title = $this->strip_site_name_suffix($new_title);
+                \SEOAutoFix_Debug_Logger::log(
+                    "[TITLETAG APPLY native] strip_site_name: before=\"{$before_strip}\" after=\"{$new_title}\"",
+                    'title-tag'
+                );
 
                 // Write the clean title to our dedicated meta key.
-                update_post_meta($post_id, '_seoautofix_title', $new_title);
+                $meta_result = update_post_meta($post_id, '_seoautofix_title', $new_title);
+                \SEOAutoFix_Debug_Logger::log(
+                    "[TITLETAG APPLY native] update_post_meta result=" . var_export($meta_result, true),
+                    'title-tag'
+                );
+
+                // Verify the meta was saved correctly by reading it back.
+                $verify = get_post_meta($post_id, '_seoautofix_title', true);
+                \SEOAutoFix_Debug_Logger::log(
+                    "[TITLETAG APPLY native] verify read-back: _seoautofix_title=\"{$verify}\"",
+                    'title-tag'
+                );
 
                 // Flush caches so the next frontend request hits the DB.
                 clean_post_cache($post_id);

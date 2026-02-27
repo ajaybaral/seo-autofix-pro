@@ -568,6 +568,8 @@
         $applyBtn.prop('disabled', true).text('Applying\u2026');
         setRowStatus($row, '', '');
 
+        console.log('[SEOAutoFix] applySingle → sending:', { postId: postId, newTitle: newTitle, postUrl: postUrl });
+
         $.ajax({
             url: titleTagData.ajaxUrl,
             method: 'POST',
@@ -578,7 +580,12 @@
                 new_title: newTitle
             },
             success: function (res) {
+                console.log('[SEOAutoFix] applySingle ← response:', res);
                 if (res.success) {
+                    console.log('[SEOAutoFix] Apply SUCCESS — plugin:', res.data.detail && res.data.detail.plugin,
+                        '| old:', res.data.detail && res.data.detail.old_title,
+                        '| new:', res.data.detail && res.data.detail.new_title);
+
                     // Immediately: green row BG + green 'Applied' button (no status box)
                     $row.addClass('titletag-row-green');
                     $applyBtn.addClass('titletag-apply-btn-applied').text('Applied').prop('disabled', true);
@@ -614,16 +621,19 @@
                     }, 3500);
 
                 } else {
+                    console.warn('[SEOAutoFix] Apply FAILED:', res.data && res.data.message);
                     setRowStatus($row, res.data.message, 'error');
                     $applyBtn.text('Apply').prop('disabled', false);
                 }
             },
-            error: function () {
+            error: function (xhr, status, err) {
+                console.error('[SEOAutoFix] Apply AJAX error:', status, err, xhr.responseText);
                 setRowStatus($row, 'Request failed.', 'error');
                 $applyBtn.text('Apply').prop('disabled', false);
             }
         });
     }
+
 
     /* =========================================================
      * Skip (frontend-only — removes row from session with animation)
