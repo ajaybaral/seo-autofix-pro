@@ -495,7 +495,7 @@ class Title_Scanner
 
         $query = new \WP_Query(array(
             'post_type' => $types,
-            'post_status' => 'any',
+            'post_status' => 'publish',
             'posts_per_page' => $batch_size,
             'offset' => $offset,
             'orderby' => 'ID',
