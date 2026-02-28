@@ -73,21 +73,47 @@ class Title_Scanner
     /**
      * Read and resolve the AIOSEO title for a post.
      *
-     * Reads the raw title template from the aioseo_posts table (or falls back
-     * to the global default), then resolves all #tag placeholders to their
-     * actual values — exactly what AIOSEO shows in the SERP preview.
-     * If the stored value is plain text (no #tags), it is returned as-is.
+     * Approach (fastest → most fallback):
+     * 1. AIOSEO's own PHP API  — aioseo()->meta->title->getTitle($post)
+     *    This is a fast in-process call; no queries or fake context needed.
+     * 2. Per-post DB row       — aioseo_posts.title (may be a #tag template)
+     * 3. Global post-type default from aioseo_options.searchAppearance.postTypes
+     * All #tag placeholders are then resolved to their real values.
      */
     private function get_aioseo_title(int $post_id): string
     {
-        global $wpdb;
-
         $post = get_post($post_id);
         if (!$post) {
             return '';
         }
 
-        // 1. Try the per-post override in aioseo_posts table.
+        // ── APPROACH 1: AIOSEO's own PHP API ─────────────────────────────────
+        // aioseo()->meta->title->getTitle() runs AIOSEO's full title-building
+        // pipeline (per-post template → global template → tag resolution →
+        // separator + site-title append) in a single, fast PHP call.
+        // Available in AIOSEO v4+.
+        if (function_exists('aioseo')) {
+            $aioseo = aioseo();
+            if (
+                isset($aioseo->meta)
+                && isset($aioseo->meta->title)
+                && method_exists($aioseo->meta->title, 'getTitle')
+            ) {
+                $api_title = $aioseo->meta->title->getTitle($post);
+                if (!empty($api_title)) {
+                    return html_entity_decode(
+                        (string) $api_title,
+                        ENT_QUOTES | ENT_HTML5,
+                        'UTF-8'
+                    );
+                }
+            }
+        }
+
+        // ── APPROACH 2 & 3: DB read + tag resolution (fallback) ───────────────
+        global $wpdb;
+
+        // 2a. Per-post override in the aioseo_posts custom table.
         $table = $wpdb->prefix . 'aioseo_posts';
         // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         $row = $wpdb->get_row(
@@ -97,24 +123,29 @@ class Title_Scanner
             ? html_entity_decode((string) $row->title, ENT_QUOTES | ENT_HTML5, 'UTF-8')
             : '';
 
-        // 2. Fall back to the global AIOSEO default title format.
+        // 2b. Global post-type title template from aioseo_options.
+        //     AIOSEO v4 stores this at:
+        //     aioseo_options → searchAppearance → postTypes → {post_type} → title
+        //     e.g. for pages: '#post_title #separator_sa #site_title'
         if ('' === $raw) {
-            $defaults = get_option('aioseo_titles', array());
-            if (is_string($defaults)) {
-                $defaults = json_decode($defaults, true) ?: array();
+            $opts = get_option('aioseo_options', '');
+            if ($opts) {
+                $opts = is_string($opts) ? json_decode($opts, true) : $opts;
+                $post_type = $post->post_type;
+                $raw = $opts['searchAppearance']['postTypes'][$post_type]['title']
+                    ?? $opts['searchAppearance']['postTypes']['post']['title']
+                    ?? '';
+                if (is_string($raw)) {
+                    $raw = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                }
             }
-            $post_type = $post->post_type;
-            $raw = $defaults['postTypes'][$post_type]['title']
-                ?? $defaults['postTypes']['post']['title']
-                ?? '';
         }
 
         if ('' === $raw) {
             return '';
         }
 
-        // 3. Resolve all #tag placeholders to actual values.
-        return $this->resolve_aioseo_tags($raw, $post);
+        return $this->resolve_aioseo_tags((string) $raw, $post);
     }
 
     /**
