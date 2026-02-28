@@ -69,7 +69,70 @@ class SEOAutoFix_Title_Tag_Optimization
         add_action('wp_ajax_titletag_skip', array($this, 'ajax_skip'));
         add_action('wp_ajax_titletag_bulk_apply', array($this, 'ajax_bulk_apply'));
         add_action('wp_ajax_titletag_export_csv', array($this, 'ajax_export_csv'));
+
+        // Register frontend title filters only when running in native mode
+        // (no Yoast, Rank Math, or AIOSEO installed). SEO plugins manage the
+        // <title> tag themselves; we must not interfere with their output.
+        if ( ! is_admin() && $this->is_native_mode() ) {
+            $this->register_frontend_title_filters();
+        }
     }
+
+    /**
+     * Returns true when no supported SEO plugin is active.
+     * Mirrors the detection in Title_Apply_Engine::detect_seo_plugin().
+     */
+    private function is_native_mode(): bool
+    {
+        return ! defined( 'WPSEO_VERSION' )
+            && ! defined( 'RANK_MATH_VERSION' )
+            && ! defined( 'AIOSEO_VERSION' );
+    }
+
+    /**
+     * Hook into WordPress's title pipeline to return our custom SEO title
+     * (_seoautofix_title post meta) exactly as stored — no site name appended.
+     *
+     * Two hooks are registered:
+     *  1. pre_get_document_title — for themes using add_theme_support('title-tag')
+     *  2. wp_title              — fallback for older themes using wp_title() directly
+     */
+    private function register_frontend_title_filters(): void
+    {
+        // Hook 1: modern themes (WordPress 4.1+)
+        add_filter( 'pre_get_document_title', function ( $title ) {
+            if ( ! is_singular() ) {
+                return $title;
+            }
+            $post = get_queried_object();
+            if ( ! $post || ! isset( $post->ID ) ) {
+                return $title;
+            }
+            $custom = get_post_meta( $post->ID, '_seoautofix_title', true );
+            if ( '' !== (string) $custom ) {
+                return html_entity_decode( (string) $custom, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+            }
+            // No custom title applied yet — return just the post title, no site name.
+            return html_entity_decode( (string) $post->post_title, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+        }, 99 );
+
+        // Hook 2: older themes that call wp_title() directly in header.php
+        add_filter( 'wp_title', function ( $title, $sep ) {
+            if ( ! is_singular() ) {
+                return $title;
+            }
+            $post = get_queried_object();
+            if ( ! $post || ! isset( $post->ID ) ) {
+                return $title;
+            }
+            $custom = get_post_meta( $post->ID, '_seoautofix_title', true );
+            if ( '' !== (string) $custom ) {
+                return html_entity_decode( (string) $custom, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+            }
+            return $title;
+        }, 99, 2 );
+    }
+
 
     public function register_admin_menu()
     {

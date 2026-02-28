@@ -100,47 +100,6 @@ class SEO_AutoFix_Pro
         // This is the primary defence against stale JS/CSS after a plugin update.
         $this->disable_caching();
 
-        // For native WordPress (no SEO plugin), hook pre_get_document_title to
-        // return our _seoautofix_title meta exactly as stored (no site name added),
-        // mirroring how Yoast returns _yoast_wpseo_title. For posts with no custom
-        // meta, returns the plain post_title so our plugin never injects the site name.
-        // Also hooks wp_title as a fallback for older themes.
-        if ( ! is_admin() ) {
-
-            // Themes using add_theme_support('title-tag') (WordPress 4.1+).
-            add_filter( 'pre_get_document_title', function ( $title ) {
-                if ( ! is_singular() ) {
-                    return $title;
-                }
-                $post = get_queried_object();
-                if ( ! $post || ! isset( $post->ID ) ) {
-                    return $title;
-                }
-                $custom = get_post_meta( $post->ID, '_seoautofix_title', true );
-                if ( '' !== (string) $custom ) {
-                    return html_entity_decode( (string) $custom, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-                }
-                // No custom title applied yet — return just the post title, no site name.
-                return html_entity_decode( (string) $post->post_title, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-            }, 99 );
-
-            // Fallback for older themes that call wp_title() directly.
-            add_filter( 'wp_title', function ( $title, $sep ) {
-                if ( ! is_singular() ) {
-                    return $title;
-                }
-                $post = get_queried_object();
-                if ( ! $post || ! isset( $post->ID ) ) {
-                    return $title;
-                }
-                $custom = get_post_meta( $post->ID, '_seoautofix_title', true );
-                if ( '' !== (string) $custom ) {
-                    return html_entity_decode( (string) $custom, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-                }
-                return $title;
-            }, 99, 2 );
-        }
-
 
         // Load text domain for translations
         load_plugin_textdomain('seo-autofix-pro', false, dirname(SEOAUTOFIX_PLUGIN_BASENAME) . '/languages');
