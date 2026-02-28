@@ -62,9 +62,21 @@ class Title_Apply_Engine
                 break;
 
             case 'rankmath':
-                $meta_key = 'rank_math_title';
-                $old_title = (string) get_post_meta($post_id, $meta_key, true);
-                update_post_meta($post_id, $meta_key, $new_title);
+                // Read old_title as the fully-rendered string via scanner.
+                $scanner   = new Title_Scanner();
+                $old_title = $scanner->get_seo_title($post_id);
+
+                // Write plain text to rank_math_title — Rank Math reads this on
+                // every page load and renders it as-is (no %variable% expansion
+                // when there are no % tags in the stored value).
+                update_post_meta($post_id, 'rank_math_title', $new_title);
+
+                // Flush WordPress + Rank Math caches so the next page load picks
+                // up the new title immediately without any delay.
+                clean_post_cache($post_id);
+                wp_cache_delete($post_id, 'post_meta');
+                delete_transient('rank_math_post_' . $post_id);
+                do_action('rank_math/flush_cache', $post_id); // fires Rank Math cache hook if available
                 break;
 
             case 'aioseo':
@@ -126,8 +138,9 @@ class Title_Apply_Engine
                     $old_title = $post->post_title;
                 }
 
-                // Strip site name suffix if the user or AI included it in the title.
-                $new_title = $this->strip_site_name_suffix($new_title);
+                // The frontend filter (pre_get_document_title at priority 99) returns
+                // just the stored _seoautofix_title as-is — WordPress never appends
+                // the site name on top of it, so no stripping is needed here.
 
                 // Write the clean title to our dedicated meta key.
                 update_post_meta($post_id, '_seoautofix_title', $new_title);
