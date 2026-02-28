@@ -68,42 +68,56 @@ class Title_Apply_Engine
                 break;
 
             case 'aioseo':
-                // AIOSEO does NOT store titles in standard post meta.
-                // It uses its own {prefix}aioseo_posts custom table.
-                // Writing to '_aioseo_title' post meta is silently ignored by AIOSEO.
+                // Read old_title as the fully-rendered string (same as what the user
+                // sees in the SERP preview) by reusing the scanner's get_seo_title().
+                $scanner   = new Title_Scanner();
+                $old_title = $scanner->get_seo_title($post_id);
+
+                // APPROACH 1: Use AIOSEO's own Post model when available.
+                // model->save() runs through AIOSEO's internal persistence layer,
+                // which clears AIOSEO's own query/result cache immediately — this
+                // is why the direct $wpdb write caused a delay.
+                if (class_exists('\AIOSEO\Plugin\Common\Models\Post')) {
+                    $aioseo_post        = \AIOSEO\Plugin\Common\Models\Post::getPost($post_id);
+                    $aioseo_post->title = $new_title;
+                    $aioseo_post->save();
+                    clean_post_cache($post_id);
+                    break;
+                }
+
+                // APPROACH 2: Direct DB write + aggressive cache flushing (fallback).
+                // This path runs when AIOSEO's model class is not available (older versions).
                 global $wpdb;
                 $aioseo_table = $wpdb->prefix . 'aioseo_posts';
                 // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
                 $existing = $wpdb->get_row(
-                    $wpdb->prepare("SELECT id, title FROM `{$aioseo_table}` WHERE post_id = %d", $post_id)
+                    $wpdb->prepare("SELECT id FROM `{$aioseo_table}` WHERE post_id = %d", $post_id)
                 );
-                $old_title = $existing
-                    ? html_entity_decode((string) $existing->title, ENT_QUOTES | ENT_HTML5, 'UTF-8')
-                    : '';
 
                 if ($existing) {
-                    // Row exists — update just the title column.
                     // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
                     $wpdb->update(
                         $aioseo_table,
-                        array('title' => $new_title),
+                        array('title' => $new_title, 'updated' => current_time('mysql')),
                         array('post_id' => $post_id),
-                        array('%s'),
+                        array('%s', '%s'),
                         array('%d')
                     );
                 } else {
-                    // No row yet — insert one with only the fields our plugin manages.
                     $wpdb->insert(
                         $aioseo_table,
-                        array(
-                            'post_id' => $post_id,
-                            'title' => $new_title,
-                        ),
+                        array('post_id' => $post_id, 'title' => $new_title),
                         array('%d', '%s')
                     );
                 }
+
+                // Flush all caches AIOSEO and WordPress may hold for this post.
                 clean_post_cache($post_id);
+                wp_cache_delete($post_id, 'post_meta');
+                delete_transient('aioseo_post_' . $post_id);
+                do_action('aioseo_flush_cache', $post_id); // fires AIOSEO's own cache hook if available
                 break;
+
 
             default: // native — store in our own SEO title meta (mirrors Yoast's approach)
                 // Read old value from our meta (fall back to post_title for initial apply).
