@@ -66,17 +66,8 @@ class Title_Apply_Engine
                 $scanner   = new Title_Scanner();
                 $old_title = $scanner->get_seo_title($post_id);
 
-                // Write plain text to rank_math_title — Rank Math reads this on
-                // every page load and renders it as-is (no %variable% expansion
-                // when there are no % tags in the stored value).
                 update_post_meta($post_id, 'rank_math_title', $new_title);
-
-                // Flush WordPress + Rank Math caches so the next page load picks
-                // up the new title immediately without any delay.
-                clean_post_cache($post_id);
-                wp_cache_delete($post_id, 'post_meta');
-                delete_transient('rank_math_post_' . $post_id);
-                do_action('rank_math/flush_cache', $post_id); // fires Rank Math cache hook if available
+                $this->purge_all_caches($post_id);
                 break;
 
             case 'aioseo':
@@ -93,7 +84,7 @@ class Title_Apply_Engine
                     $aioseo_post        = \AIOSEO\Plugin\Common\Models\Post::getPost($post_id);
                     $aioseo_post->title = $new_title;
                     $aioseo_post->save();
-                    clean_post_cache($post_id);
+                    $this->purge_all_caches($post_id);
                     break;
                 }
 
@@ -124,10 +115,8 @@ class Title_Apply_Engine
                 }
 
                 // Flush all caches AIOSEO and WordPress may hold for this post.
-                clean_post_cache($post_id);
-                wp_cache_delete($post_id, 'post_meta');
-                delete_transient('aioseo_post_' . $post_id);
-                do_action('aioseo_flush_cache', $post_id); // fires AIOSEO's own cache hook if available
+                $this->purge_all_caches($post_id);
+                do_action('aioseo_flush_cache', $post_id);
                 break;
 
 
@@ -142,12 +131,8 @@ class Title_Apply_Engine
                 // just the stored _seoautofix_title as-is — WordPress never appends
                 // the site name on top of it, so no stripping is needed here.
 
-                // Write the clean title to our dedicated meta key.
                 update_post_meta($post_id, '_seoautofix_title', $new_title);
-
-                // Flush object caches so the next frontend request reads fresh data.
-                clean_post_cache($post_id);
-                wp_cache_delete($post_id, 'post_meta');
+                $this->purge_all_caches($post_id);
                 break;
         }
 
@@ -185,40 +170,52 @@ class Title_Apply_Engine
      *
      * Handles these separator chars: | / - – —  (plus surrounding whitespace).
      */
-    // private function strip_site_name_suffix(string $title): string
-    // {
-    //     $site_name = trim(get_bloginfo('name'));
+    /**
+     * Purge every cache layer that could serve a stale <title> tag.
+     *
+     * Covers:
+     *  - WordPress object cache (always)
+     *  - Rank Math / AIOSEO plugin-level caches
+     *  - LiteSpeed Cache, WP Rocket, W3 Total Cache, WP Super Cache,
+     *    Nginx Helper, Autoptimize
+     *
+     * Each call is guarded so it is a no-op when the plugin is not installed.
+     */
+    private function purge_all_caches(int $post_id): void
+    {
+        // ── WordPress core ────────────────────────────────────────────────────
+        clean_post_cache($post_id);
+        wp_cache_delete($post_id, 'post_meta');
+        wp_cache_delete($post_id, 'posts');
 
-    //     if ('' === $site_name || '' === trim($title)) {
-    //         return $title;
-    //     }
+        // ── SEO plugin caches ─────────────────────────────────────────────────
+        delete_transient('rank_math_post_' . $post_id);
+        delete_transient('aioseo_post_' . $post_id);
+        do_action('rank_math/flush_cache', $post_id);
+        do_action('aioseo_flush_cache', $post_id);
 
-    //     // All separator characters WordPress (and common SEO plugins) place between
-    //     // the post title and the site name. Include the entity-decoded en dash (–)
-    //     // and em dash (—) which wptexturize() may have written.
-    //     $separators = array( '|', '/', '-', '–', '—', '·' );
+        // ── LiteSpeed Cache ───────────────────────────────────────────────────
+        do_action('litespeed_purge_post', $post_id);
 
-    //     $lower_title     = mb_strtolower($title,     'UTF-8');
-    //     $lower_site_name = mb_strtolower($site_name, 'UTF-8');
+        // ── WP Rocket ─────────────────────────────────────────────────────────
+        if (function_exists('rocket_clean_post')) {
+            rocket_clean_post($post_id);
+        }
 
-    //     foreach ($separators as $sep) {
-    //         // Build the suffix we are looking for, e.g. " – Natascha Jacobs"
-    //         $suffix = $sep . $lower_site_name;            // no spaces
-    //         $suffix_spaced = $sep . ' ' . $lower_site_name; // with one space
+        // ── W3 Total Cache ────────────────────────────────────────────────────
+        if (function_exists('w3tc_pgcache_flush_post')) {
+            w3tc_pgcache_flush_post($post_id);
+        }
 
-    //         foreach (array($suffix_spaced, $suffix) as $candidate) {
-    //             $candidate = mb_strtolower(trim($candidate), 'UTF-8');
-    //             $len = mb_strlen($candidate, 'UTF-8');
+        // ── WP Super Cache ────────────────────────────────────────────────────
+        if (function_exists('wp_cache_post_change')) {
+            wp_cache_post_change($post_id);
+        }
 
-    //             if (mb_substr($lower_title, -$len, null, 'UTF-8') === $candidate) {
-    //                 $stripped = trim(mb_substr($title, 0, mb_strlen($title, 'UTF-8') - $len, 'UTF-8'));
-    //                 if ('' !== $stripped) {
-    //                     return $stripped;
-    //                 }
-    //             }
-    //         }
-    //     }
+        // ── Nginx Helper ──────────────────────────────────────────────────────
+        do_action('rt_nginx_helper_purge_url', get_permalink($post_id));
 
-    //     return $title; // nothing matched — return as-is
-    // }
+        // ── Autoptimize ───────────────────────────────────────────────────────
+        do_action('autoptimize_action_cachepurged');
+    }
 }
