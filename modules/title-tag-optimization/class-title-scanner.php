@@ -55,19 +55,167 @@ class Title_Scanner
 
     /**
      * Get SEO meta title for a post.
+     * Routes to the correct resolver per active plugin.
      */
     public function get_seo_title(int $post_id): string
     {
         switch ($this->detect_seo_plugin()) {
             case 'yoast':
-                return (string) get_post_meta($post_id, '_yoast_wpseo_title', true);
+                return $this->get_yoast_title($post_id);
             case 'rankmath':
-                return (string) get_post_meta($post_id, 'rank_math_title', true);
+                return $this->get_rankmath_title($post_id);
             case 'aioseo':
                 return $this->get_aioseo_title($post_id);
             default:
                 return $this->get_native_document_title($post_id);
         }
+    }
+
+    /**
+     * Yoast SEO: read _yoast_wpseo_title and resolve %%variable%% format.
+     * If the meta is empty, Yoast uses its global default — which already
+     * includes %%title%% %%sep%% %%sitename%%, so we resolve those too.
+     */
+    private function get_yoast_title(int $post_id): string
+    {
+        $post = get_post($post_id);
+        if (!$post) {
+            return '';
+        }
+        $raw = (string) get_post_meta($post_id, '_yoast_wpseo_title', true);
+
+        // If Yoast meta is empty, fall back to the global post-type title format.
+        if ('' === $raw) {
+            $wpseo_titles = get_option('wpseo_titles', array());
+            $post_type    = $post->post_type;
+            $raw = $wpseo_titles['title-' . $post_type] ?? $wpseo_titles['title-post'] ?? '';
+        }
+
+        if ('' === $raw) {
+            return '';
+        }
+
+        // Yoast uses %%variable%% style tags.
+        return $this->resolve_yoast_variables($raw, $post);
+    }
+
+    /**
+     * Resolve Yoast %%variable%% placeholders to actual values.
+     */
+    private function resolve_yoast_variables(string $raw, \WP_Post $post): string
+    {
+        if (false === strpos($raw, '%%')) {
+            return trim(html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        }
+
+        $sep     = html_entity_decode(
+            (string) (get_option('wpseo_titles')['separator'] ?? '-'),
+            ENT_QUOTES | ENT_HTML5,
+            'UTF-8'
+        );
+        $author  = get_the_author_meta('display_name', (int) $post->post_author);
+        $cats    = get_the_category($post->ID);
+        $cat     = !empty($cats) ? $cats[0]->name : '';
+        $tags    = get_the_tags($post->ID);
+        $tag     = (!empty($tags) && !is_wp_error($tags)) ? $tags[0]->name : '';
+
+        $map = array(
+            '%%title%%'         => $post->post_title,
+            '%%sep%%'           => $sep,
+            '%%sitename%%'      => get_bloginfo('name'),
+            '%%sitedesc%%'      => get_bloginfo('description'),
+            '%%name%%'          => $author,
+            '%%post_author%%'   => $author,
+            '%%category%%'      => $cat,
+            '%%tag%%'           => $tag,
+            '%%date%%'          => get_the_date('', $post),
+            '%%modified%%'      => get_the_modified_date('', $post),
+            '%%currentyear%%'   => date('Y'),
+            '%%currentmonth%%'  => date('F'),
+            '%%currentday%%'    => date('j'),
+        );
+
+        $title = str_ireplace(array_keys($map), array_values($map), $raw);
+        $title = preg_replace('/%%[a-z_]+%%/i', '', $title);
+        $title = html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        return trim(preg_replace('/\s{2,}/', ' ', $title));
+    }
+
+    /**
+     * Rank Math: read rank_math_title meta and resolve %variable% format.
+     * Falls back to Rank Math global post-type title template if meta is empty.
+     */
+    private function get_rankmath_title(int $post_id): string
+    {
+        $post = get_post($post_id);
+        if (!$post) {
+            return '';
+        }
+
+        $raw = (string) get_post_meta($post_id, 'rank_math_title', true);
+
+        // Fall back to Rank Math global post-type title template.
+        // Option: rank-math-options-titles  key: pt_{post_type}_title
+        if ('' === $raw) {
+            $rm_titles = get_option('rank-math-options-titles', array());
+            $post_type = $post->post_type;
+            $raw = $rm_titles['pt_' . $post_type . '_title']
+                ?? $rm_titles['pt_post_title']
+                ?? '';
+        }
+
+        if ('' === $raw) {
+            return '';
+        }
+
+        return $this->resolve_rankmath_variables($raw, $post);
+    }
+
+    /**
+     * Resolve Rank Math %variable% placeholders to actual values.
+     * Rank Math uses single-% delimiters: %title%, %sep%, %sitename% etc.
+     */
+    private function resolve_rankmath_variables(string $raw, \WP_Post $post): string
+    {
+        if (false === strpos($raw, '%')) {
+            return trim(html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        }
+
+        // Rank Math separator stored in rank-math-options-general under 'title_separator'.
+        $rm_gen = get_option('rank-math-options-general', array());
+        $sep = !empty($rm_gen['title_separator'])
+            ? html_entity_decode((string) $rm_gen['title_separator'], ENT_QUOTES | ENT_HTML5, 'UTF-8')
+            : '-';
+
+        $author_id = (int) $post->post_author;
+        $cats    = get_the_category($post->ID);
+        $cat     = !empty($cats) ? $cats[0]->name : '';
+        $tags    = get_the_tags($post->ID);
+        $tag     = (!empty($tags) && !is_wp_error($tags)) ? $tags[0]->name : '';
+
+        $map = array(
+            '%title%'           => $post->post_title,
+            '%sep%'             => $sep,
+            '%sitename%'        => get_bloginfo('name'),
+            '%sitedesc%'        => get_bloginfo('description'),
+            '%author%'          => get_the_author_meta('display_name', $author_id),
+            '%post_author%'     => get_the_author_meta('display_name', $author_id),
+            '%firstname%'       => get_the_author_meta('first_name', $author_id),
+            '%lastname%'        => get_the_author_meta('last_name', $author_id),
+            '%category%'        => $cat,
+            '%tag%'             => $tag,
+            '%date%'            => get_the_date('', $post),
+            '%modified%'        => get_the_modified_date('', $post),
+            '%currentyear%'     => date('Y'),
+            '%currentmonth%'    => date('F'),
+            '%currentday%'      => date('j'),
+        );
+
+        $title = str_ireplace(array_keys($map), array_values($map), $raw);
+        // Strip any leftover unrecognised %variables%.
+        $title = preg_replace('/%[a-z_]+%/i', '', $title);
+        $title = html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        return trim(preg_replace('/\s{2,}/', ' ', $title));
     }
 
     /**
