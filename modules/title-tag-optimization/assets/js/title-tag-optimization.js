@@ -44,6 +44,7 @@
         $('#titletag-bulk-apply-btn').on('click', bulkApply);
         $('#titletag-cancel-btn').on('click', function () { TitleTag.cancelGeneration = true; });
         $('#titletag-export-csv-btn').on('click', exportCSV);
+        $('#titletag-scan-export-btn').on('click', exportScanCSV);
         $('#titletag-undo-btn').on('click', undoChanges);
 
         // Post type dropdown
@@ -143,6 +144,7 @@
             .html('<span class="dashicons dashicons-search"></span> Scan Posts &amp; Pages');
 
         if (TitleTag.allRows.length === 0) {
+            $('#titletag-scan-export-btn').hide();
             $('#titletag-empty-state').show(); return;
         }
 
@@ -158,6 +160,17 @@
 
         TitleTag.postTypeFilter = $('#titletag-posttype-filter').val() || 'all';
         applyPostTypeFilter(TitleTag.postTypeFilter);
+
+        // Show the scan-results Export CSV button if there are problematic rows
+        var problemRows = TitleTag.allRows.filter(function (r) {
+            return r.issue_type !== 'ok';
+        });
+        if (problemRows.length > 0) {
+            $('#titletag-scan-export-btn').show();
+        } else {
+            $('#titletag-scan-export-btn').hide();
+        }
+
         showToast('Scan complete. ' + TitleTag.allRows.length + ' posts/pages found.');
     }
 
@@ -188,6 +201,9 @@
         // Recalculate stats from typeFilteredRows
         recalcStats();
 
+        // Update filter counts
+        updateFilterCounts();
+
         // Reset issue filter and re-apply
         resetFilter();
     }
@@ -204,6 +220,33 @@
         $('#stat-total').text(total);
         $('#stat-without-titles').text(missing);
         $('#stat-with-titles').text(total - missing);
+    }
+
+    /* =========================================================
+     * Filter Count Badges
+     * ========================================================= */
+    function updateFilterCounts() {
+        var counts = { missing: 0, too_short: 0, too_long: 0, duplicate: 0 };
+
+        TitleTag.typeFilteredRows.forEach(function (r) {
+            if (counts.hasOwnProperty(r.issue_type)) {
+                counts[r.issue_type]++;
+            }
+        });
+
+        $('.titletag-filter-card').each(function () {
+            var filter = $(this).data('filter');
+            var count = counts[filter] || 0;
+            var $countSpan = $(this).find('.titletag-filter-count');
+            $countSpan.text('(' + count + ')');
+
+            // Visually dim zero-count cards
+            if (count === 0) {
+                $(this).addClass('titletag-filter-card-empty');
+            } else {
+                $(this).removeClass('titletag-filter-card-empty');
+            }
+        });
     }
 
     /* =========================================================
@@ -653,6 +696,9 @@
                 // Recalculate stats from current type-filtered rows
                 recalcStats();
 
+                // Update filter count badges after skip
+                updateFilterCounts();
+
                 // Fix current page if it now exceeds total pages
                 if (TitleTag.currentPage > totalPages()) {
                     TitleTag.currentPage = Math.max(1, totalPages());
@@ -810,8 +856,16 @@
                     .prop('disabled', false)
                     .html('<span class="dashicons dashicons-download"></span> Export Changes in CSV');
                 if (res.success) {
-                    window.location.href = res.data.download_url;
-                    showToast('CSV ready — downloading.');
+                    // Use a hidden anchor with the download attribute so the
+                    // browser triggers a file download instead of navigating.
+                    var $a = $('<a>')
+                        .attr('href', res.data.download_url)
+                        .attr('download', '')
+                        .css('display', 'none');
+                    $('body').append($a);
+                    $a[0].click();
+                    $a.remove();
+                    showToast('CSV ready \u2014 downloading.');
                 } else {
                     showToast('Export error: ' + res.data.message, 'error');
                 }
@@ -823,6 +877,64 @@
                 showToast('Export failed.', 'error');
             }
         });
+    }
+
+    /* =========================================================
+     * Export Scan Results CSV (client-side Blob)
+     * Exports all posts/pages with issues from the current scan.
+     * ========================================================= */
+    function exportScanCSV() {
+        // Include all issue types except 'ok'
+        var issueRows = TitleTag.allRows.filter(function (r) {
+            return r.issue_type !== 'ok';
+        });
+
+        if (issueRows.length === 0) {
+            showToast('No issues found to export.', 'error'); return;
+        }
+
+        var issueLabels = {
+            missing:   'Missing Title',
+            too_short: 'Title Too Short (< 30 chars)',
+            too_long:  'Title Too Long (> 60 chars)',
+            duplicate: 'Duplicate Title'
+        };
+
+        // Build CSV string
+        var lines = [];
+        lines.push(csvRow(['Page Name', 'Page URL', 'Issue', 'Current Title']));
+        issueRows.forEach(function (r) {
+            lines.push(csvRow([
+                r.post_title  || '',
+                r.post_url    || '',
+                issueLabels[r.issue_type] || r.issue_type,
+                r.rendered_title || ''
+            ]));
+        });
+
+        var csvContent = lines.join('\r\n');
+        var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        var url  = URL.createObjectURL(blob);
+        var filename = 'titletag-issues-' + new Date().toISOString().slice(0, 10) + '.csv';
+
+        var $a = $('<a>')
+            .attr('href', url)
+            .attr('download', filename)
+            .css('display', 'none');
+        $('body').append($a);
+        $a[0].click();
+        $a.remove();
+        URL.revokeObjectURL(url);
+
+        showToast('CSV downloaded \u2014 ' + issueRows.length + ' issue(s) exported.');
+    }
+
+    /* Helper: escape a single CSV field */
+    function csvRow(fields) {
+        return fields.map(function (f) {
+            var s = String(f).replace(/"/g, '""');
+            return '"' + s + '"';
+        }).join(',');
     }
 
     /* =========================================================

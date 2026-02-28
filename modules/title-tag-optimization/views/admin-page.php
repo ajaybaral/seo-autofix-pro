@@ -44,6 +44,10 @@ if (!defined('ABSPATH')) {
             <span class="dashicons dashicons-search"></span>
             <?php _e('Scan Posts & Pages', 'seo-autofix-pro'); ?>
         </button>
+        <button id="titletag-scan-export-btn" class="button" style="display:none;">
+            <span class="dashicons dashicons-download"></span>
+            <?php _e('Export CSV', 'seo-autofix-pro'); ?>
+        </button>
         <select id="titletag-posttype-filter" class="titletag-posttype-select">
             <option value="all"><?php _e('All (Posts & Pages)', 'seo-autofix-pro'); ?></option>
             <option value="post"><?php _e('Posts Only', 'seo-autofix-pro'); ?></option>
@@ -96,19 +100,23 @@ if (!defined('ABSPATH')) {
             <div class="titletag-filter-cards">
                 <label class="titletag-filter-card" data-filter="missing">
                     <input type="radio" name="titletag-filter" value="missing">
-                    <span><?php _e('Missing Titles', 'seo-autofix-pro'); ?></span>
+                    <span class="titletag-filter-label"><?php _e('Missing Titles', 'seo-autofix-pro'); ?></span>
+                    <span class="titletag-filter-count"></span>
                 </label>
                 <label class="titletag-filter-card" data-filter="too_short">
                     <input type="radio" name="titletag-filter" value="too_short">
-                    <span><?php _e('Titles &lt; 30 chars', 'seo-autofix-pro'); ?></span>
+                    <span class="titletag-filter-label"><?php _e('Titles &lt; 30 chars', 'seo-autofix-pro'); ?></span>
+                    <span class="titletag-filter-count"></span>
                 </label>
                 <label class="titletag-filter-card" data-filter="too_long">
                     <input type="radio" name="titletag-filter" value="too_long">
-                    <span><?php _e('Titles &gt; 60 chars', 'seo-autofix-pro'); ?></span>
+                    <span class="titletag-filter-label"><?php _e('Titles &gt; 60 chars', 'seo-autofix-pro'); ?></span>
+                    <span class="titletag-filter-count"></span>
                 </label>
                 <label class="titletag-filter-card" data-filter="duplicate">
                     <input type="radio" name="titletag-filter" value="duplicate">
-                    <span><?php _e('Duplicate Titles', 'seo-autofix-pro'); ?></span>
+                    <span class="titletag-filter-label"><?php _e('Duplicate Titles', 'seo-autofix-pro'); ?></span>
+                    <span class="titletag-filter-count"></span>
                 </label>
             </div>
         </div>

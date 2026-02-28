@@ -737,3 +737,38 @@
     margin-right: 4px;
     vertical-align: middle;
 }
+
+/* ===== Filter Count Badge ===== */
+.titletag-filter-count {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 600;
+    color: #2271b1;
+    margin-left: auto;
+    background: #f0f6fc;
+    border: 1px solid #bad3ef;
+    border-radius: 10px;
+    padding: 1px 8px;
+    line-height: 1.6;
+    white-space: nowrap;
+}
+
+/* Dim cards when count is zero */
+.titletag-filter-card.titletag-filter-card-empty {
+    opacity: 0.5;
+}
+
+.titletag-filter-card.titletag-filter-card-empty .titletag-filter-count {
+    color: #646970;
+    background: #f0f0f1;
+    border-color: #ddd;
+}
+
+/* Make the label flex so the count badge sits on the right */
+.titletag-filter-card {
+    gap: 8px;
+}
+
+.titletag-filter-label {
+    flex: 1;
+}

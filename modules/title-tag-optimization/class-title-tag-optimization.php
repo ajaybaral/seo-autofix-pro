@@ -15,7 +15,7 @@ if (!defined('ABSPATH')) {
 class SEOAutoFix_Title_Tag_Optimization
 {
 
-    const VERSION = '1.0.0';
+    const VERSION = '1.0.1';
     const NONCE = 'titletag_nonce';
     const PAGE_SLUG = 'seoautofix-title-tags';
     const HOOK_SUFFIX = 'seo-autofix-pro_page_seoautofix-title-tags';
