@@ -568,8 +568,6 @@
         $applyBtn.prop('disabled', true).text('Applying\u2026');
         setRowStatus($row, '', '');
 
-        console.log('[SEOAutoFix] applySingle → sending:', { postId: postId, newTitle: newTitle, postUrl: postUrl });
-
         $.ajax({
             url: titleTagData.ajaxUrl,
             method: 'POST',
@@ -580,27 +578,17 @@
                 new_title: newTitle
             },
             success: function (res) {
-                console.log('[SEOAutoFix] applySingle ← response:', res);
                 if (res.success) {
-                    console.log('[SEOAutoFix] Apply SUCCESS — plugin:', res.data.detail && res.data.detail.plugin,
-                        '| old:', res.data.detail && res.data.detail.old_title,
-                        '| new:', res.data.detail && res.data.detail.new_title);
-
-                    // Immediately: green row BG + green 'Applied' button (no status box)
                     $row.addClass('titletag-row-green');
                     $applyBtn.addClass('titletag-apply-btn-applied').text('Applied').prop('disabled', true);
 
-                    // Record for CSV
                     $row.attr('data-old-title', newTitle);
                     TitleTag.appliedChanges.push({ post_id: postId, post_url: postUrl, old_title: oldTitle, new_title: newTitle });
                     updateUndoState();
 
-                    // After 3.5s: update current title + badge, clear suggestion, reset button
                     setTimeout(function () {
-                        // Update 'Current SEO Title' column
                         $row.find('.titletag-current-title-text').text(newTitle);
 
-                        // Update issue badge based on new title length
                         var newLen = newTitle.length;
                         var newIssue = newLen === 0 ? 'missing'
                             : newLen < 30 ? 'too_short'
@@ -608,26 +596,20 @@
                                     : 'ok';
                         $row.find('.titletag-issue-badge-wrap').html(buildIssueBadge(newIssue));
 
-                        // Clear AI suggestion field and keyword
                         $row.find('.titletag-suggested-editable').text('').removeClass('has-suggestion');
                         $row.find('.titletag-char-count').text('0').removeClass('chars-ok chars-short chars-long');
                         $row.find('.titletag-primary-keyword').text('').hide();
 
-                        // Revert button to 'Apply' + disabled (until next Generate)
                         $applyBtn.removeClass('titletag-apply-btn-applied').text('Apply').prop('disabled', true);
-
-                        // Fade out green BG
                         $row.removeClass('titletag-row-green');
                     }, 3500);
 
                 } else {
-                    console.warn('[SEOAutoFix] Apply FAILED:', res.data && res.data.message);
                     setRowStatus($row, res.data.message, 'error');
                     $applyBtn.text('Apply').prop('disabled', false);
                 }
             },
-            error: function (xhr, status, err) {
-                console.error('[SEOAutoFix] Apply AJAX error:', status, err, xhr.responseText);
+            error: function () {
                 setRowStatus($row, 'Request failed.', 'error');
                 $applyBtn.text('Apply').prop('disabled', false);
             }
