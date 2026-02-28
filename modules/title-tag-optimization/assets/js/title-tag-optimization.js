@@ -595,6 +595,7 @@
                                 : newLen > 60 ? 'too_long'
                                     : 'ok';
                         $row.find('.titletag-issue-badge-wrap').html(buildIssueBadge(newIssue));
+                        $row.find('.titletag-current-char-count').text(newLen + ' chars');
 
                         $row.find('.titletag-suggested-editable').text('').removeClass('has-suggestion');
                         $row.find('.titletag-char-count').text('0').removeClass('chars-ok chars-short chars-long');
@@ -764,6 +765,7 @@
                         // Green row flash for bulk too
                         $row.addClass('titletag-row-green');
                         $row.find('.titletag-current-title-text').text(c.new_title);
+                        $row.find('.titletag-current-char-count').text(c.new_title.length + ' chars');
                         $row.find('.titletag-suggested-editable').text('').removeClass('has-suggestion');
                         $row.find('.titletag-char-count').text('0').removeClass('chars-ok chars-short chars-long');
                         $row.find('.titletag-apply-btn').prop('disabled', true).text('Apply');
