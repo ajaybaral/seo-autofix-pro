@@ -622,30 +622,40 @@
             },
             success: function (res) {
                 if (res.success) {
+                    // --- Step 1: Green flash animation ---
                     $row.addClass('metadesc-row-green');
                     $applyBtn.addClass('metadesc-apply-btn-applied').text('Applied').prop('disabled', true);
-
                     $row.attr('data-old-description', newDescription);
+
+                    // Compute new issue type immediately
+                    var newIssue = getIssueType(newDescription);
+
+                    // Update the in-memory data arrays right away
+                    updateRowIssueInData(postId, newDescription, newIssue);
+
+                    // Update the visible badge & description text inside the row during the flash
+                    $row.find('.metadesc-current-description-text').text(newDescription);
+                    $row.find('.metadesc-issue-badge-wrap').html(buildIssueBadge(newIssue));
+                    $row.find('.metadesc-current-char-count').text(newDescription.length + ' chars');
+
+                    // Update filter count badges immediately so numbers are live
+                    updateFilterCounts();
+                    recalcStats();
+
                     MetaDesc.appliedChanges.push({ post_id: postId, post_url: postUrl, old_description: oldDescription, new_description: newDescription });
                     updateUndoState();
 
+                    // --- Step 2: After animation ends, migrate row to correct filter ---
                     setTimeout(function () {
-                        $row.find('.metadesc-current-description-text').text(newDescription);
-
-                        var newLen = newDescription.length;
-                        var newIssue = newLen === 0 ? 'missing'
-                            : newLen < 60 ? 'too_short'
-                                : newLen > 120 ? 'too_long'
-                                    : 'ok';
-                        $row.find('.metadesc-issue-badge-wrap').html(buildIssueBadge(newIssue));
-                        $row.find('.metadesc-current-char-count').text(newLen + ' chars');
-
+                        // Clear the suggestion area
                         $row.find('.metadesc-suggested-editable').text('').removeClass('has-suggestion');
                         $row.find('.metadesc-char-count').text('0').removeClass('chars-ok chars-short chars-long');
                         $row.find('.metadesc-primary-keyword').text('').hide();
-
                         $applyBtn.removeClass('metadesc-apply-btn-applied').text('Apply').prop('disabled', true);
                         $row.removeClass('metadesc-row-green');
+
+                        // Migrate the row out of the current filter if it no longer belongs
+                        migrateRowAfterApply($row, postId, newIssue);
                     }, 3500);
 
                 } else {
@@ -658,6 +668,68 @@
                 $applyBtn.text('Apply').prop('disabled', false);
             }
         });
+    }
+
+    /* =========================================================
+     * Issue Type Helpers
+     * ========================================================= */
+
+    /** Compute the issue type string from a meta description value */
+    function getIssueType(description) {
+        var len = (description || '').length;
+        if (len === 0) { return 'missing'; }
+        if (len < 60) { return 'too_short'; }
+        if (len > 120) { return 'too_long'; }
+        return 'ok';
+    }
+
+    /**
+     * Update rendered_description and issue_type in all three data arrays
+     * for a given post_id after a successful apply.
+     */
+    function updateRowIssueInData(postId, newDescription, newIssue) {
+        function patchRow(r) {
+            if (r.post_id === postId) {
+                r.rendered_description = newDescription;
+                r.issue_type = newIssue;
+            }
+        }
+        MetaDesc.allRows.forEach(patchRow);
+        MetaDesc.typeFilteredRows.forEach(patchRow);
+        MetaDesc.visibleRows.forEach(patchRow);
+    }
+
+    /**
+     * After the green flash animation, check whether the row still belongs
+     * in the current active filter. If not, animate it out and re-render.
+     */
+    function migrateRowAfterApply($row, postId, newIssue) {
+        var activeFilter = MetaDesc.activeFilter;
+
+        // If no filter is active, or the new issue still matches the filter,
+        // just leave the row in place (it now has the correct badge already).
+        if (!activeFilter || activeFilter === newIssue) {
+            return;
+        }
+
+        // The row no longer belongs in the current filter view.
+        // Animate it out with a slide-up + fade.
+        $row.addClass('metadesc-row-migrating-out');
+
+        setTimeout(function () {
+            // Remove from visibleRows (the current filter's displayed list)
+            MetaDesc.visibleRows = MetaDesc.visibleRows.filter(function (r) {
+                return r.post_id !== postId;
+            });
+
+            // Fix page if now over-filled
+            if (MetaDesc.currentPage > totalPages()) {
+                MetaDesc.currentPage = Math.max(1, totalPages());
+            }
+
+            // Re-render the table and pagination
+            renderCurrentPage();
+        }, 450); // matches CSS transition duration
     }
 
 
@@ -808,16 +880,35 @@
                     changes.forEach(function (c) {
                         var $row = $('#metadesc-tbody .metadesc-row[data-post-id="' + c.post_id + '"]');
                         if (!$row.length) { return; }
-                        // Green row flash for bulk too
+
+                        var newIssue = getIssueType(c.new_description);
+
+                        // Update in-memory data arrays
+                        updateRowIssueInData(c.post_id, c.new_description, newIssue);
+
+                        // Green row flash + immediate badge/description update
                         $row.addClass('metadesc-row-green');
                         $row.find('.metadesc-current-description-text').text(c.new_description);
+                        $row.find('.metadesc-issue-badge-wrap').html(buildIssueBadge(newIssue));
                         $row.find('.metadesc-current-char-count').text(c.new_description.length + ' chars');
                         $row.find('.metadesc-suggested-editable').text('').removeClass('has-suggestion');
                         $row.find('.metadesc-char-count').text('0').removeClass('chars-ok chars-short chars-long');
                         $row.find('.metadesc-apply-btn').prop('disabled', true).text('Apply');
-                        setTimeout(function () { $row.removeClass('metadesc-row-green'); }, 3500);
+
                         MetaDesc.appliedChanges.push({ post_id: c.post_id, post_url: c.post_url, old_description: c.old_description, new_description: c.new_description });
+
+                        // Migrate row out after animation
+                        (function ($r, pid, issue) {
+                            setTimeout(function () {
+                                $r.removeClass('metadesc-row-green');
+                                migrateRowAfterApply($r, pid, issue);
+                            }, 3500);
+                        })($row, c.post_id, newIssue);
                     });
+
+                    // Refresh counts immediately after all updates
+                    updateFilterCounts();
+                    recalcStats();
 
                     updateUndoState();
                 } else {
@@ -894,9 +985,9 @@
         }
 
         var issueLabels = {
-            missing:   'Missing Description',
+            missing: 'Missing Description',
             too_short: 'Description Too Short (< 60 chars)',
-            too_long:  'Description Too Long (> 120 chars)',
+            too_long: 'Description Too Long (> 120 chars)',
             duplicate: 'Duplicate Description'
         };
 
@@ -905,8 +996,8 @@
         lines.push(csvRow(['Page Name', 'Page URL', 'Issue', 'Current Description']));
         issueRows.forEach(function (r) {
             lines.push(csvRow([
-                r.post_title  || '',
-                r.post_url    || '',
+                r.post_title || '',
+                r.post_url || '',
                 issueLabels[r.issue_type] || r.issue_type,
                 r.rendered_description || ''
             ]));
@@ -914,7 +1005,7 @@
 
         var csvContent = lines.join('\r\n');
         var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        var url  = URL.createObjectURL(blob);
+        var url = URL.createObjectURL(blob);
         var filename = 'metadesc-issues-' + new Date().toISOString().slice(0, 10) + '.csv';
 
         var $a = $('<a>')

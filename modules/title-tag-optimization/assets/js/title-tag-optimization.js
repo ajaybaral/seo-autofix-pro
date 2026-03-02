@@ -622,30 +622,40 @@
             },
             success: function (res) {
                 if (res.success) {
+                    // --- Step 1: Green flash animation ---
                     $row.addClass('titletag-row-green');
                     $applyBtn.addClass('titletag-apply-btn-applied').text('Applied').prop('disabled', true);
-
                     $row.attr('data-old-title', newTitle);
+
+                    // Compute new issue type immediately
+                    var newIssue = getIssueType(newTitle);
+
+                    // Update the in-memory data arrays right away
+                    updateRowIssueInData(postId, newTitle, newIssue);
+
+                    // Update the visible badge & title text inside the row during the flash
+                    $row.find('.titletag-current-title-text').text(newTitle);
+                    $row.find('.titletag-issue-badge-wrap').html(buildIssueBadge(newIssue));
+                    $row.find('.titletag-current-char-count').text(newTitle.length + ' chars');
+
+                    // Update filter count badges immediately so numbers are live
+                    updateFilterCounts();
+                    recalcStats();
+
                     TitleTag.appliedChanges.push({ post_id: postId, post_url: postUrl, old_title: oldTitle, new_title: newTitle });
                     updateUndoState();
 
+                    // --- Step 2: After animation ends, migrate row to correct filter ---
                     setTimeout(function () {
-                        $row.find('.titletag-current-title-text').text(newTitle);
-
-                        var newLen = newTitle.length;
-                        var newIssue = newLen === 0 ? 'missing'
-                            : newLen < 30 ? 'too_short'
-                                : newLen > 60 ? 'too_long'
-                                    : 'ok';
-                        $row.find('.titletag-issue-badge-wrap').html(buildIssueBadge(newIssue));
-                        $row.find('.titletag-current-char-count').text(newLen + ' chars');
-
+                        // Clear the suggestion area
                         $row.find('.titletag-suggested-editable').text('').removeClass('has-suggestion');
                         $row.find('.titletag-char-count').text('0').removeClass('chars-ok chars-short chars-long');
                         $row.find('.titletag-primary-keyword').text('').hide();
-
                         $applyBtn.removeClass('titletag-apply-btn-applied').text('Apply').prop('disabled', true);
                         $row.removeClass('titletag-row-green');
+
+                        // Migrate the row out of the current filter if it no longer belongs
+                        migrateRowAfterApply($row, postId, newIssue);
                     }, 3500);
 
                 } else {
@@ -658,6 +668,68 @@
                 $applyBtn.text('Apply').prop('disabled', false);
             }
         });
+    }
+
+    /* =========================================================
+     * Issue Type Helpers
+     * ========================================================= */
+
+    /** Compute the issue type string from a title value */
+    function getIssueType(title) {
+        var len = (title || '').length;
+        if (len === 0) { return 'missing'; }
+        if (len < 30) { return 'too_short'; }
+        if (len > 60) { return 'too_long'; }
+        return 'ok';
+    }
+
+    /**
+     * Update rendered_title and issue_type in all three data arrays
+     * for a given post_id after a successful apply.
+     */
+    function updateRowIssueInData(postId, newTitle, newIssue) {
+        function patchRow(r) {
+            if (r.post_id === postId) {
+                r.rendered_title = newTitle;
+                r.issue_type = newIssue;
+            }
+        }
+        TitleTag.allRows.forEach(patchRow);
+        TitleTag.typeFilteredRows.forEach(patchRow);
+        TitleTag.visibleRows.forEach(patchRow);
+    }
+
+    /**
+     * After the green flash animation, check whether the row still belongs
+     * in the current active filter. If not, animate it out and re-render.
+     */
+    function migrateRowAfterApply($row, postId, newIssue) {
+        var activeFilter = TitleTag.activeFilter;
+
+        // If no filter is active, or the new issue still matches the filter,
+        // just leave the row in place (it now has the correct badge already).
+        if (!activeFilter || activeFilter === newIssue) {
+            return;
+        }
+
+        // The row no longer belongs in the current filter view.
+        // Animate it out with a slide-up + fade.
+        $row.addClass('titletag-row-migrating-out');
+
+        setTimeout(function () {
+            // Remove from visibleRows (the current filter's displayed list)
+            TitleTag.visibleRows = TitleTag.visibleRows.filter(function (r) {
+                return r.post_id !== postId;
+            });
+
+            // Fix page if now over-filled
+            if (TitleTag.currentPage > totalPages()) {
+                TitleTag.currentPage = Math.max(1, totalPages());
+            }
+
+            // Re-render the table and pagination
+            renderCurrentPage();
+        }, 450); // matches CSS transition duration
     }
 
 
@@ -808,16 +880,35 @@
                     changes.forEach(function (c) {
                         var $row = $('#titletag-tbody .titletag-row[data-post-id="' + c.post_id + '"]');
                         if (!$row.length) { return; }
-                        // Green row flash for bulk too
+
+                        var newIssue = getIssueType(c.new_title);
+
+                        // Update in-memory data arrays
+                        updateRowIssueInData(c.post_id, c.new_title, newIssue);
+
+                        // Green row flash + immediate badge/title update
                         $row.addClass('titletag-row-green');
                         $row.find('.titletag-current-title-text').text(c.new_title);
+                        $row.find('.titletag-issue-badge-wrap').html(buildIssueBadge(newIssue));
                         $row.find('.titletag-current-char-count').text(c.new_title.length + ' chars');
                         $row.find('.titletag-suggested-editable').text('').removeClass('has-suggestion');
                         $row.find('.titletag-char-count').text('0').removeClass('chars-ok chars-short chars-long');
                         $row.find('.titletag-apply-btn').prop('disabled', true).text('Apply');
-                        setTimeout(function () { $row.removeClass('titletag-row-green'); }, 3500);
+
                         TitleTag.appliedChanges.push({ post_id: c.post_id, post_url: c.post_url, old_title: c.old_title, new_title: c.new_title });
+
+                        // Migrate row out after animation
+                        (function ($r, pid, issue) {
+                            setTimeout(function () {
+                                $r.removeClass('titletag-row-green');
+                                migrateRowAfterApply($r, pid, issue);
+                            }, 3500);
+                        })($row, c.post_id, newIssue);
                     });
+
+                    // Refresh counts immediately after all updates
+                    updateFilterCounts();
+                    recalcStats();
 
                     updateUndoState();
                 } else {
@@ -894,9 +985,9 @@
         }
 
         var issueLabels = {
-            missing:   'Missing Title',
+            missing: 'Missing Title',
             too_short: 'Title Too Short (< 30 chars)',
-            too_long:  'Title Too Long (> 60 chars)',
+            too_long: 'Title Too Long (> 60 chars)',
             duplicate: 'Duplicate Title'
         };
 
@@ -905,8 +996,8 @@
         lines.push(csvRow(['Page Name', 'Page URL', 'Issue', 'Current Title']));
         issueRows.forEach(function (r) {
             lines.push(csvRow([
-                r.post_title  || '',
-                r.post_url    || '',
+                r.post_title || '',
+                r.post_url || '',
                 issueLabels[r.issue_type] || r.issue_type,
                 r.rendered_title || ''
             ]));
@@ -914,7 +1005,7 @@
 
         var csvContent = lines.join('\r\n');
         var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        var url  = URL.createObjectURL(blob);
+        var url = URL.createObjectURL(blob);
         var filename = 'titletag-issues-' + new Date().toISOString().slice(0, 10) + '.csv';
 
         var $a = $('<a>')
