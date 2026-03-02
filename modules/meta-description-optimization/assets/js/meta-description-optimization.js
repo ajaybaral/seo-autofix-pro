@@ -267,7 +267,7 @@
         MetaDesc.activeFilter = filter;
         MetaDesc.appliedChanges = [];
         MetaDesc.currentPage = 1;
-        $('#metadesc-export-csv-btn').hide();
+        updateUndoState(); // sync both Undo button and Export CSV button
 
         if (filter === '') {
             MetaDesc.visibleRows = MetaDesc.typeFilteredRows.slice();
@@ -947,11 +947,14 @@
                     .prop('disabled', false)
                     .html('<span class="dashicons dashicons-download"></span> Export Changes in CSV');
                 if (res.success) {
-                    // Use a hidden anchor with the download attribute so the
-                    // browser triggers a file download instead of navigating.
+                    // Extract filename from the URL and set it explicitly so the
+                    // browser saves as .csv regardless of server content-type.
+                    var dlUrl = res.data.download_url;
+                    var dlName = dlUrl.split('/').pop().split('?')[0] || 'metadesc-changes.csv';
+                    if (dlName.slice(-4).toLowerCase() !== '.csv') { dlName += '.csv'; }
                     var $a = $('<a>')
-                        .attr('href', res.data.download_url)
-                        .attr('download', '')
+                        .attr('href', dlUrl)
+                        .attr('download', dlName)
                         .css('display', 'none');
                     $('body').append($a);
                     $a[0].click();
